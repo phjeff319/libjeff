@@ -3,6 +3,13 @@ g++ -O3 -w ./generator.cpp -o generator.x
 
 cpu=`less /proc/cpuinfo | grep "Raspberry" | wc -l`
 
+if [! -d "../src"]; then
+    mkdir ../src
+fi
+if [! -f "../include"]; then
+    mkdir ../include
+fi
+
 if [ $cpu -ge "1" ]; then
     echo "libjeff robotics branch."
     ./generator.x libjeff.index cpu+robotics
