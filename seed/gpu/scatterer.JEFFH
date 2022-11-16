@@ -1,0 +1,28 @@
+#include<cuda.h>
+#include"grid_data_field.h"
+
+#ifndef SCATTERER
+#define SCATTERER
+using namespace libjeff;
+class scatterer{
+ public:
+  scatterer();
+  ~scatterer();
+  virtual int host2device() = 0;
+  virtual int add_cross_section(double *frequency,int nfre,double *sigma) = 0;
+
+  void create(int num_data_field);
+  void destroy();
+
+  inline grid_data_field *get_data_field(int field_index) const {return data_field+field_index;}
+  virtual void init() = 0;
+  virtual void init(char *parm_file) = 0;
+
+  virtual int set_data_field_index(char *fieldname,int in) = 0;
+  virtual int get_data_field_index(char *fieldname) const = 0;
+
+ protected:
+  int num_data_field;
+  grid_data_field* data_field;
+};
+#endif

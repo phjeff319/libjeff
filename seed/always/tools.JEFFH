@@ -1,0 +1,99 @@
+#ifndef Tools
+#define Tools
+#include<fstream>
+#include<ctime>
+###SCIENTIFIC####include"hrit_header.h"
+###EXTERNAL####include"file_handler.h"
+using namespace std;
+bool check_data_error(double);
+int check_num_tag_in_string(char *to_check,char *tag);
+void error_handler(int, char*);
+bool is_little_endian();
+bool is_all_digit(char* to_check);
+bool is_all_digit(char* to_check,int stindex,int endindex);
+bool is_number(char *to_check);
+bool is_nan(double to_check);
+bool check_correct_endian(char *endian);
+void reverse_endian(int* to_reverse);
+void reverse_endian(unsigned short* to_reverse);
+void reverse_endian(float* to_reverse);
+void reverse_endian(double* to_reverse);
+void reverse_endian(short* to_reverse);
+void reverse_endian(uint32_t* to_reverse);
+void reverse_endian(uint64_t* to_reverse);
+void reverse_endian(char* to_reverse,int num_byte);
+
+###SCIENTIFIC###void reverse_endian(hrit_header_common *in);
+###SCIENTIFIC###void reverse_endian(hrit_pri_header *in);
+###SCIENTIFIC###void reverse_endian(hrit_image_struct_header *in);
+###SCIENTIFIC###void reverse_endian(hrit_image_navigation_header *in);
+###SCIENTIFIC###void reverse_endian(hrit_image_data_function_header *in);
+###SCIENTIFIC###void reverse_endian(hrit_annotation_header *in);
+###SCIENTIFIC###void reverse_endian(hrit_time_stamp_header *in);
+###SCIENTIFIC###void reverse_endian(hrit_ancillary_text_header *in);
+###SCIENTIFIC###void reverse_endian(hrit_image_segment_id_header *in);
+###SCIENTIFIC###void reverse_endian(hrit_image_compression_header *in);
+###SCIENTIFIC###void reverse_endian(hrit_image_observation_time_header *in);
+###SCIENTIFIC###void reverse_endian(hrit_image_quality_info_header *in);
+
+void reorder_from_nhm(int nx,int ny,double *array);
+void reorder_from_nhm(int nx,int ny,float *array);
+void reorder_to_nhm(int nx,int ny,double *array);
+void reorder_to_nhm(int nx,int ny,float *array);
+int reorder(int ndim,double *in,double *out,int *dim,int *ordering);
+int reorder(int ndim,float *in,float *out,int *dim,int *ordering);
+int reorder(int ndim,int *in,int *out,int *dim,int *ordering);
+// ordering tells the order of the output array. 0 is the fastest dimension
+// order[0] = 4 means changing the fastest dimension to the 5th fastest
+void read_fortran_binary_line(ifstream &file,int numbyte,char *line);
+void read_fortran_binary_line(ifstream &file,int nrecord,int *toread);
+void read_fortran_binary_line(ifstream &file,int nrecord,float *toread);
+void read_fortran_binary_line(ifstream &file,int nrecord,double *toread);
+void read_fortran_binary_line(ifstream &file,int nrecord,int *toread,char *endian);
+void read_fortran_binary_line(ifstream &file,int nrecord,float *toread,char *endian);
+void read_fortran_binary_line(ifstream &file,int nrecord,double *toread,char *endian);
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file,int numbyte,char *line);
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file,int nrecord,int *toread);
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file,int nrecord,float *toread);
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file,int nrecord,double *toread);
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file,int nrecord,int *toread,char *endian);
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file,int nrecord,float *toread,char *endian);
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file,int nrecord,double *toread,char *endian);
+double **transpose(int dimen1,int dimen2, double **&matrix);
+void write_fortran_binary(ofstream &file,int numbyte,char* record);
+void write_fortran_binary(ofstream &file,int nrecord,int* record);
+void write_fortran_binary(ofstream &file,int nrecord,float* record);
+void write_fortran_binary(ofstream &file,int nrecord,double* record);
+void write_fortran_binary(ofstream &file,int nrecord,int* record,char *endian);
+void write_fortran_binary(ofstream &file,int nrecord,float* record,char *endian);
+void write_fortran_binary(ofstream &file,int nrecord,double* record,char *endian);
+double cal_sec_between(clock_t time1,clock_t time2);
+###SCIENTIFIC### void operate_within(int nx,int ny,int ndim,double *x,double *y,double *in_grid,int *&operate_map,int nside,double **vertices,double (*operate)(int nx,int ny,int ndim,int ix,int iy,int idim,int *operate_map,double *data));
+
+double neighbour_averaging(int nx,int ny,int ndim,int ix,int iy,int idim,int *operate_map,double *data);
+
+char *remove_quote(char *in);
+char *remove_quote(const char *in,char* &out);
+char *remove_suffix(char *in,char *suffix);
+
+char *get_filename(char *pathfile,char *out);
+char *get_path(char *pathfile,char *out);
+
+int max(int ndim,int *in);
+int getMoney(char *in);
+namespace libjeff{
+  void print_OK();
+  void print_FAILED();
+  void print_NOTOK();
+  void print_NA();
+  void print_OK(int space);
+  void print_FAILED(int space);
+  void print_NOTOK(int space);
+  void print_NA(int space);
+}
+
+###CUDA### void print_GPU_memory_status();
+/*
+double interpolate_within(int nx,int ny,int ndim,int ix,int iy,int idim,int *operate_map,double *data);
+*/
+#endif

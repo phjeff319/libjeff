@@ -1,0 +1,60 @@
+#include<cstddef>
+#include<cuda.h>
+#include<iostream>
+
+#include "wavelet_grid.h"
+
+namespace libjeff{
+  wavelet_grid::wavelet_grid(){
+    ndim=0;
+    ngrid=0;
+    nallocated=0;
+    n_data_dim=0;
+  }
+  wavelet_grid::~wavelet_grid(){
+    this->destroy_gpu();
+    this->destroy();
+  }
+    
+  int wavelet_grid::create(int ndim,size_t nallocated,int n_data_dim){
+    this->destroy();
+    
+    if(ndim > 0 && nallocated > 0 && n_data_dim > 0){
+      nallocated = pow(2,(int) ceil(log(nallocated)/log(2.)));
+
+      std::cout << "Allocated size: " << nallocated << std::endl;
+      
+      this->ngrid = 0;
+      this->ndim = ndim;
+      this->nallocated = nallocated;
+      this->n_data_dim = n_data_dim;
+
+      location = new double [ndim*nallocated];
+      reference = new size_t [nallocated];
+      data = new double [n_data_dim*nallocated];
+    
+      this->create_gpu();
+    }
+  }
+  int wavelet_grid::create_gpu(){ //this whole grid assume you can put everything on GPU because it is adpative
+    cudaMalloc(&d_location,ndim*nallocated*sizeof(double));
+    cudaMalloc(&d_reference,nallocated*sizeof(size_t));
+    cudaMalloc(&d_data,n_data_dim*nallocated*sizeof(double));
+  }
+
+  void wavelet_grid::destroy(){
+    if(this->ndim > 0 && this->nallocated > 0 && this->n_data_dim > 0){
+      this->destroy_gpu();
+
+      delete [] location;
+      delete [] reference;
+      delete [] data;
+    }
+  }
+  void wavelet_grid::destroy_gpu(){
+    cudaFree(d_location);
+    cudaFree(d_reference);
+    cudaFree(d_data);
+  }
+
+}

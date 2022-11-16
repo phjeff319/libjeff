@@ -1,0 +1,441 @@
+#include<iostream>
+#include<cstring>
+###CUDA####include<cuda.h>
+using namespace std;
+
+#include"grid_data.h"
+//#include"jma_geos_grid.h"
+
+#include"regular_grid.h"
+//#include"mercator_grid.h"
+#include"geos_grid.h"
+#include"lambertConN_grid.h"
+#include"mapTo2DGrid.h"
+
+#include"error_code.h"
+#include"file_check.h"
+#include"file_handler.h"
+#include"grid_codes.h"
+//#include"hrit_header.h"
+#include"tools.h"
+
+using namespace libjeff;
+###CPP### ###CUDA### ###HOST### grid_data::grid_data(){
+  nx = 0;
+  ny = 0;
+  nz = 0;
+  ndim = 0;
+  isxperiodic = false;
+  isyperiodic = false;
+  iszperiodic = false;
+  ###CUDA###
+  ###CUDA### d_nx = 0;
+  ###CUDA### d_ny = 0;
+  ###CUDA### d_nz = 0;
+  ###CUDA### d_ndim = 0;
+}
+
+###CPP### ###CUDA### ###HOST### grid_data::grid_data(int nx,int ny,int nz,int ndim){
+  nx = 0;
+  ny = 0;
+  nz = 0;
+  ndim = 0;
+  isxperiodic = false;
+  isyperiodic = false;
+  iszperiodic = false;
+  
+  ###CUDA### d_nx = 0;
+  ###CUDA### d_ny = 0;
+  ###CUDA### d_nz = 0;
+  ###CUDA### d_ndim = 0;
+  this->create(nx, ny, nz, ndim);
+}
+
+###CPP### ###CUDA### ###HOST### grid_data::~grid_data(){
+  this->destroy();
+}
+
+###CPP### ###CUDA### ###HOST### void grid_data::create(int nx,int ny,int nz,int ndim){
+  this->destroy();
+  
+  if(nx > 0 && ny > 0 && nz > 0 && ndim > 0){
+    this->nx = nx;
+    this->ny = ny;
+    this->nz = nz;
+    this->ndim = ndim;
+    
+    this->grid1D = new double [nx*ny*nz*ndim];
+  }
+}
+
+###CUDA### ###HOST### void grid_data::create_gpu(int in_nx,int in_ny,int in_nz,int in_ndim){
+  this->destroy_gpu();
+  
+  if(in_nx > 0 && in_ny > 0 && in_nz > 0 && in_ndim > 0){
+    d_nx = in_nx;
+    d_ny = in_ny;
+    d_nz = in_nz;
+    d_ndim = in_ndim;
+    
+    cudaMalloc(&d_grid1D,d_nx*d_ny*d_nz*d_ndim*sizeof(double));
+  }
+}
+###CPP### ###CUDA### ###HOST### void grid_data::destroy(){
+  ###CUDA### this->destroy_gpu();
+//cout << "grid_data destructor called" << endl;
+  if(nx > 0 && ny > 0 && nz > 0){
+    //cout << "destroying allocated memory" << endl;
+    delete [] grid1D;
+    delete [] x;
+    delete [] y;
+    delete [] z;
+  }
+  
+  nx = 0;
+  ny = 0;
+  nz = 0;
+  ndim = 0;
+}
+
+###CUDA### ###HOST### void grid_data::destroy_gpu(){
+  if(d_nx > 0 && d_ny > 0 && d_nz > 0){
+    cudaFree(d_x);
+    cudaFree(d_y);
+    cudaFree(d_z);
+    cudaFree(d_grid1D);
+  }
+  d_nx = 0;
+  d_ny = 0;
+  d_nz = 0;
+  d_ndim = 0;
+}
+
+###CPP### ###CUDA### ###HOST### double *grid_data::get_data(int index,double *work) const{
+  int i;
+  
+  for(i=0;i<ndim;i++){
+    work[i] = this->grid1D[index*ndim + i];
+  }
+  
+  return work;
+}
+
+###CPP### ###CUDA### ###HOST### void grid_data::set_data(double* indata){
+  int i;
+  for(i=0;i<this->nx*this->ny*this->nz*this->ndim;i++){
+    grid1D[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void grid_data::set_data(float* indata){
+  int i;
+  for(i=0;i<this->nx*this->ny*this->nz*this->ndim;i++){
+    grid1D[i] = indata[i];
+  }
+}
+/*
+###CUDA### ###HOST### int grid_data::multiple_linear_interpolate_from(const grid_data* in){
+  
+  int nbatch_x,nbatch_y;
+  determine_nbatchxy(nbatch_x,nbatch_y,nx*ny*nz*ndim*8);
+  
+  int i,j;
+  create_gpu(nx/nbatch_x,ny/nbatch_y,nz,ndim);
+  for(i=0;i<nx;i+=nx/nbatch_x){
+    for(j=0;j<ny;j+=ny/nbatch_y){
+      host2device(i,i+nbatch_x-1,j,j+nbatch_y-1,0,nz-1,0,ndim-1);
+      
+      device2host(i,i+nbatch_x-1,j,j+nbatch_y-1,0,nz-1,0,ndim-1);
+    }
+  }
+  
+  return 0;
+}
+*/
+###CPP### ###CUDA### ###HOST### int grid_data::multiple_linear_interpolate_from(const grid_data* in){
+  if(this->ndim != in->get_ndim()){
+    cout << "Error! The number of dimension of the two grid data do not match." << endl;
+    return _ERRORCODE_INPUTINCONSISTENCE;
+  }
+  
+  int i,j,k,m;
+  double *temp = new double [this->ndim];
+  
+  for(i=0;i<nx;i++){
+    for(j=0;j<ny;j++){
+      for(k=0;k<nz;k++){
+	//std::cout << i << " " << j << " " << k << endl;
+	//std::cout << this->get_x(i,j,k) << " " << this->get_y(i,j,k) << " " << this->get_z(i,j,k) << endl;
+	temp = in->multiple_linear_interpolate(this->get_x(i,j,k),this->get_y(i,j,k),this->get_z(i,j,k),temp);
+	for(m=0;m<this->get_ndim();m++){
+	  this->get_data(i,j,k)[m] = temp[m];
+	}
+      }
+    }
+  }
+  
+  delete [] temp;
+  return _ERRORCODE_NOERROR;
+}
+###CUDA### ###HOST### int grid_data::determine_nbatchxy(int& nbatch_x,int& nbatch_y,double total_memsize){
+  return libjeff::determine_nbatchxy(nbatch_x,nbatch_y,this->get_nx(),this->get_ny(),0,0,total_memsize);
+}
+
+###CPP### ###CUDA### ###HOST### void grid_data::set_x(int index,double value){
+  x[index] = value;
+}
+###CPP### ###CUDA### ###HOST### void grid_data::set_y(int index,double value){
+  y[index] = value;
+}
+###CPP### ###CUDA### ###HOST### void grid_data::set_z(int index,double value){
+  z[index] = value;
+}
+
+###CPP### ###CUDA### ###HOST### int grid_data::count_num_data_with_metric(int dim_index,bool (*metric)(double in)){
+  int i,j,k;
+  int result = 0;
+  for(i=0;i<this->get_nx();i++){
+    for(j=0;j<this->get_ny();j++){
+      for(k=0;k<this->get_nz();k++){
+	if((*metric)((this->get_data(i,j,k))[dim_index])){
+	  result++;
+	}
+      }
+    }
+  }
+  return result;
+}
+###CPP### ###CUDA### ###HOST### double grid_data::count_data_ratio_with_metric(int dim_index,bool (*metric)(double in)){
+  return ((double) this->count_num_data_with_metric(dim_index,metric))/((double) this->get_ngrid());
+}
+###CPP### ###CUDA### ###HOST### int* grid_data::count_num_data_with_metric(int dim_index,bool* (*metric)(double in,int ntest,bool* out),int ntest,int *out){
+  int i,j,k,m;
+  for(m=0;m<ntest;m++){
+    out[m] = 0;
+  }
+  bool *results = new bool [ntest];
+  for(i=0;i<this->get_nx();i++){
+    for(j=0;j<this->get_ny();j++){
+      for(k=0;k<this->get_nz();k++){
+	(*metric)((this->get_data(i,j,k))[dim_index],ntest,results);
+	for(m=0;m<ntest;m++){
+	  if(results[m]){
+	    out[m]++;
+	  }
+	}
+      }
+    }
+  }
+  delete [] results;
+  return out;
+}
+###CPP### ###CUDA### ###HOST### double* grid_data::count_data_ratio_with_metric(int dim_index,bool* (*metric)(double in,int ntest,bool* out),int ntest,double *out){
+  int *results = new int [ntest];
+  this->count_num_data_with_metric(dim_index,metric,ntest,results);
+  int m;
+  for(m=0;m<ntest;m++){
+    out[m] = ((double) results[m])/((double) this->get_ngrid());
+  }
+  delete [] results;
+  return out;
+}
+
+###CPP### ###CUDA### ###HOST### void grid_data::set_x_period(double in){
+  this->set_x_periodic();
+  x_period = in;
+}
+###CPP### ###CUDA### ###HOST### void grid_data::set_y_period(double in){
+  this->set_y_periodic();
+  y_period = in;
+}
+###CPP### ###CUDA### ###HOST### void grid_data::set_z_period(double in){
+  this->set_z_periodic(); 
+  z_period = in;
+}
+/*
+###CPP### ###HOST### grid_data* grid_data::read_hrit_data(char *filename){
+  hrit_pri_header primary_hdr;
+  hrit_image_struct_header image_struct_hdr;
+  hrit_image_navigation_header image_navigation_hdr;
+  
+  if(!file_check_exist(filename)){
+    cout << "Error! File " << filename << " does not exist or empty" << endl;
+    return NULL;
+  }
+  
+  file_handler *file;
+  if(strstr(filename,".bz2")!=NULL){
+    file = new bz_file;
+  }
+  else{
+    file = new standard_file;
+  }
+  
+  int num_byte_read = 0;
+  
+  file->open(filename);
+  if(file->get_error() != BZ_OK){
+    cout << "Error with bz_open in grid_data" << endl;
+    return NULL;
+  }
+  file->read((char*) &primary_hdr,sizeof(hrit_pri_header));
+  reverse_endian(&primary_hdr);
+  if(primary_hdr.header_type != 0 || primary_hdr.header_length != 16){
+    cout << "Error! Invalid primary header read from " << filename << endl;
+    return NULL;
+  }
+  num_byte_read += sizeof(hrit_pri_header);
+  
+  file->read((char*) &image_struct_hdr,sizeof(hrit_image_struct_header));
+  num_byte_read += sizeof(hrit_image_struct_header);
+  
+  file->read((char*) &image_navigation_hdr,sizeof(hrit_image_navigation_header));
+  num_byte_read += sizeof(hrit_image_navigation_header);
+  
+  file->close();
+  if(file->get_error() != BZ_OK){
+    cout << "Error with bz_close" << endl;
+    return NULL;
+  }
+  
+  delete file;
+  
+  char *buff = new char [4096];
+  strcpy(buff,image_navigation_hdr.projection);
+  *strstr(buff,"(")='\0';
+  grid_data* temp = new jma_geos_grid;
+  grid_data* error;
+  if(strcmp(buff,"GEOS")==0){
+    cout << "HRIT data in GEOS projection." << endl;
+    error = temp->read_hrit_data(filename);
+  }
+  else{
+    cout << "Error! Unknown project for HRIT data." << endl;
+    return NULL;
+  }
+  
+  delete [] buff;
+  if(error != NULL){
+    return temp;
+  }
+  else{
+    delete temp;
+    return NULL;
+  }
+}
+*/
+
+int grid_data_allocation(int grid_code,grid_data *&inout){
+  /*
+  switch(grid_code){
+  case(REGULAR_GRID_CODE):
+    inout = new regular_grid;
+    break;
+  case(GEOS_GRID_CODE):
+    inout = new geos_grid;
+    break;
+  case(LAMBERTCONN_GRID_CODE):
+    inout = new lambertConN_grid;
+    break;
+  case(MAPTO2DGRID_CODE):
+    inout = new mapTo2DGrid;
+    break;
+  default:
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+*/
+  if(grid_data_allocation(grid_code)==NULL){
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+  else{
+    grid_data_allocation(grid_code)(inout);
+  }
+
+  return _ERRORCODE_NOERROR;
+}
+int grid_data_allocation(int grid_code,grid_data *&inout,int ndim){
+  if(ndim > 1){
+    switch(grid_code){
+    case(REGULAR_GRID_CODE):
+      inout = new regular_grid [ndim];
+      break;
+      /*
+	case(MERCATOR_GRID_CODE):
+	inout = new mercator_grid;
+	break;
+      */
+    case(GEOS_GRID_CODE):
+      inout = new geos_grid [ndim];
+      break;
+    case(LAMBERTCONN_GRID_CODE):
+      inout = new lambertConN_grid [ndim];
+      break;
+    case(MAPTO2DGRID_CODE):
+      inout = new mapTo2DGrid [ndim];
+      break;
+    default:
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+
+  return _ERRORCODE_NOERROR;
+}
+grid_allocator grid_data_allocation(int grid_code){
+  switch(grid_code){
+  case(REGULAR_GRID_CODE):
+    return regular_grid_allocation;
+    /*
+  case(MERCATOR_GRID_CODE):
+    inout = new mercator_grid;
+    break;
+    */
+  case(GEOS_GRID_CODE):
+    return geos_grid_allocation;
+  case(LAMBERTCONN_GRID_CODE):
+    return lambertConN_grid_allocation;
+  case(MAPTO2DGRID_CODE):
+    return mapTo2D_grid_allocation;
+  default:
+    return NULL;
+  }
+}
+namespace libjeff{
+  ###CUDA###int determine_nbatchxy(int& nbatch_x,int& nbatch_y,int nx,int ny,int x_padding,int y_padding,double total_memsize){
+    size_t free, total;
+    cudaMemGetInfo(&free,&total);
+  //std::cout << "Total memory on GPU: " << total << " Free memory on GPU:" << free << std::endl;
+    
+    int nbatch = (int) ceil((total_memsize)/((double) free));
+    while (((nx+x_padding)*(ny+y_padding))%nbatch){
+      nbatch++;
+      if(nbatch > (nx+x_padding)*(ny+y_padding)){
+	//      cout << "Error! Unable to find a working number of batches." << endl;
+	return _ERRORCODE_UNABLETODETERMINEPARAMETERS;
+      }
+    }
+    
+    //for(nbatch_x=nbatch;nbatch_x>=1;nbatch_x--){
+    for(nbatch_x=1;nbatch_x<=nbatch;nbatch_x++){
+      if(nbatch%nbatch_x){
+	continue;
+      }
+      else{
+	nbatch_y = nbatch/nbatch_x;
+      }
+      
+      if(!((nx+x_padding)%nbatch_x || (ny+y_padding)%nbatch_y)){
+      break;
+      }
+    }
+  
+    if(((nx+x_padding)%nbatch_x || (ny+y_padding)%nbatch_y)){
+      //cout << "Error! Unable to find a working number of x and y batches." << endl;
+      //cout << "Nbatch = " << nbatch << " nbatch_x = " << nbatch_x << " nbatch_y = " << nbatch_y << endl;
+      return _ERRORCODE_UNABLETODETERMINEPARAMETERS;
+    }
+  
+    return _ERRORCODE_NOERROR;
+  }
+}

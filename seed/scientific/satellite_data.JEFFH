@@ -1,0 +1,35 @@
+#ifndef SATELLITEDATA
+#define SATELLITEDATA
+#include "grid_data.h"
+#include "date_time.h"
+#include "file_handler.h"
+
+class satellite_data{
+ public:
+  ###CPP### ###CUDA### ###HOST### satellite_data();
+  ###CPP### ###CUDA### ###HOST### ~satellite_data();
+
+  ###CPP### ###CUDA### ###HOST### void destroy();
+
+  ###CPP### ###CUDA### ###HOST### int read_hrit_data(char *filename);
+  ###CPP### ###CUDA### ###HOST### int read_hrit_data(int nfile_hander,libjeff::file_handler **file);
+
+  ###CPP### ###CUDA### ###HOST### int read_hs_data(char *nameformat,date_time scantime,int num_channels,char **channels,char **channels_res); //use tag ###scantime%format### ###dirtime%format### ###channels### ###channels res### in the nameformat. 
+  ###CPP### ###CUDA### ###HOST### int read_hs_data(char *nameformat,date_time scantime); //use tag ###scantime### ###dirtime### in the nameformat
+  ###CPP### ###CUDA### ###HOST### int read_hs_data(char *filename);
+  ###CPP### ###CUDA### ###HOST### int read_hs_data_segment(char *filename);
+
+  ###CPP### ###CUDA### ###HOST### int read_mtsat_level0(char *data_directory,date_time obs_time,date_time tolerance);
+
+  ###CPP### ###CUDA### ###HOST### inline grid_data** get_data_grid() {return data_grid;}
+  ###CPP### ###CUDA### ###HOST### inline grid_data* get_data_grid(int channel_number) {return data_grid[channel_number];}
+
+  ###CPP### ###CUDA### ###HOST### static inline void set_default_num_file_segment(int in) { default_num_file_segment = in; }
+ 
+ private:
+  int num_channel;
+  static int default_num_file_segment;
+  grid_data** data_grid;
+};
+
+#endif

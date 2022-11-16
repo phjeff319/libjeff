@@ -1,0 +1,23 @@
+#ifndef GEOSGRID
+#define GEOSGRID
+#include "grid_data.h"
+#include "regular_grid.h"
+
+//using namespace libjeff;
+class geos_grid : public regular_grid{
+ public:
+  ###CPP### ###CUDA### ###HOST### geos_grid();
+  ###CPP### ###CUDA### ###HOST### virtual ~geos_grid();
+
+  ###CPP### ###CUDA### ###HOST### void create(int nx,int ny,int nz,int ndim,double satellite_longitude,double satellite_height);
+
+  ###CPP### ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(double lon, double lat, double height, double *temp) const;
+
+  ###CPP### ###CUDA### ###HOST### virtual inline int get_grid_code() const { return GEOS_GRID_CODE; }
+  
+ private:
+  double satellite_longitude, satellite_height;
+  double missing_value;
+};
+###CPP### ###CUDA### ###HOST### void geos_grid_allocation(grid_data* &in);
+#endif

@@ -1,0 +1,124 @@
+#include<cstring>
+#include<fstream>
+
+#include "qpe_data.h"
+
+#include "date_time.h"
+#include "error_code.h"
+#include "grid_data.h"
+#include "regular_grid.h"
+#include "tags.h"
+
+#define BUFFSIZE 4096
+
+###CPP### ###CUDA### ###HOST### qpe_data::qpe_data(){
+  obs_time = NOTIME;
+  data_grid = NULL;
+}
+###CPP### ###CUDA### ###HOST### qpe_data::~qpe_data(){
+  this->destroy();
+}
+
+###CPP### ###CUDA### ###HOST### void qpe_data::destroy(){
+  if(data_grid != NULL){
+    delete data_grid;
+  }
+}
+
+###CPP### ###CUDA### ###HOST### int qpe_data::read_F3_cokriging_qpe(char *nameformat,char *dirtimeformat,char *filetimeformat,date_time file_time,int file_accumulate_min,int accumulate_min){
+  const int nx = 120;
+  const int ny = 120;
+  const int nz = 1;
+  const int ndim = 1;
+
+  tags dirtime("dir time format");
+  tags filetime("file time format");
+
+  char *filename  = new char [BUFFSIZE];
+  char *ctemp = new char [BUFFSIZE];
+
+  if(this->data_grid == NULL || this->data_grid->get_grid_code() != REGULAR_GRID_CODE || this->data_grid->get_nx() != nx || this->data_grid->get_ny() != ny || this->data_grid->get_nz() != nz || this->data_grid->get_ndim() != ndim){
+    this->destroy();
+    this->data_grid = new regular_grid;
+    
+    this->data_grid->create(nx,ny,nz,ndim);
+  }
+
+  double *x = new double [nx];
+  double *y = new double [ny];
+
+  int i,j;
+  for(i=0;i<nx;i++){
+    y[i] = 21.328 + i*(23.487 - 21.328)/ny;
+    x[i] = 112.956 + i*(115.291 - 112.956)/nx;
+  }
+
+  this->data_grid->set_x(x);
+  this->data_grid->set_y(y);
+
+  date_time temptime;
+  double *tempdata = new double [nx*ny];
+
+  std::ifstream fin;
+  for(i=0;i<nx;i++){
+    for(j=0;j<ny;j++){
+      *(this->data_grid->get_data(i,j,0)) = 0.;
+    }
+  }
+
+  int numfile = accumulate_min/file_accumulate_min;
+  for(i=0;i<numfile;i++){
+    temptime = file_time - date_time(0,0,0,0,i*file_accumulate_min);
+
+    strcpy(filename,nameformat);
+
+    dirtime.replace(filename,temptime.get_time(dirtimeformat,ctemp));
+    filetime.replace(filename,temptime.get_time(filetimeformat,ctemp));
+
+    fin.open(filename);
+    for(j=0;j<nx*ny;j++){
+      fin >> tempdata[j];
+    }
+    fin.close();
+
+    for(j=0;j<ny;j++){
+      for(i=0;i<nx;i++){
+	*(this->data_grid->get_data(i,j,0)) += tempdata[j*nx+i];
+      }
+    }
+  }
+
+  this->obs_time = file_time;
+  this->accumulate_min = accumulate_min;
+
+  delete [] x;
+  delete [] y;
+  delete [] tempdata;
+
+  delete [] filename;
+  delete [] ctemp;
+
+  return _ERRORCODE_NOERROR;
+}
+
+###CPP### ###CUDA### ###HOST### double qpe_data::get_average_rf_in(double minlat,double maxlat,double minlon,double maxlon) const{
+  double result = 0;
+  int count = 0;
+
+  int i,j;
+  for(i=0;i<this->get_data_grid()->get_nx();i++){
+    for(j=0;j<this->get_data_grid()->get_ny();j++){
+      if(this->get_data_grid()->get_x(i,j,0) >= minlon && this->get_data_grid()->get_x(i,j,0) <= maxlon && this->get_data_grid()->get_y(i,j,0) >= minlat && this->get_data_grid()->get_y(i,j,0) <= maxlat){
+	result += *(this->get_data_grid()->get_data(i,j,0));
+	count++;
+      }
+    }
+  }
+
+  if(count == 0){
+    return 0.;
+  }
+  else{
+    return result/count;
+  }
+}

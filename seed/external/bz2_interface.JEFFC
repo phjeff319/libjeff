@@ -1,0 +1,142 @@
+#include"bzlib.h"
+#include<cstring>
+#include<iostream>
+
+#include "bz2_interface.h"
+#include "debug_mode.h"
+#include "error_code.h"
+
+#define BZ2INITIALTRIALFACTOR 100
+/*
+typedef struct{
+  char *in, *out;
+  unsigned int avail_in, total_in_lo, total_in_hi, avail_out, total_out_lo, total_out_hi;
+  
+  void *state;
+  void *(*bzalloc)(void *,int,int);
+  void (*bzfree)(void *, void*);
+  void *opaque;
+}bz_stream;
+*/
+namespace libjeff{
+  
+  int bz2_decompress(char* in,size_t in_size,char *&out,size_t &out_size){
+    int error = _ERRORCODE_NOERROR;
+    unsigned int uint_in_size = in_size;
+    unsigned int trial_size = in_size*BZ2INITIALTRIALFACTOR;
+    char *work = new char [trial_size];
+    if(work==NULL){
+      return _ERRORCODE_FAILEDMEMORYALLOCATION;
+    }
+
+    int bz2error = 0;
+    do{
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "Trying " << trial_size << " for an input with size of " << in_size << std::endl;
+      }
+      bz2error = BZ2_bzBuffToBuffDecompress(work,&trial_size,in,uint_in_size,0,0);
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "Trial_size: " << trial_size << " Error code: " << bz2error << " work = " << &work << std::endl;
+      }
+    
+      if(bz2error == BZ_OUTBUFF_FULL){
+	delete [] work;
+	trial_size*=2;
+	work = new char [trial_size];
+	
+	if(work==NULL){
+	  error = _ERRORCODE_FAILEDMEMORYALLOCATION;
+	  break;
+	}
+      }
+    }while(bz2error == BZ_OUTBUFF_FULL);
+
+    if(!error){
+      out_size = trial_size;
+      size_t st_out_size = out_size;
+      if(out != NULL){
+	delete [] out;
+      }
+      out = new char [out_size];
+      memcpy(out,work,st_out_size);
+
+    }
+    delete [] work;
+    return error;
+  }
+  /*
+  int bz2_decompress(char* in,size_t in_size,char *&out,size_t &out_size){
+    int error = _ERRORCODE_NOERROR;
+    unsigned int uint_in_size = in_size;
+    unsigned int trial_size = in_size*BZ2INITIALTRIALFACTOR;
+    //char *work = new char [trial_size];
+    //if(work==NULL){
+    //  return _ERRORCODE_FAILEDMEMORYALLOCATION;
+    //}
+
+    bz_stream work;// = new bz_stream;
+    work.next_in = in;
+    work.next_out  = new char [trial_size];
+    if(work.next_out==NULL){
+      return _ERRORCODE_FAILEDMEMORYALLOCATION;
+    }
+    work.bzalloc = NULL;
+    work.bzfree = NULL;
+    work.opaque = NULL;
+
+    work.avail_in = in_size;
+    work.avail_out = trial_size;
+
+    out_size = 0;
+    char *temp_out = new char[trial_size];
+
+    error = BZ2_bzDecompressInit(&work,0,0);
+    int i = 0;
+    if(!error){
+      do{
+	error = BZ2_bzDecompress(&work);
+	size_t total_out = work.total_out_hi32;
+	total_out = (total_out << 32) + work.total_out_lo32;
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << i << " Trial_size: " << trial_size << " current size: " << out_size << " Error code: " << error << " decompressed size = " << total_out << std::endl;
+	}
+	i++;
+
+
+	if(error == BZ_OK && out_size + total_out > trial_size){
+	  std::cout << "Memory doubling called. " << std::endl;
+	  trial_size *= 2;
+	  char *temp_out2 = new char[trial_size];
+	  if(out_size > 0){
+	    memcpy(temp_out2,temp_out,out_size);
+	  }
+	  delete [] temp_out;
+	  temp_out = temp_out2;
+	}
+
+	memcpy(temp_out+out_size,work.next_out,total_out);
+	out_size += total_out;
+      }while(error == BZ_OK);
+
+      if(error ==  BZ_STREAM_END){
+	error = _ERRORCODE_NOERROR;
+      }
+    }
+    BZ2_bzDecompressEnd(&work);
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Out size: " << out_size << " Error code: " << error << std::endl;
+    }
+
+    if(!error){
+      if(out != NULL){
+	delete [] out;
+      }
+      out = new char [out_size];
+      memcpy(out,temp_out,out_size);
+    }
+    delete [] temp_out;
+
+    return error;
+  }    
+  */
+}

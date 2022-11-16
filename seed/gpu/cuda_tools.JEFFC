@@ -1,0 +1,496 @@
+#include"complex.h"
+#include"cuda_setting.h"
+#include"cuda_tools.h"
+#include"error_code.h"
+#include"math_special_function.h"
+###CUDA### ###GLOBAL### void cuda_multiply(int n, double *a, double b, double *c){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    c[i] = a[i]*b;
+  }
+}
+
+###CUDA### ###GLOBAL### void cuda_multiply(int n, double *a, double *b, double *c){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    c[i] = a[i]*b[i];
+  }
+}
+
+###CUDA### ###GLOBAL### void cuda_multiply(int n, libjeff::complex *a, double *b, libjeff::complex *c){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    c[i] = a[i]*b[i];
+  }
+}
+
+###CUDA### ###GLOBAL### void cuda_square(int n, double *a){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    a[i] *= a[i];
+  }
+}
+###CUDA### ###GLOBAL### void cuda_sqrt(int n, double *a){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    a[i] = libjeff::pow(a[i],0.5);
+  }
+}
+
+###CUDA### ###GLOBAL### void cuda_add(int n,double *a,double *b,double *c){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    c[i] = a[i] + b[i];
+  }
+}
+###CUDA### ###GLOBAL### void cuda_add(int n,double *a,double *b){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    a[i] += b[i];
+  }
+}
+
+###CUDA### ###GLOBAL### void cuda_substract(int n,double *a,double *b){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    a[i] -= b[i];
+  }
+}
+
+###CUDA### ###GLOBAL### void cuda_substract(int n,double *a,double *b,double *c){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    c[i] = a[i] - b[i];
+  }
+}
+
+###CUDA### ###GLOBAL### void cuda_divide(int n, double *a, double *b){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    a[i] /= b[i];
+  }
+}
+
+###CUDA### ###GLOBAL### void cuda_2real_to_complex(int n, double *a, double *b, libjeff::complex *c){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    c[i] = libjeff::complex(a[i],b[i]);
+  }
+}
+
+###CUDA### ###GLOBAL### void cuda_pow(int n,double *base, double *exponent, double *out){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    out[i] = exp(exponent[i]*log(base[i]));
+  }
+}
+###CUDA### ###GLOBAL### void cuda_pow(int n,double *base, double exponent, double *out){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    out[i] = exp(exponent*log(base[i]));
+  }
+}
+###CUDA### ###GLOBAL### void cuda_pow(int n,libjeff::complex *base,double *exponent,libjeff::complex *out){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    out[i] = base[i].pow(exponent[i]);
+  }
+}
+###CUDA### ###GLOBAL### void cuda_pow(int n,libjeff::complex *base,double exponent,libjeff::complex *out){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    out[i] = base[i].pow(exponent);
+  }
+}
+###CUDA### ###GLOBAL### void cuda_set_value(int n, double *a, double b){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    a[i] = b;
+  }
+}
+###CUDA### ###GLOBAL### void cuda_set_value(int n, double *a, double *b){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    a[i] = b[i];
+  }
+}
+###CUDA### ###GLOBAL### void cuda_set_value(int n, int *a, int b){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    a[i] = b;
+  }
+}
+###CUDA### ###GLOBAL### void cuda_set_thread_number(int n,int *a){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<n){
+    a[i] = i;
+  }
+}
+###CUDA### ###HOST### ###DEVICE### int cuda_array_tri2linear(int x, int y){
+  // 0 <= x <= y
+  return y*(y+1)/2 + x;
+}
+
+###CUDA### ###HOST### ###DEVICE### void cuda_array_linear2tri(int k, int &n, int&m){
+  // 0 <= n <= m
+  m = (int) ceil((-3. + pow(9 + 8*k,0.5))*0.5);
+  n = k - m*(m+1)/2;
+
+  if(n < 0 || m < 0){
+    m = (int) floor((-1. + pow(1 + 8*k,0.5))*0.5);
+    n = k - m*(m+1)/2;
+  }
+}
+
+###CUDA### ###GLOBAL### void cuda_reduce_kernel(int size, double *in){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<size/2){
+    in[i] += in[i+size/2];
+  }
+}
+###CUDA### ###GLOBAL### void cuda_reduce_kernel(int size, int *in){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<size/2){
+    in[i] += in[i+size/2];
+  }
+}
+
+###CUDA### ###HOST### int cuda_div_blocks(int factors_of,int numBlocks, int max_numBlocks){
+  int i;
+  for(i=1;i<=factors_of;i++){
+    if(factors_of%i==0 && numBlocks/i < max_numBlocks){
+      return i;
+    }
+  }
+  return 1;
+}
+
+###CUDA### ###HOST### double cuda_reduce(int size, double *in){
+  int size2 = (int) pow(2.,((int) ceil(log((double) size)/log(2.))));
+  double *d_temp;
+
+  cudaMalloc((void**) &d_temp, size2*sizeof(double));
+  cudaMemset(d_temp,0, size2*sizeof(double));
+  cudaMemcpy(d_temp,in,sizeof(double)*size,cudaMemcpyDeviceToDevice);
+
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+
+  int i=size2;
+  while(i>1){
+    grid.x =(int) ceil(((double) i)/numthreads);
+    cuda_reduce_kernel<<<grid,numthreads>>>(i,d_temp);
+    i/=2;
+  }
+
+  double out;
+  cudaMemcpy(&out,d_temp,sizeof(double),cudaMemcpyDeviceToHost);
+  cudaFree(d_temp);
+
+  return out;
+}
+###CUDA### ###HOST### int cuda_reduce(int size, int *in){
+  int size2 = (int) pow(2.,((int) ceil(log((double) size)/log(2.))));
+  int *d_temp;
+
+  cudaMalloc((void**) &d_temp, size2*sizeof(int));
+  cudaMemset(d_temp,0, size2*sizeof(int));
+  cudaMemcpy(d_temp,in,sizeof(int)*size,cudaMemcpyDeviceToDevice);
+
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+
+  int i=size2;
+  while(i>1){
+    grid.x =(int) ceil(((double) i/2)/numthreads);
+    cuda_reduce_kernel<<<grid,numthreads>>>(i,d_temp);
+    i/=2;
+  }
+
+  int out;
+  cudaMemcpy(&out,d_temp,sizeof(int),cudaMemcpyDeviceToHost);
+  cudaFree(d_temp);
+
+  return out;
+}
+###GLOBAL### void cuda_reduce_every_n_kernel(int num_to_sum,size_t every_n,int stage,double *inout){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  unsigned int num_index = i/stage;
+  unsigned int pt_index = i%stage;
+
+  if(num_index < num_to_sum && pt_index + stage < every_n){
+    inout[num_index*every_n+pt_index] += inout[num_index*every_n+pt_index+stage];
+  }
+}
+namespace libjeff{
+  namespace host{
+    ###CUDA### ###HOST### int cuda_reduce_every_n(int num_to_sum,size_t every_n,double *in,double *out){
+      double* clone;
+      cudaMalloc((void**) &clone,num_to_sum*every_n*sizeof(double));
+      cudaMemcpy(clone,in,num_to_sum*every_n*sizeof(double),cudaMemcpyHostToDevice);
+      
+      double *dout;
+      cudaMalloc((void**) &dout,num_to_sum*sizeof(double));
+
+      int error = libjeff::device::cuda_reduce_every_n(num_to_sum,every_n,clone,dout);
+
+      cudaMemcpy(out,dout,num_to_sum*sizeof(double),cudaMemcpyDeviceToHost);
+      
+      cudaFree(clone);
+      cudaFree(dout);
+      
+      return error;
+    }
+  };
+
+  namespace device{
+    ###CUDA### ###HOST### int cuda_reduce_every_n(int num_to_sum,size_t every_n,double *in,double *out){
+      int numthreads = cuda_setting::get_numthreads();
+      dim3 grid;
+      
+      int size2 = pow(2,((int) ceil(log((double) every_n)/log(2.))))/2;
+      grid.x = (int) ceil((double) num_to_sum*size2/numthreads);
+      int i = size2;
+      while(i>=1){
+	cuda_reduce_every_n_kernel<<<grid,numthreads>>>(num_to_sum,every_n,i,in);
+	i/=2;
+      }
+      
+      grid.x = (int) ceil((double) num_to_sum/numthreads);
+      cuda_extract_every_n_kernel<<<grid,numthreads>>>(num_to_sum,every_n,0,in,out);
+      
+      return _ERRORCODE_NOERROR;
+    }
+  };
+};
+
+###GLOBAL### void cuda_max_kernel(int size, double *in){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<size/2){
+    if(in[i+size/2] > in[i]){
+      in[i] = in[i+size/2];
+    }
+  }
+}
+###GLOBAL### void cuda_max_kernel(int nset,size_t size,int stage,double *in){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  unsigned int set_index = i/(stage);
+  unsigned int data_index = i%(stage);
+
+  if(set_index < nset){
+    if(in[set_index*size + data_index + stage] > in[set_index*size + data_index]){
+      in[set_index*size + data_index] = in[set_index*size + data_index + stage];
+    }
+  }
+}
+###CUDA### ###HOST### double cuda_max(int size, double *in){
+  int size2 = (int) pow(2.,((int) ceil(log((double) size)/log(2.))));
+  double *d_temp;
+
+  cudaMalloc((void**) &d_temp, size2*sizeof(double));
+  cudaMemcpy(d_temp,in,sizeof(double)*size,cudaMemcpyDeviceToDevice);
+  if(size2 > size){
+    cudaMemcpy(d_temp+size,in,sizeof(double)*(size2-size),cudaMemcpyDeviceToDevice);
+  }
+
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+
+  int i=size2;
+  while(i>1){
+    grid.x =(int) ceil(((double) i/2)/numthreads);
+    cuda_max_kernel<<<grid,numthreads>>>(i,d_temp);
+    i/=2;
+  }
+
+  double out;
+  cudaMemcpy(&out,d_temp,sizeof(double),cudaMemcpyDeviceToHost);
+  cudaFree(d_temp);
+
+  return out;
+}
+###GLOBAL### void cuda_min_kernel(int size, double *in){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<size/2){
+    if(in[i+size/2] < in[i]){
+      in[i] = in[i+size/2];
+    }
+  }
+}
+###GLOBAL### void cuda_min_kernel(int nset,int size,int stage,double *in){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  unsigned int set_index = i/(stage);
+  unsigned int data_index = i%(stage);
+
+  if(set_index < nset){
+    if(in[set_index*size + data_index + stage] < in[set_index*size + data_index]){
+      in[set_index*size + data_index] = in[set_index*size + data_index + stage];
+    }
+  }
+}
+###CUDA### ###HOST### double cuda_min(int size, double *in){
+  int size2 = (int) pow(2.,((int) ceil(log((double) size)/log(2.))));
+  double *d_temp;
+
+  cudaMalloc((void**) &d_temp, size2*sizeof(double));
+  cudaMemcpy(d_temp,in,sizeof(double)*size,cudaMemcpyDeviceToDevice);
+  if(size2 > size){
+    cudaMemcpy(d_temp+size,in,sizeof(double)*(size2-size),cudaMemcpyDeviceToDevice);
+  }
+
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+
+  int i=size2;
+  while(i>1){
+    grid.x =(int) ceil(((double) i/2)/numthreads);
+    cuda_min_kernel<<<grid,numthreads>>>(i,d_temp);
+    i/=2;
+  }
+
+  double out;
+  cudaMemcpy(&out,d_temp,sizeof(double),cudaMemcpyDeviceToHost);
+  cudaFree(d_temp);
+
+  return out;
+}
+###GLOBAL### void cuda_min_kernel(int size,double *a,double *b,double *min){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  if(i<size){
+    if(a[i] < b[i]){
+      min[i] = a[i];
+    }
+    else{
+      min[i] = b[i];
+    }
+  }
+}
+
+###CUDA### ###GLOBAL### void cuda_extract_every_n_kernel(int to_extract,size_t every_n,int offset,double *extract_from,double *extract_to){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+
+  if(i<to_extract){
+    extract_to[i] = extract_from[i*every_n+offset];
+  }
+}
+###CUDA### ###GLOBAL### void cuda_put_every_n_kernel(int to_put,int every_n,int offset,double *put_from,double *put_into){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+
+  if(i<to_put){
+    put_into[i*every_n+offset]=put_from[i];
+  }
+}
+###CUDA### ###HOST### void cuda_extract_every_n(int to_extract,size_t every_n,int offset,double *extract_from,double *extract_to){
+  //to_extract: numbers of elements to be extracted
+  //every_n: extract every "n" elements
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+  grid.x = (int) ceil(((double) to_extract)/numthreads);
+
+  cuda_extract_every_n_kernel<<<grid,numthreads>>>(to_extract,every_n,offset,extract_from,extract_to);
+}
+###CUDA### ###GLOBAL### void cuda_expand_kernel(int num_to_expand,int expand_times,double *expand_from,double *expand_to){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  unsigned int source_index = i/expand_times;
+
+  if(i<num_to_expand*expand_times){
+    expand_to[i] = expand_from[source_index];
+  }
+}
+###CUDA### ###GLOBAL### void cuda_expand_kernel(int num_to_expand,int expand_times,int *expand_from,int *expand_to){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  unsigned int source_index = i/expand_times;
+
+  if(i<num_to_expand*expand_times){
+    expand_to[i] = expand_from[source_index];
+  }
+}
+
+###CUDA### ###HOST### void cuda_expand(int num_to_expand,int expand_times,double *expand_from,double *expand_to){
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+  grid.x = (int) ceil(((double) num_to_expand*expand_times)/numthreads);
+  double *temp;
+  cudaMalloc(&temp,num_to_expand*expand_times*sizeof(double));
+
+  cuda_expand_kernel<<<grid,numthreads>>>(num_to_expand,expand_times,expand_from,temp);
+  cudaMemcpy(expand_to,temp,num_to_expand*expand_times*sizeof(double),cudaMemcpyDeviceToDevice);
+  cudaFree(temp);
+}
+###CUDA### ###HOST### void cuda_expand(int num_to_expand,int expand_times,int *expand_from,int *expand_to){
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+  grid.x = (int) ceil(((double) num_to_expand*expand_times)/numthreads);
+  int *temp;
+  cudaMalloc(&temp,num_to_expand*expand_times*sizeof(int));
+
+  cuda_expand_kernel<<<grid,numthreads>>>(num_to_expand,expand_times,expand_from,expand_to);  
+  cudaMemcpy(expand_to,temp,num_to_expand*expand_times*sizeof(int),cudaMemcpyDeviceToDevice);
+  cudaFree(temp);
+}
+###CUDA### ###GLOBAL### void cuda_repeat_kernel(int num_to_repeat,int repeat_times,double *repeat_from,double *repeat_to){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  unsigned int source_index = i%repeat_times;
+
+  if(i<num_to_repeat*repeat_times){
+    repeat_to[i] = repeat_from[source_index];
+  }
+}
+###CUDA### ###HOST### void cuda_repeat(int num_to_repeat,int repeat_times,double *repeat_from,double *repeat_to){
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+  grid.x = (int) ceil(((double) num_to_repeat*repeat_times)/numthreads);
+
+  cuda_repeat_kernel<<<grid,numthreads>>>(num_to_repeat,repeat_times,repeat_from,repeat_to);  
+}
+
+###CUDA### ###GLOBAL### void cuda_copy_kernel(int num_to_copy,double *in,double *out){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+
+  if(i<num_to_copy){
+    out[i] = in[i];
+  }
+}
+###CUDA### ###GLOBAL### void cuda_expand_by_repeat_kernel(int original_size,int new_size,double *in,double *out){
+   unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+
+   if(i<new_size){
+     out[i]=in[i%original_size];
+   }
+}
+###CUDA### ###GLOBAL### void cuda_expand_by_repeat_kernel(int nset,int original_size,int new_size,double *in,double *out){
+   unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+   unsigned int set_index = i/new_size;
+   unsigned int data_index = i%new_size;
+
+   if(set_index<nset){
+     out[i]=in[set_index*original_size+(data_index%original_size)];
+   }
+}
+
+###GLOBAL### void cuda_cal_x_derivatives_kernel(int nx,int ny,int nz,int xpad,int ypad,int zpad,double *x,double *f,double *mapfactor,double *dfdx){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  unsigned int xindex = i/(ny*nz);
+  unsigned int yindex = (i/nz)%ny;
+  unsigned int zindex = i%nz;
+
+  if(xindex < nx){
+    dfdx[((xindex+xpad)*(ny+2*ypad)+(yindex+ypad))*(nz+2*zpad)+zindex+zpad] = (f[((xindex+xpad+1)*(ny+2*ypad)+(yindex+ypad))*(nz+2*zpad)+zindex+zpad] - f[((xindex+xpad-1)*(ny+2*ypad)+(yindex+ypad))*(nz+2*zpad)+zindex+zpad])/(x[(xindex+xpad+1)*(ny+2*ypad)+(yindex+ypad)] - x[(xindex+xpad-1)*(ny+2*ypad)+(yindex+ypad)]);
+    if(mapfactor!=NULL){
+      dfdx[((xindex+xpad)*(ny+2*ypad)+(yindex+ypad))*(nz+2*zpad)+zindex+zpad]*=mapfactor[(xindex+xpad)*(ny+2*ypad)+(yindex+ypad)];
+    }
+  }
+}
+###GLOBAL### void cuda_cal_y_derivatives_kernel(int nx,int ny,int nz,int xpad,int ypad,int zpad,double *y,double *f,double *mapfactor,double *dfdy){
+  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  unsigned int xindex = i/(ny*nz);
+  unsigned int yindex = (i/nz)%ny;
+  unsigned int zindex = i%nz;
+
+  if(xindex < nx){
+    dfdy[((xindex+xpad)*(ny+2*ypad)+(yindex+ypad))*(nz+2*zpad)+zindex+zpad] = (f[((xindex+xpad)*(ny+2*ypad)+(yindex+ypad+1))*(nz+2*zpad)+zindex+zpad] - f[((xindex+xpad)*(ny+2*ypad)+(yindex+ypad-1))*(nz+2*zpad)+zindex+zpad])/(y[(xindex+xpad)*(ny+2*ypad)+(yindex+ypad+1)] - y[(xindex+xpad)*(ny+2*ypad)+(yindex+ypad-1)]);
+    if(mapfactor!=NULL){
+      dfdy[((xindex+xpad)*(ny+2*ypad)+(yindex+ypad))*(nz+2*zpad)+zindex+zpad]*=mapfactor[(xindex+xpad)*(ny+2*ypad)+(yindex+ypad)];
+    }
+  }
+}

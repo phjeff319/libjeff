@@ -1,0 +1,78 @@
+#include"zlib.h"
+#include<cstring>
+#include<iostream>
+
+#include "gz_interface.h"
+#include "debug_mode.h"
+#include "error_code.h"
+
+#define GZINITIALTRIALFACTOR 1
+
+namespace libjeff{
+  int gz_decompress(char* in,size_t in_size,char *&out,size_t &out_size){
+
+    int error = _ERRORCODE_NOERROR;
+
+    z_stream strm;
+
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+    strm.avail_in = in_size;
+    strm.next_in = (Bytef *) in;
+    strm.total_out = 0;
+
+    unsigned int trial_size = in_size*GZINITIALTRIALFACTOR;
+    char *work = new char [trial_size];
+    if(work==NULL){
+      return _ERRORCODE_FAILEDMEMORYALLOCATION;
+    }
+    
+    error = inflateInit2(&strm, 16+MAX_WBITS);
+    bool done = false;
+
+    char *curr_pos = work;
+
+    do{
+      if(strm.total_out >= trial_size){
+	char *work2 = new char [trial_size + in_size];
+	memcpy(work2,work,trial_size);
+	delete [] work;
+	work = work2;
+	trial_size += in_size;
+      }
+
+
+      strm.avail_out = trial_size - strm.total_out;
+      curr_pos = work + strm.total_out;
+      strm.next_out = (Bytef *) curr_pos;
+    
+      error = inflate(&strm,Z_SYNC_FLUSH);
+
+      if(error == Z_STREAM_END){
+	done = true;
+      }
+      else if(error != Z_OK){
+	break;
+      }
+
+    }while(!done);
+
+    if(error == Z_STREAM_END){
+      error = _ERRORCODE_NOERROR;
+
+      out_size = strm.total_out;
+      if(out != NULL){
+	delete [] out;
+      }
+      out = new char [out_size];
+      memcpy(out,work,out_size);
+    }
+
+    delete [] work;
+    
+    return error;
+  }
+};
+
+  

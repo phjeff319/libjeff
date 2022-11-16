@@ -1,0 +1,98 @@
+#include<cstring>
+#include<iostream>
+
+#include "sorting.h"
+
+#include "error_code.h"
+
+using namespace std;
+#define FILENAMEBUFFSIZE 4096
+
+void general_sort(int n,int mem_size,char* to_sort,void (*setequal)(char*,char*),bool (*isless)(char*,char*)){
+  long long i,ir,j,l;
+  char *work = new char [mem_size];
+
+  to_sort -= mem_size;
+
+  if (n < 2){
+  }
+  else{
+    l=n/2+1;
+    ir=n;
+    for (;;) {
+      if (l > 1) {
+	--l;
+	setequal(to_sort+l*mem_size,work);
+      } 
+      else {
+	setequal(to_sort+ir*mem_size,work);
+	setequal(to_sort+1*mem_size,to_sort+ir*mem_size);
+	if (--ir == 1) {
+	  setequal(work,to_sort+1*mem_size);
+	  break;
+	}
+      }
+      i=l;
+      j=l+l;
+      while (j <= ir) {
+	if (j < ir && isless(to_sort+j*mem_size,to_sort+(j+1)*mem_size)) j++;
+	if (isless(work,to_sort+j*mem_size)){
+	  setequal(to_sort+j*mem_size,to_sort+i*mem_size);
+	  i=j;
+	  j <<= 1;
+	} else j=ir+1;
+      }
+      setequal(work,to_sort+i*mem_size);
+    }
+  }
+
+  delete [] work;
+  to_sort += mem_size;
+}
+
+void double_setequal(char *a,char *b){
+  *((double*) b) = *((double *) a);
+}
+bool double_isless(char *a,char *b){
+  return *((double*) a) < *((double*) b);
+}
+void sort(int n,double *in){
+  general_sort(n,sizeof(double),(char*) in,double_setequal,double_isless);
+}
+
+struct sorting_file_time_sorting_struct{
+  char filename [FILENAMEBUFFSIZE];
+  date_time filetime;
+};
+void sorting_file_time_sorting_setequal(char *a,char *b){
+  ((sorting_file_time_sorting_struct*) b)->filetime = ((sorting_file_time_sorting_struct*) a)->filetime;
+  strcpy(((sorting_file_time_sorting_struct*) b)->filename,((sorting_file_time_sorting_struct*) a)->filename);
+}
+bool sorting_file_time_sorting_isless(char *a,char *b){
+  return (((sorting_file_time_sorting_struct*) b)->filetime > ((sorting_file_time_sorting_struct*) a)->filetime);
+}
+
+int file_time_sorting(int nitem,char **filename,date_time *file_time){
+  if(nitem > 0){
+    sorting_file_time_sorting_struct *temp_struct = new sorting_file_time_sorting_struct [nitem];
+
+    int i;
+    for(i=0;i<nitem;i++){
+      temp_struct[i].filetime = file_time[i];
+      strcpy(temp_struct[i].filename,filename[i]);
+    }
+    
+    general_sort(nitem,sizeof(sorting_file_time_sorting_struct),(char*) temp_struct,sorting_file_time_sorting_setequal,sorting_file_time_sorting_isless);
+
+    for(i=0;i<nitem;i++){
+      file_time[i] = temp_struct[i].filetime ;
+      strcpy(filename[i],temp_struct[i].filename);
+    }
+    
+    delete [] temp_struct;
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+  return _ERRORCODE_NOERROR;
+}

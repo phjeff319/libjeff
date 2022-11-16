@@ -1,0 +1,1051 @@
+#include <iostream>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+
+#include "arithmetic.h"
+#include "debug_mode.h"
+#include "error_code.h"
+#include "string_man.h"
+#include "tools.h"
+
+#define BUFFSIZE 4096
+
+namespace libjeff{
+  namespace symbolic{
+    operations::operations(){
+    }
+    operations::~operations(){
+    }
+    addition::addition():operations(){
+      operate::regis(this);
+    }
+    int addition::operate(char* operation,double in,double &out) const{
+      //std::cout << "Addtion was called." << std::endl;
+      if(operation[0] == '+'){
+	if(is_number(operation+1)){
+	  char *param = operation+1;
+	  int error = this->operate("+",in,1,&param,out);
+	  return error;
+	}
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int addition::operate(char* operation,int in,int &out) const{
+      //std::cout << "Addtion was called." << std::endl;
+      if(operation[0] == '+'){
+	if(is_number(operation+1)){
+	  char *param = operation+1;
+	  int error = this->operate("+",in,1,&param,out);
+	  return error;
+	}
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int addition::operate(char* operation,double in,int nparm,char **param,double &out) const{
+      if(strcmp(operation,"+")==0 && nparm == 1 && is_number(param[0])){
+	out = in + atof(param[0]);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int addition::operate(char *operation,int in,int nparm,char **param,int &out) const{
+      if(strcmp(operation,"+")==0 && nparm == 1 && is_number(param[0])){
+	out = in + atoi(param[0]);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int addition::operate(char *operation,date_time in,int nparm,char **param,date_time &out) const{
+      if(strcmp(operation,"+")==0 && nparm == 1){
+	date_time operand;
+	int error = operand.set_time(param[0]);
+	if(!error){
+	  out = in + operand;
+	}
+	else if(error == _ERRORCODE_INVALIDTIMEFORMAT){
+	  error = _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+	}
+	return error;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+
+    substraction::substraction():operations(){
+      operate::regis(this);
+    }
+    int substraction::operate(char* operation,double in,double &out) const{
+      //std::cout << "Substraction was called." << std::endl;
+      if(operation[0] == '-'){
+	if(is_number(operation+1)){
+	  char *param = operation+1;
+	  int error = this->operate("-",in,1,&param,out);
+	  return error;
+	}
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int substraction::operate(char* operation,int in,int &out) const{
+      //std::cout << "Substraction was called." << std::endl;
+      if(operation[0] == '-'){
+	if(is_number(operation+1)){
+	  char *param = operation+1;
+	  int error = this->operate("-",in,1,&param,out);
+	  return error;
+	}
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int substraction::operate(char* operation,double in,int nparm,char **param,double &out) const{
+      if(strcmp(operation,"-")==0 && nparm == 1 && is_number(param[0])){
+	out = in - atof(param[0]);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int substraction::operate(char *operation,int in,int nparm,char **param,int &out) const{
+      if(strcmp(operation,"-")==0 && nparm == 1 && is_number(param[0])){
+	out = in - atoi(param[0]);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int substraction::operate(char *operation,date_time in,int nparm,char **param,date_time &out) const{
+      if(strcmp(operation,"-")==0 && nparm == 1){
+	date_time operand;
+	int error = operand.set_time(param[0]);
+	if(!error){
+	  out = in - operand;
+	}
+	else if(error == _ERRORCODE_INVALIDTIMEFORMAT){
+	  error = _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+	}
+	return error;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+
+    multiplication::multiplication():operations(){
+      operate::regis(this);
+    }
+    int multiplication::operate(char* operation,double in,double &out) const{
+      //std::cout << "Multiplication was called." << std::endl;
+      if(operation[0] == '*'){
+	if(is_number(operation+1)){
+	  char *param = operation+1;
+	  int error = this->operate("*",in,1,&param,out);
+	  return error;
+	}
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int multiplication::operate(char* operation,int in,int &out) const{
+      //std::cout << "Multiplication was called." << std::endl;
+      if(operation[0] == '*'){
+	if(is_number(operation+1)){
+	  char *param = operation+1;
+	  int error = this->operate("*",in,1,&param,out);
+	  return error;
+	}
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int multiplication::operate(char* operation,double in,int nparm,char **param,double &out) const{
+      if(strcmp(operation,"*")==0 && nparm == 1 && is_number(param[0])){
+	out = in * atof(param[0]);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int multiplication::operate(char *operation,int in,int nparm,char **param,int &out) const{
+      if(strcmp(operation,"*")==0 && nparm == 1 && is_number(param[0])){
+	out = in * atoi(param[0]);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int multiplication::operate(char *operation,date_time in,int nparm,char **param,date_time &out) const{
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+
+    division::division():operations(){
+      operate::regis(this);
+    }
+    int division::operate(char* operation,double in,double &out) const{
+      //std::cout << "Division was called." << std::endl;
+      if(operation[0] == '/'){
+	if(is_number(operation+1)){
+	  char *param = operation+1;
+	  int error = this->operate("/",in,1,&param,out);
+	  return error;
+	}
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int division::operate(char* operation,int in,int &out) const{
+      //std::cout << "Division was called." << std::endl;
+      if(operation[0] == '/'){
+	if(is_number(operation+1)){
+	  char *param = operation+1;
+	  int error = this->operate("/",in,1,&param,out);
+	  return error;
+	}
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int division::operate(char* operation,double in,int nparm,char **param,double &out) const{
+      if(strcmp(operation,"/")==0 && nparm == 1 && is_number(param[0])){
+	out = in / atof(param[0]);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int division::operate(char *operation,int in,int nparm,char **param,int &out) const{
+      if(strcmp(operation,"/")==0 && nparm == 1 && is_number(param[0])){
+	out = in / atoi(param[0]);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int division::operate(char *operation,date_time in,int nparm,char **param,date_time &out) const{
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+
+    power::power():operations(){
+      operate::regis(this);
+    }
+    int power::operate(char* operation,double in,double &out) const{
+      //std::cout << "Power was called." << std::endl;
+      if(operation[0] == '^'){
+	if(is_number(operation+1)){
+	  char *param = operation+1;
+	  int error = this->operate("^",in,1,&param,out);
+	  return error;
+	}
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int power::operate(char* operation,int in,int &out) const{
+      //std::cout << "Power was called." << std::endl;
+      if(operation[0] == '^'){
+	if(is_number(operation+1)){
+	  char *param = operation+1;
+	  int error = this->operate("^",in,1,&param,out);
+	  return error;
+	}
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int power::operate(char* operation,double in,int nparm,char **param,double &out) const{
+      if(strcmp(operation,"^")==0 && nparm == 1 && is_number(param[0])){
+	out = pow(in,atof(param[0]));
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int power::operate(char *operation,int in,int nparm,char **param,int &out) const{
+      if(strcmp(operation,"^")==0 && nparm == 1 && is_number(param[0])){
+	out = pow(in,atoi(param[0]));
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int power::operate(char *operation,date_time in,int nparm,char **param,date_time &out) const{
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+
+    sine::sine():operations(){
+      operate::regis(this);
+    }
+    int sine::operate(char* operation,double in,double &out) const{
+      //std::cout << "Sine was called." << std::endl;
+      if(strcmp(operation,"sin") == 0){
+	out = sin(in);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int sine::operate(char* operation,int in,int &out) const{
+      //std::cout << "Sine was called." << std::endl;
+      if(strcmp(operation,"sin") == 0){
+	out = sin((double) in);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int sine::operate(char* operation,double in,int nparm,char **param,double &out) const{
+      return this->operate(operation,in,out);
+    }
+    int sine::operate(char *operation,int in,int nparm,char **param,int &out) const{
+      return this->operate(operation,in,out);
+    }
+    int sine::operate(char *operation,date_time in,int nparm,char **param,date_time &out) const{
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+
+    cosine::cosine():operations(){
+      operate::regis(this);
+    }
+    int cosine::operate(char* operation,double in,double &out) const{
+      //std::cout << "Cosine was called." << std::endl;
+      if(strcmp(operation,"cos") == 0){
+	out = cos(in);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int cosine::operate(char* operation,int in,int &out) const{
+      //std::cout << "Cosine was called." << std::endl;
+      if(strcmp(operation,"cos") == 0){
+	out = cos((double) in);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int cosine::operate(char* operation,double in,int nparm,char **param,double &out) const{
+      return this->operate(operation,in,out);
+    }
+    int cosine::operate(char *operation,int in,int nparm,char **param,int &out) const{
+      return this->operate(operation,in,out);
+    }
+    int cosine::operate(char *operation,date_time in,int nparm,char **param,date_time &out) const{
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    tangent::tangent():operations(){
+      operate::regis(this);
+    }
+    int tangent::operate(char* operation,double in,double &out) const{
+      //std::cout << "Tangent was called." << std::endl;
+      if(strcmp(operation,"tan") == 0){
+	out = tan(in);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int tangent::operate(char* operation,int in,int &out) const{
+      //std::cout << "Tangent was called." << std::endl;
+      if(strcmp(operation,"tan") == 0){
+	out = tan((double) in);
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int tangent::operate(char* operation,double in,int nparm,char **param,double &out) const{
+      return this->operate(operation,in,out);
+    }
+    int tangent::operate(char *operation,int in,int nparm,char **param,int &out) const{
+      return this->operate(operation,in,out);
+    }
+    int tangent::operate(char *operation,date_time in,int nparm,char **param,date_time &out) const{
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    floor::floor():operations(){
+      operate::regis(this);
+    }
+    int floor::operate(char* operation,double in,double &out) const{
+      //std::cout << "Floor was called." << std::endl;
+      if(strcmp(operation,"floor") == 0){
+	char *param = new char [2];
+	strcpy(param,"1");
+	int error = this->operate(operation,in,1,&param,out);
+	delete [] param;
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int floor::operate(char* operation,int in,int &out) const{
+      //std::cout << "Floor was called." << std::endl;
+      if(strcmp(operation,"floor") == 0){
+	char *param = new char [2];
+	strcpy(param,"1");
+	int error = this->operate(operation,in,1,&param,out);
+	delete [] param;
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int floor::operate(char* operation,double in,int nparm,char **param,double &out) const{
+      //std::cout << "Floor was called." << std::endl;
+      //std::cout << operation << " " << nparm << std::endl;//" " << param[0] << " " << is_number(param[0]) << std::endl;
+      if(strcmp(operation,"floor")==0 && nparm == 1 && is_number(param[0])){
+	double flr = atof(param[0]);
+	//std::cout << "here " << in << std::endl;
+	out = std::floor(in/flr)*flr;
+	//std::cout << "here " << out << std::endl;
+	return _ERRORCODE_NOERROR;
+      }
+      else if(nparm == 0){
+	int error = this->operate(operation,in,out);
+	return error;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int floor::operate(char *operation,int in,int nparm,char **param,int &out) const{
+      if(strcmp(operation,"floor")==0 && nparm == 1 && is_number(param[0])){
+	double flr = atof(param[0]);
+	out = std::floor(in/flr)*flr;
+	return _ERRORCODE_NOERROR;
+      }
+      else if(nparm == 0){
+	int error = this->operate(operation,in,out);
+	return error;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int floor::operate(char *operation,date_time in,int nparm,char **param,date_time &out) const{
+      if(strcmp(operation,"floor")==0 && nparm == 1){
+	date_time operand;
+	int error = operand.set_time(param[0]);
+	if(!error){
+	  out = in.floor(operand);
+	}
+	else if(error == _ERRORCODE_INVALIDTIMEFORMAT){
+	  error = _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+	}
+	return error;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    ceiling::ceiling():operations(){
+      operate::regis(this);
+    }
+    int ceiling::operate(char* operation,double in,double &out) const{
+      //std::cout << "Ceiling was called." << std::endl;
+      if(strcmp(operation,"ceiling") == 0){
+	char *param = new char [2];
+	strcpy(param,"1");
+	int error = this->operate(operation,in,1,&param,out);
+	delete [] param;
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int ceiling::operate(char* operation,int in,int &out) const{
+      //std::cout << "Ceiling was called." << std::endl;
+      if(strcmp(operation,"ceiling") == 0){
+	char *param = new char [2];
+	strcpy(param,"1");
+	int error = this->operate(operation,in,1,&param,out);
+	delete [] param;
+	return _ERRORCODE_NOERROR;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int ceiling::operate(char* operation,double in,int nparm,char **param,double &out) const{
+      if(strcmp(operation,"ceiling")==0 && nparm == 1 && is_number(param[0])){
+	double ceil = atof(param[0]);
+	out = std::ceil(in/ceil)*ceil;
+	return _ERRORCODE_NOERROR;
+      }
+      else if(nparm == 0){
+	int error = this->operate(operation,in,out);
+	return error;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int ceiling::operate(char *operation,int in,int nparm,char **param,int &out) const{
+      if(strcmp(operation,"ceiling")==0 && nparm == 1 && is_number(param[0])){
+	double ceil = atof(param[0]);
+	out = std::ceil(in/ceil)*ceil;
+	return _ERRORCODE_NOERROR;
+      }
+       else if(nparm == 0){
+	int error = this->operate(operation,in,out);
+	return error;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+    int ceiling::operate(char *operation,date_time in,int nparm,char **param,date_time &out) const{
+      if(strcmp(operation,"ceiling")==0 && nparm == 1){
+	date_time operand;
+	int error = operand.set_time(param[0]);
+	if(!error){
+	  out = in.ceiling(operand);
+	}
+	else if(error == _ERRORCODE_INVALIDTIMEFORMAT){
+	  error = _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+	}
+	return error;
+      }
+      return _ERRORCODE_SYMBOLIC_INCORRECTOPERATION;
+    }
+
+    int operate::num_operation = 0;
+    operations** operate::functions = NULL;
+    operate::operate(){
+      num_operation = 0;
+    }
+    operate::~operate(){
+      if(num_operation > 0){
+	int i;
+	for(i=0;i<num_operation;i++){
+	  delete functions[i];
+	}
+	delete [] functions;
+      }
+    }
+    int operate::regis(operations *in){
+      operations** temp_functions = new operations* [num_operation+1];
+      int i;
+      for(i=0;i<num_operation;i++){
+	temp_functions[i] = functions[i];
+      }
+      temp_functions[num_operation] = in;
+      if(functions != NULL){
+	delete [] functions;
+      }
+      functions = temp_functions;
+      num_operation++;
+
+      return _ERRORCODE_NOERROR;
+    }
+    /*
+    int operate::compute(char *operation,double in,double &out){
+      int error;
+      int num_operater = 0;
+      char **operater = NULL;
+      char *operand = NULL;
+
+      //      std::cout << operation << std::endl;
+      extract(operation,num_operater,operater,operand);
+
+      if(num_operation > 0 && num_operater > 0){
+	int i,j;
+	for(j=num_operater-1;j>=0;j--){
+	  for(i=0;i<num_operation;i++){
+	    error = functions[i]->operate(operater[j],in,out);
+	    if(error == _ERRORCODE_NOERROR){
+	      in = out;
+	      break;
+	    }
+	  }
+
+	  if(error != _ERRORCODE_NOERROR){
+	    break;
+	  }
+	}
+
+	for(j=0;j<num_operater;j++){
+	  delete [] operater[j];
+	}
+	delete [] operater;
+	delete [] operand;
+      }
+
+      if(error == _ERRORCODE_SYMBOLIC_INCORRECTOPERATION){
+	error = _ERRORCODE_SYMBOLIC_UNKNOWNOPERATION;
+      }
+      return error;
+    }
+    int operate::compute(char *operation,int in,int &out){
+      int error;
+      int num_operater = 0;
+      char **operater = NULL;
+      char *operand = NULL;
+
+      //      std::cout << operation << std::endl;
+      extract(operation,num_operater,operater,operand);
+
+      if(num_operation > 0 && num_operater > 0){
+	int i,j;
+	for(j=num_operater-1;j>=0;j--){
+	  for(i=0;i<num_operation;i++){
+	    error = functions[i]->operate(operater[j],in,out);
+	    if(error == _ERRORCODE_NOERROR){
+	      in = out;
+	      break;
+	    }
+	  }
+
+	  if(error != _ERRORCODE_NOERROR){
+	    break;
+	  }
+	}
+
+	for(j=0;j<num_operater;j++){
+	  delete [] operater[j];
+	}
+	delete [] operater;
+	delete [] operand;
+      }
+
+      if(error == _ERRORCODE_SYMBOLIC_INCORRECTOPERATION){
+	error = _ERRORCODE_SYMBOLIC_UNKNOWNOPERATION;
+      }
+      return error;
+    }
+    */
+    int operate::compute(char *operation,double in,double &out){
+      int error = _ERRORCODE_NOERROR;
+      int num_operater = 0;
+      char **operater = NULL;
+      char *operand = NULL;
+      int *nparm = NULL;
+      char ***param = NULL;
+
+      //      std::cout << operation << std::endl;
+      if(strcmp(operation,"")==0){
+	out = in;
+      }
+      else{
+	error = extract(operation,num_operater,operater,operand,nparm,param);
+	if(libjeff::debug_setting::get_debug_mode_warning()){
+	  if(error != _ERRORCODE_NOERROR){
+	    std::cout << "Warning! Error in extract. Code = " << error << std::endl;
+	  }
+	}
+	
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  int i,j;
+	  std::cout << "Number of operator: " << num_operater << std::endl;
+	  for(i=0;i<num_operater;i++){
+	    std::cout << i << " " << operater[i] << " " << nparm[i] << " ";
+	    for(j=0;j<nparm[i];j++){
+	      std::cout << param[i][j] << " ";
+	    }
+	    std::cout << std::endl;
+	  }
+	  std::cout << operand << std::endl;
+	}
+	
+	if(num_operation > 0 && num_operater > 0){
+	  int i,j;
+	  for(j=num_operater-1;j>=0;j--){
+	    for(i=0;i<num_operation;i++){
+	      error = functions[i]->operate(operater[j],in,nparm[j],param[j],out);
+	      //std::cout << operater[j] << " " << error << std::endl;
+	      if(error == _ERRORCODE_NOERROR){
+		in = out;
+		break;
+	      }
+	    }
+	    
+	    if(error != _ERRORCODE_NOERROR){
+	      break;
+	    }
+	  }
+	  
+	  
+	  for(j=0;j<num_operater;j++){
+	    if(nparm[j] > 0){
+	      for(i=0;i<nparm[j];i++){
+		delete [] param[j][i];
+	      }
+	      delete [] param[j];
+	    }
+	    delete [] operater[j];
+	  }
+	  delete [] nparm;
+	  delete [] operater;
+	  delete [] operand;
+	}
+	
+	if(error == _ERRORCODE_SYMBOLIC_INCORRECTOPERATION){
+	  error = _ERRORCODE_SYMBOLIC_UNKNOWNOPERATION;
+	}
+      }
+      return error;
+    }
+    int operate::compute(char *operation,int in,int &out){
+      int error = _ERRORCODE_NOERROR;
+      int num_operater = 0;
+      char **operater = NULL;
+      char *operand = NULL;
+      int *nparm = NULL;
+      char ***param = NULL;
+
+      //      std::cout << operation << std::endl;
+      if(strcmp(operation,"")==0){
+	out = in;
+      }
+      else{
+	error = extract(operation,num_operater,operater,operand,nparm,param);
+	if(libjeff::debug_setting::get_debug_mode_warning()){
+	  if(error != _ERRORCODE_NOERROR){
+	    std::cout << "Warning! Error in extract. Code = " << error << std::endl;
+	  }
+	}
+	
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  int i,j;
+	  std::cout << "Number of operator: " << num_operater << std::endl;
+	  for(i=0;i<num_operater;i++){
+	    std::cout << i << " " << operater[i] << " " << nparm[i] << " ";
+	    for(j=0;j<nparm[i];j++){
+	      std::cout << param[i][j] << " ";
+	    }
+	    std::cout << std::endl;
+	  }
+	  std::cout << operand << std::endl;
+	}
+	
+	if(num_operation > 0 && num_operater > 0){
+	  int i,j;
+	  for(j=num_operater-1;j>=0;j--){
+	    for(i=0;i<num_operation;i++){
+	      error = functions[i]->operate(operater[j],in,nparm[j],param[j],out);
+	      if(error == _ERRORCODE_NOERROR){
+		in = out;
+		break;
+	      }
+	    }
+	    
+	    if(error != _ERRORCODE_NOERROR){
+	      break;
+	    }
+	  }
+	  
+	  
+	  for(j=0;j<num_operater;j++){
+	    if(nparm[j] > 0){
+	      for(i=0;i<nparm[j];i++){
+		delete [] param[j][i];
+	      }
+	      delete [] param[j];
+	    }
+	    delete [] operater[j];
+	  }
+	  delete [] nparm;
+	  delete [] operater;
+	  delete [] operand;
+	}
+	
+	if(error == _ERRORCODE_SYMBOLIC_INCORRECTOPERATION){
+	  error = _ERRORCODE_SYMBOLIC_UNKNOWNOPERATION;
+	}
+      }
+      return error;
+    }
+    int operate::compute(char *operation,date_time in,date_time &out){
+      int error = _ERRORCODE_NOERROR;
+      int num_operater = 0;
+      char **operater = NULL;
+      char *operand = NULL;
+      int *nparm = NULL;
+      char ***param = NULL;
+
+      //      std::cout << operation << std::endl;
+      if(strcmp(operation,"")==0){
+	out = in;
+      }
+      else{
+	error = extract(operation,num_operater,operater,operand,nparm,param);
+	if(libjeff::debug_setting::get_debug_mode_warning()){
+	  if(error != _ERRORCODE_NOERROR){
+	    std::cout << "Warning! Error in extract. Code = " << error << std::endl;
+	  }
+	}
+	
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  int i,j;
+	  std::cout << "Number of operator: " << num_operater << std::endl;
+	  for(i=0;i<num_operater;i++){
+	    std::cout << i << " " << operater[i] << " " << nparm[i] << " ";
+	    for(j=0;j<nparm[i];j++){
+	      std::cout << param[i][j] << " ";
+	    }
+	    std::cout << std::endl;
+	  }
+	  std::cout << operand << std::endl;
+	}
+	
+	if(num_operation > 0 && num_operater > 0){
+	  int i,j;
+	  for(j=num_operater-1;j>=0;j--){
+	    for(i=0;i<num_operation;i++){
+	      error = functions[i]->operate(operater[j],in,nparm[j],param[j],out);
+	      if(error == _ERRORCODE_NOERROR){
+		in = out;
+		break;
+	      }
+	    }
+	    
+	    if(error != _ERRORCODE_NOERROR){
+	      break;
+	    }
+	  }
+	  
+	  
+	  for(j=0;j<num_operater;j++){
+	    if(nparm[j] > 0){
+	      for(i=0;i<nparm[j];i++){
+		delete [] param[j][i];
+	      }
+	      delete [] param[j];
+	    }
+	    delete [] operater[j];
+	  }
+	  delete [] nparm;
+	  delete [] operater;
+	  delete [] operand;
+	}
+	
+	if(error == _ERRORCODE_SYMBOLIC_INCORRECTOPERATION){
+	  error = _ERRORCODE_SYMBOLIC_UNKNOWNOPERATION;
+	}
+      }
+      return error;
+    }
+
+    addition add;
+    substraction minus;
+    multiplication multiply;
+    division divide;
+    power powf;
+    tangent tan;
+    cosine cos;
+    sine sin;
+    floor flr;
+    ceiling ceil;
+    //int error1 = operate::regis(new libjeff::symbolic::addition);
+    //int error2 = operate::regis(new libjeff::symbolic::substraction);
+    
+    int extract(char *in,char *&operater,char *&operand){ // only works for the form of A(b), b+c, b-c, b*c, b/c and b^c with c to be a constant 
+      bool function_mode = false;
+      bool binary_mode = false;
+      date_time check_time;
+      if(in[strlen(in)-1] == ')'){
+	function_mode = true;
+      }
+      else{
+	int i;
+	for(i=strlen(in)-1;i>=0;i--){
+	  if(in[i] == '+' || in[i] == '-' || in[i] == '*' || in[i] == '/' || in[i] == '^'){
+	    break;
+	  }
+	}
+	if(is_number(in+i+1) || check_time.set_time(in+i+1)==_ERRORCODE_NOERROR){
+	  binary_mode = true;
+	}
+      }
+      if(!function_mode && !binary_mode){
+	return _ERRORCODE_INPUTERROR;
+      }
+
+      if(operater == NULL){
+	operater = new char [BUFFSIZE];
+      }
+      if(operand == NULL){
+	operand = new char [BUFFSIZE];
+      }
+      char *ctemp = new char [BUFFSIZE];
+      strcpy(ctemp,in);
+
+      if(function_mode){
+	strcpy(operater,ctemp);
+	int leng = strlen(operater);
+	int i;
+	int brackets_lv = 0;
+	for(i=0;i<leng;i++){
+	  if(operater[i]=='['){
+	    brackets_lv++;
+	  }
+	  else if(operater[i]==']'){
+	    brackets_lv--;
+	  }
+	  else{
+	    if(brackets_lv == 0 && operater[i]=='('){
+	      operater[i]='\0';
+	      break;
+	    }
+	  }
+	}
+	
+	strcpy(operand,ctemp+i+1);
+	operand[strlen(operand)-1]='\0';
+      }
+      else if(binary_mode){
+	//	std::cout << "binary mode" << std::endl;
+	int i;
+      
+	for(i=strlen(ctemp)-1;i>=0;i--){
+	  if(ctemp[i] == '+' || ctemp[i] == '-' || ctemp[i] == '*' || ctemp[i] == '/' || ctemp[i] == '^'){
+	    strcpy(operater,ctemp+i);
+	    ctemp[i]='\0';
+	    strcpy(operand,ctemp);
+	    break;
+	  }
+	}
+      }
+
+      delete [] ctemp;
+      
+      return _ERRORCODE_NOERROR;
+    }
+    /*
+    int extract(char *in,int &num_operater,char **&operater,char *&operand){
+      if(string_count_pattern(in,"(") != string_count_pattern(in,")")){
+	return _ERRORCODE_INPUTERROR;
+      }
+
+      int i;
+      if(operater != NULL){
+	for(i=0;i<num_operater;i++){
+	  delete [] operater[i];
+	}
+	delete [] operater;
+	operater = NULL;
+      }
+
+      num_operater=string_count_pattern(in,"(") + string_count_pattern(in,"+") + string_count_pattern(in,"-") + string_count_pattern(in,"*") + string_count_pattern(in,"/") + string_count_pattern(in,"^");
+      if(num_operater > 0){
+	operater = new char *[num_operater];
+	for(i=0;i<num_operater;i++){
+	  operater[i] = NULL;
+	}
+
+      
+	for(i=0;i<num_operater;i++){
+	  if(i==0){
+	    extract(in,operater[i],(num_operater>1?operater[i+1]:operand));
+	  }
+	  else if(i!=num_operater-1){
+	    extract(operater[i],operater[i],operater[i+1]);
+	  }
+	  else{
+	    extract(operater[i],operater[i],operand);
+	  }
+	}
+      }
+
+      return _ERRORCODE_NOERROR;
+    }
+    */
+    int extract(char *in,int &num_operater,char **&operater,char *&operand,int *&nparm,char ***&parm){ // only works for the form of A(b), b+c, b-c, b*c, b/c and b^c with c to be a constant.  Parameters would be accepted in the form of A[c](b) with c as the parameter
+      if(string_count_pattern(in,"(") != string_count_pattern(in,")") || string_count_pattern(in,"[") != string_count_pattern(in,"]")){
+	return _ERRORCODE_INPUTERROR;
+      }
+      if(num_operater == 0 && (parm != NULL || operater != NULL || nparm != NULL)){
+	return _ERRORCODE_POTENTIAL_MEMORYLEAK;
+      }
+
+      int i,j,k;
+      if(operater != NULL){
+	for(i=0;i<num_operater;i++){
+	  delete [] operater[i];
+	}
+	delete [] operater;
+	operater = NULL;
+      }
+      if(nparm != NULL){
+	for(i=0;i<num_operater;i++){
+	  for(j=0;j<nparm[i];j++){
+	    delete [] parm[i][j];
+	  }
+	  delete [] parm[i];
+	}
+	delete [] parm;
+	delete [] nparm;
+      }
+
+      num_operater=string_count_pattern(in,"(") + string_count_pattern(in,"+") + string_count_pattern(in,"-") + string_count_pattern(in,"*") + string_count_pattern(in,"/") + string_count_pattern(in,"^");
+      if(num_operater > 0){
+	operater = new char *[num_operater];
+	nparm = new int [num_operater];
+	parm = new char **[num_operater];
+	for(i=0;i<num_operater;i++){
+	  operater[i] = NULL;
+	  parm[i] = NULL;
+	}
+
+      
+	for(i=0;i<num_operater;i++){
+	  if(i==0){
+	    extract(in,operater[i],(num_operater>1?operater[i+1]:operand));
+	  }
+	  else if(i!=num_operater-1){
+	    extract(operater[i],operater[i],operater[i+1]);
+	  }
+	  else{
+	    extract(operater[i],operater[i],operand);
+	  }
+	}
+
+	for(i=0;i<num_operater;i++){
+	  nparm[i] = 0;
+	  if(operater[i][0] == '+' || operater[i][0] == '-' || operater[i][0] == '*' || operater[i][0] == '/' || operater[i][0] == '^'){
+	    nparm[i] = 1;
+	    parm[i] = new char *[nparm[i]];
+	    parm[i][0] = new char [BUFFSIZE];
+	    strcpy(parm[i][0],operater[i]+1);
+	    operater[i][1]='\0';
+	  }
+	  else if(operater[i][strlen(operater[i])-1] == ']'){
+	    char *ctemp = strstr(operater[i],"[");
+	    if(ctemp != NULL){
+	      int bracket_lv = 0;
+	      int parentheses_lv = 0;
+	      ctemp++;
+	      if(ctemp[0] != ']'){
+		nparm[i]++;
+	      }
+	      while(ctemp <= operater[i]+strlen(operater[i])-2){
+		if(*ctemp == '['){
+		  bracket_lv++;
+		}
+		else if(*ctemp == ']'){
+		  bracket_lv--;
+		}
+		else if(*ctemp == '('){
+		  parentheses_lv++;
+		}
+		else if(*ctemp == ')'){
+		  parentheses_lv--;
+		}
+		else if(bracket_lv == 0 && parentheses_lv == 0){
+		  if(*ctemp == ','){
+		    nparm[i]++;
+		  }
+		}
+		ctemp++;
+	      }
+	    }
+
+	    if(nparm[i] > 0){
+	      parm[i] = new char *[nparm[i]];
+	      char *ctemp = strstr(operater[i],"[")+1;
+	      for(j=0;j<nparm[i];j++){
+		parm[i][j] = new char [BUFFSIZE];
+		
+		strcpy(parm[i][j],ctemp);
+		
+		if(j!=nparm[i]-1){
+		  int bracket_lv = 0;
+		  int parentheses_lv = 0;
+		  for(k=0;k<strlen(parm[i][j]);k++){
+		    if(parm[i][j][k] == '['){
+		      bracket_lv++;
+		    }
+		    else if(parm[i][j][k] == ']'){
+		      bracket_lv--;
+		    }
+		    else if(parm[i][j][k] == '('){
+		      parentheses_lv++;
+		    }
+		    else if(parm[i][j][k] == ')'){
+		      parentheses_lv--;
+		    }
+		    else if(bracket_lv == 0 && parentheses_lv == 0){
+		      if(parm[i][j][k] == ','){
+			parm[i][j][k] = '\0';
+			break;
+		      }
+		    }
+		  }
+		  ctemp += strlen(parm[i][j]) + 1;
+		}
+		else{
+		  parm[i][j][strlen(parm[i][j])-1]='\0';
+		}
+	      }
+	      *strstr(operater[i],"[") = '\0';
+	    }
+	  }
+	}
+      }
+
+      return _ERRORCODE_NOERROR;
+      
+    }
+  }
+}

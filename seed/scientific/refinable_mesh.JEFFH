@@ -1,0 +1,53 @@
+#ifndef REFINABLEMESH
+#define REFINABLEMESH
+
+class refinable_mesh{
+ public:
+  refinable_mesh();
+  ~refinable_mesh();
+
+  virtual int create(int nx,int ny,int nz,int ndim);
+  virtual void destroy();
+
+  virtual int get_nx() const;
+  virtual int get_ny() const;
+  virtual int get_nz() const;
+  virtual int get_ndim() const;
+
+  int refine(int xindex,int yindex,int zindex,int xscale,int yscale,int zscale);
+  virtual double* get_average(double *out);
+  virtual void set_value(double* in);
+
+  refinable_mesh *get_mesh(int xindex,int yindex,int zindex);
+
+ protected:
+  int ndim;
+
+ private:
+  int nx,ny,nz;
+  refinable_mesh **mesh;
+  double *value;
+};
+/*
+class point_mesh : public refinable_mesh{
+ public:
+  point_mesh();
+  ~point_mesh();
+  
+  virtual int create(int nx,int ny,int nz,int ndim);
+  virtual void destroy();
+
+  virtual int get_nx() const;
+  virtual int get_ny() const;
+  virtual int get_nz() const;
+  virtual int get_ndim() const;
+
+  virtual double* get_average(double *out);
+  virtual void set_value(double* in);
+
+
+ private:
+  double *value;
+}
+*/
+#endif

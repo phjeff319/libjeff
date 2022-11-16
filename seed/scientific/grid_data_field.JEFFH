@@ -1,0 +1,98 @@
+#ifndef CUDAGRIDDATAFIELD
+#define CUDAGRIDDATAFIELD
+#include"grid_data.h"
+
+namespace libjeff{
+  class grid_data_field{
+  public:
+    ###CPP### ###CUDA### ###HOST### grid_data_field();
+    ###CPP### ###CUDA### ###HOST### grid_data_field(grid_data* to_point,int dim_index);
+
+    ###CPP### ###CUDA### ###HOST### inline int get_dim_index() const {return dim_index;}
+    ###CPP### ###CUDA### ###HOST### inline grid_data* get_grid_data() const {return to_map;}
+
+    ###CPP### ###CUDA### ###HOST### inline double *get_z() const {return to_map->get_z();}
+    ###CPP### ###CUDA### ###HOST### inline double get_z(int ix,int iy,int iz) const {return to_map->get_z(ix,iy,iz);}
+    ###CPP### ###CUDA### ###HOST### inline double get_z(double ix,double iy,double iz) const {return to_map->get_z(ix,iy,iz);}
+    ###CPP### ###CUDA### ###HOST### inline double *get_y() const {return to_map->get_y();}
+    ###CPP### ###CUDA### ###HOST### inline double get_y(int ix,int iy,int iz) const {return to_map->get_y(ix,iy,iz);}
+    ###CPP### ###CUDA### ###HOST### inline double get_y(double ix,double iy,double iz) const {return to_map->get_y(ix,iy,iz);}
+    ###CPP### ###CUDA### ###HOST### inline double *get_x() const {return to_map->get_x();}
+    ###CPP### ###CUDA### ###HOST### inline double get_x(int ix,int iy,int iz) const {return to_map->get_x(ix,iy,iz);}
+    ###CPP### ###CUDA### ###HOST### inline double get_x(double ix,double iy,double iz) const {return to_map->get_x(ix,iy,iz);}
+    ###CPP### ###CUDA### ###HOST### inline int get_nx() const {return to_map->get_nx();}
+    ###CPP### ###CUDA### ###HOST### inline int get_ny() const {return to_map->get_ny();}
+    ###CPP### ###CUDA### ###HOST### inline int get_nz() const {return to_map->get_nz();}
+    ###CPP### ###CUDA### ###HOST### inline int get_ngrid() const {return to_map->get_ngrid();}
+    ###CPP### ###CUDA### ###HOST### inline double* get_coordinate(int index,double *work) const {return to_map->get_coordinate(index,work);}
+    ###CPP### ###CUDA### ###HOST### inline double* get_coordinate(int ix,int iy,int iz,double *work) const {return to_map->get_coordinate(ix,iy,iz,work);}
+    ###CPP### ###CUDA### ###HOST### double* get_data(int ix,int iy,int iz) const;
+    ###CUDA### ###HOST### double* get_data(char *hostORdevice,double *output_buff) const;
+    ###CUDA### ###HOST### int set_data(char *hostORdevice,double *input_buff);
+
+    ###CPP### ###CUDA### ###HOST### inline bool is_x_periodic() const {return this->to_map->is_x_periodic();}
+    ###CPP### ###CUDA### ###HOST### inline bool is_y_periodic() const {return this->to_map->is_y_periodic();}
+    ###CPP### ###CUDA### ###HOST### inline bool is_z_periodic() const {return this->to_map->is_z_periodic();}
+    ###CPP### ###CUDA### ###HOST### inline double get_x_period() const {return this->to_map->get_x_period();}
+    ###CPP### ###CUDA### ###HOST### inline double get_y_period() const {return this->to_map->get_y_period();}
+    ###CPP### ###CUDA### ###HOST### inline double get_z_period() const {return this->to_map->get_z_period();}
+
+    ###CUDA### ###HOST### inline double* get_d_x() const {return this->to_map->get_d_x();}
+    ###CUDA### ###HOST### inline double* get_d_y() const {return this->to_map->get_d_y();}
+    ###CUDA### ###HOST### inline double* get_d_z() const {return this->to_map->get_d_z();}
+    ###CUDA### ###HOST### inline double* get_d_data() const {return this->to_map->get_d_data();}
+    ###CUDA### ###HOST### inline int get_d_nx() const {return to_map->get_d_nx();}
+    ###CUDA### ###HOST### inline int get_d_ny() const {return to_map->get_d_ny();}
+    ###CUDA### ###HOST### inline int get_d_nz() const {return to_map->get_d_nz();}
+    ###CUDA### ###HOST### inline int get_d_ngrid() const {return to_map->get_d_ngrid();}
+
+    ###CUDA### ###HOST### int get_in_batch(int nbatchx,int nbatchy,int nbatchz,int batchx_index,int batchy_index,int batchz_index,int padx,int pady,int padz,char *field,double *out) const;
+
+    ###CPP### ###CUDA### ###HOST### void set(grid_data* to_point,int dim_index);
+    ###CPP### ###CUDA### ###HOST### void unset();
+    ###CPP### ###CUDA### ###HOST### bool isset();
+
+    ###CPP### ###CUDA### ###HOST### double max() const;
+    ###CPP### ###CUDA### ###HOST### double max(int minx,int maxx,int miny,int maxy,int minz,int maxz) const;
+    ###CPP### ###CUDA### ###HOST### double min() const;
+    ###CPP### ###CUDA### ###HOST### double min(int minx,int maxx,int miny,int maxy,int minz,int maxz) const;
+
+    ###CUDA### ###HOST### double d_max() const;
+    //###CUDA### ###HOST### double d_max(int minx,int maxx,int miny,int maxy,int minz,int maxz) const;
+    ###CUDA### ###HOST### double d_min() const;
+    //###CUDA### ###HOST### double d_min(int minx,int maxx,int miny,int maxy,int minz,int maxz) const;
+
+    ###CPP### ###CUDA### ###HOST### int cal_x_derivatives(const grid_data_field* src);
+    ###CPP### ###CUDA### ###HOST### int cal_y_derivatives(const grid_data_field* src);
+    ###CPP### ###CUDA### ###HOST### int cal_z_derivatives(const grid_data_field* src);
+
+    ###CPP### ###CUDA### ###HOST### double& operator[](size_t idx);
+    ###CPP### ###CUDA### ###HOST### grid_data_field& operator=(const grid_data_field &in);
+    ###CPP### ###CUDA### ###HOST### grid_data_field operator+=(const grid_data_field &in);
+    ###CPP### ###CUDA### ###HOST### grid_data_field operator-=(const grid_data_field &in);
+    ###CPP### ###CUDA### ###HOST### grid_data_field operator-=(double in);
+    ###CPP### ###CUDA### ###HOST### grid_data_field operator*=(const grid_data_field &in);
+    ###CPP### ###CUDA### ###HOST### grid_data_field operator*=(double in);
+    ###CPP### ###CUDA### ###HOST### grid_data_field operator/=(const grid_data_field &in);
+    ###CPP### ###CUDA### ###HOST### grid_data_field operator/=(double in);
+
+    ###CPP### ###CUDA### ###HOST### int copy(const grid_data_field &in);
+
+    ###CPP### ###CUDA### ###HOST### double multiple_linear_interpolate(double x, double y, double z) const;
+    ###CPP### ###CUDA### ###HOST### int multiple_linear_interpolate_from(const grid_data_field *in) const;
+
+    ###CPP### ###CUDA### ###HOST### int gaussian_smooth(const grid_data_field &in,int x_neightbour,int y_neightbour,double radius);
+    ###CUDA### ###HOST### int gaussian_smooth(const grid_data_field &in,int x_neightbour,int y_neightbour,double radius,bool gpu_mode);
+
+    ###CPP### ###CUDA### ###HOST### int get_grid_code() const;
+
+  private:
+    grid_data* to_map;
+    int dim_index;
+  };
+  ###CPP### ###CUDA### ###HOST### bool grid_data_field_check_grid_inconsistence(const grid_data_field* a,const grid_data_field* b);
+  ###CUDA### ###GLOBAL### void gaussian_smooth_kernel(int nx,int ny,int nz,double *in,int x_neightbour,int y_neightbour,double radius,double *out);
+  ###CUDA### ###GLOBAL### void gaussian_smooth_kernel(int nx,int ny,int nz,double *in,bool is_x_periodic,bool is_y_periodic,int x_neightbour,int y_neightbour,double radius,double *out);
+}
+
+#endif

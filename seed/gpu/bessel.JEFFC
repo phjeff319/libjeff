@@ -1,0 +1,234 @@
+#include<cmath>
+using namespace std;
+
+#include"bessel.h"
+#include"cuda_tools.h"
+#include"cuda_setting.h"
+using namespace libjeff;
+//#include"/home/openlab/NVIDIA_GPU_Computing_SDK/CUDALibraries/common/inc/cutil.h"
+/*
+  Using the log derivatives to calculate the Riccati bessel functions
+  Refers to Physical Review E 60, 2347-2365 (1999) for the details
+*/
+namespace libjeff{
+  ###GLOBAL### void g_bessel_riccati_besselj(int num_argument,int max_order,complex* x,complex *ratio,complex* besselj){
+    int i = blockDim.x*blockIdx.x + threadIdx.x;
+    
+    if(i < num_argument){
+      d_bessel_riccati_besselj_ratio(max_order,x[i],ratio+i*(max_order+1));
+      d_bessel_ratio2riccati_besselj(max_order,x[i],ratio+i*(max_order+1),besselj+i*(max_order+1));
+    }
+  }
+  
+  ###GLOBAL### void g_bessel_riccati_besselj(int num_argument,int max_order,double* x,double* ratio,double* besselj){
+    int i = blockDim.x*blockIdx.x + threadIdx.x;
+    
+    if(i < num_argument){
+      d_bessel_riccati_besselj_ratio(max_order,x[i],ratio+i*(max_order+1));
+      d_bessel_ratio2riccati_besselj(max_order,x[i],ratio+i*(max_order+1),besselj+i*(max_order+1));
+    }
+  }
+  
+  ###HOST### ###DEVICE### void d_bessel_riccati_besselj_ratio(int max_order,complex x,complex* ratio){
+    int nx = max_order + x.abs()*1.1 + 10;
+    complex pn = x/(2*nx + 3.);
+    
+    //Work out the ratio between Bessel function of different order
+    int j;
+    for(j=nx-1;j>=1;j--){
+      pn  = x/(pn*(-x) + ((double) 2*j+1));
+      if(j<=max_order){
+	ratio[j] = pn;
+      }
+    }
+  }
+  
+  ###HOST### ###DEVICE### void d_bessel_riccati_besselj_ratio(int max_order,double x,double* ratio){
+    int nx = max_order + 1.1*x + 10;
+    double pn = x/(2*nx + 3.);
+    
+    //Work out the ratio between Bessel function of different order
+    int j;
+    for(j=nx-1;j>=1;j--){
+      pn  = x/(((double) 2*j+1) - pn * x);
+      if(j<=max_order){
+	ratio[j] = pn;
+      }
+    }
+  }
+  
+  ###GLOBAL### void g_bessel_riccati_besselj_ratio(int num_argument,int max_order,complex* x,complex *ratio){
+    int i = blockDim.x*blockIdx.x + threadIdx.x;
+    
+    if(i < num_argument){
+      d_bessel_riccati_besselj_ratio(max_order,x[i],ratio+i*(max_order+1));
+    }
+  }
+  
+  ###HOST### ###DEVICE### void d_bessel_ratio2riccati_besselj(int max_order,complex x,complex*ratio,complex* besselj){
+    if(x.abs() < 1e-12){
+      int j;
+      for(j=1;j<=max_order;j++){
+	besselj[j] = 0.;
+      }
+      besselj[0] = x;
+    }
+    else{
+      int j;
+      if(x.abs()<0.1){
+	complex x2 = x*x;
+	
+	//Bessel function zero order
+	besselj[0] = complex(1.) - x2/72.;
+	besselj[0] = complex(1.) - x2*besselj[0]/42.;
+	besselj[0] = complex(1.) - x2*besselj[0]/20.;
+	besselj[0] = complex(1.) - x2*besselj[0]/6.;
+	besselj[0] *= x;
+	
+	//Bessel function 1st order
+	besselj[1] = complex(1./45360.) - x2/3991680.;
+	besselj[1] = complex(1./840.) - x2*besselj[1];
+	besselj[1] = complex(1./30.) - x2*besselj[1];
+	besselj[1] = x2*(complex(1./3.) - x2*besselj[1]);
+      }
+      else{
+	double u = x.real();
+	double v = x.imag();
+	
+	double su = sin(u);
+	double cu = cos(u);
+	double shv = sinh(v);
+	double chv = cosh(v);
+	
+	//Bessel function zero order
+	besselj[0] = complex(su*chv,cu*shv);
+	//Bessel function 1st order
+	besselj[1] = complex((u*su*chv + v*cu*shv)/(u*u+v*v) - cu*chv,su*shv - (v*su*chv - u*cu*shv)/(u*u+v*v));
+      }
+      
+      //for higher order Bessel function
+      for(j=2;j<=max_order;j++){
+	besselj[j] = ratio[j]*besselj[j-1];
+      }
+    }
+  }
+  
+  ###HOST### ###DEVICE### void d_bessel_ratio2riccati_besselj(int max_order,double x,double *ratio,double* besselj){
+    if(fabs(x) < 1e-12){
+      int j;
+      for(j=1;j<=max_order;j++){
+	besselj[j] = 0.;
+      }
+      besselj[0] = x;
+    }
+    else{
+      int j;
+      if(fabs(x)<0.1){
+	double x2 = x*x;
+	
+	//Bessel function zero order
+	besselj[0] = 1. - x2/72.;
+	besselj[0] = 1. - x2*besselj[0]/42.;
+	besselj[0] = 1. - x2*besselj[0]/20.;
+	besselj[0] = 1. - x2*besselj[0]/6.;
+	besselj[0] *= x;
+	
+	//Bessel function 1st order
+	besselj[1] = 1./45360. - x2/3991680.;
+	besselj[1] = 1./840. - x2*besselj[1];
+	besselj[1] = 1./30. - x2*besselj[1];
+	besselj[1] = x2*(1./3. - x2*besselj[1]);
+      }
+      else{
+	//Bessel function zero order
+	besselj[0] = sin(x);
+	//Bessel function 1st order
+	besselj[1] = sin(x)/x - cos(x);
+      }
+      
+      //for higher order Bessel function
+      for(j=2;j<=max_order;j++){
+	besselj[j] = ratio[j]*besselj[j-1];
+      }
+    }
+  }
+  
+  ###GLOBAL### void g_bessel_riccati_besselk(int num_argument,int max_order,double* x,double* ratio,double* besselk){
+    int i = blockDim.x*blockIdx.x + threadIdx.x;
+    
+    if(i < num_argument){
+      d_bessel_riccati_besselk_ratio(max_order,x[i],ratio+i*(max_order+1));
+      d_bessel_ratio2riccati_besselk(max_order,x[i],ratio+i*(max_order+1),besselk+i*(max_order+1));
+    }
+  }
+  
+  ###HOST### ###DEVICE### void d_bessel_riccati_besselk_ratio(int max_order,double x,double* ratio){
+    ratio[1] = 1./x+tan(x);
+    int j;
+    for(j=2;j<=max_order;j++){
+      ratio[j] = (2*j - 1)/x - 1./ratio[j-1];
+    }
+  }
+  
+  ###HOST### ###DEVICE### void d_bessel_ratio2riccati_besselk(int max_order,double x,double* ratio,double* besselk){
+    double temp;
+    if(fabs(x)<0.1){
+      double x2 = x*x;
+      
+      temp = 1. - x2/72.;
+      temp = 1. - x2/42.*temp;
+      temp = 1. - x2/20.*temp;
+      temp = 1. - x2/6.*temp;
+      temp *= x;
+      
+      //Neumann function zero order
+      besselk[0] = 1. - x2/56.;
+      besselk[0] = 1. - x2*besselk[0]/30.;
+      besselk[0] = 1. - x2*besselk[0]/12.;
+      besselk[0] = 1. - 0.5*x2*besselk[0];
+      besselk[0] = -besselk[0];
+    }
+    else{
+      temp = sin(x);
+      
+      //Neumann function zero order
+      besselk[0] = -cos(x);
+    }
+    besselk[1] = besselk[0]/x - temp;
+    
+    int j;
+    for(j=2;j<=max_order;j++){
+      besselk[j] = ratio[j]*besselk[j-1];
+    }
+  }
+  
+  ###HOST### void bessel_riccati_besselh1_gpu(int num_argument,int max_order,double* x,complex* besselh1){
+    double *rtemp1, *rtemp2, *ratio;
+    
+    cudaMalloc((void**) &rtemp1, num_argument*(max_order+1)*sizeof(double));
+    //CUT_CHECK_ERROR("Failed.");
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << endl;
+    cudaMalloc((void**) &ratio, num_argument*(max_order+1)*sizeof(double));
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << endl;
+    //CUT_CHECK_ERROR("Failed.");
+    int numthreads = cuda_setting::get_numthreads();
+    dim3 grid;
+    grid.x = (int) ceil(((double) num_argument)/numthreads);
+    g_bessel_riccati_besselj<<<grid,numthreads>>>(num_argument,max_order,x,ratio,rtemp1);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << endl;
+    //CUT_CHECK_ERROR("Failed.");
+    cudaMalloc((void**) &rtemp2, num_argument*(max_order+1)*sizeof(double));
+    g_bessel_riccati_besselk<<<grid,numthreads>>>(num_argument,max_order,x,ratio,rtemp2);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << endl;
+    //CUT_CHECK_ERROR("Failed.");
+    
+    grid.x = (int) ceil(((double) num_argument*(max_order+1))/numthreads);
+    cuda_2real_to_complex<<<grid,numthreads>>>(num_argument*(max_order+1),rtemp1,rtemp2,besselh1);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << endl;
+    //CUT_CHECK_ERROR("Failed.");
+    
+    cudaFree(rtemp1);
+    cudaFree(rtemp2);
+    cudaFree(ratio);
+  }
+}

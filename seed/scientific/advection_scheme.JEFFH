@@ -1,0 +1,38 @@
+l#ifndef ADVECTION_SCHEME
+#define ADVECTION_SCHEME
+#include "timed_grid_data.h"
+#include "timed_grid_data_field.h"
+
+class advection_scheme{
+ public:
+  advection_scheme();
+  ~advection_scheme();
+
+  int initialize();
+
+  int set_field(timed_grid_data *field); //asumming at least two time step. Reuse after all time step used up. 0 -> 1 -> 2-> ... -> n -> 0 ->...
+  int set_flow(timed_grid_data_field **flow);
+  int set_time_step(double time_step);
+  int set_domain_x(int low,int up);
+  int set_domain_y(int low,int up);
+  int set_domain_z(int low,int up);
+  
+  inline timed_grid_data* get_fields() const { return fields;}
+  inline timed_grid_data_field* get_flow() const { return flow;} 
+
+  //int check() const; //check if everything is ok
+
+  virtual int advect(int num_time_step)=0;
+  inline int advect() {return this->advect(1);};
+
+ private:
+  int ndim; //dimension of the flow field. It is determined by the number of valid dimensions in both flow and fields
+  double time_step;
+  bool advect_flow; //determine if the flow would be self advecting. If self-advecting, need to iterate to self-consistent
+  timed_grid_data *fields;
+  timed_grid_data_field *flow; //advection velocity field
+  int domain_xlimit[2];
+  int domain_ylimit[2];
+  int domain_zlimit[2];
+};
+#endif

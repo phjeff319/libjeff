@@ -1,0 +1,48 @@
+#ifndef Math_special_function
+#define Math_special_function
+namespace libjeff{
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_plank_distribution(double,double);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_cal_brightness_temperature(double,double);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_lagrange_interpolation(int npoint,double x,double data[][2]);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_lagrange_interpolation(int npoint,double x,double *grid_point,double *grid_value);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_bilinear_interpolate(double *point,double *lat, double *lon, double *grid_value);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_multilinear_interpolate(int ndim, double *point, double **grid_point, double *grid_value);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_multilinear_interpolate(int ndim, double *point, double *grid_point, double *grid_value);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_multilinear_interpolate(int ndim, double missing_value, double *point, double *grid_point, double *grid_value);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_multicubic_interpolate(int ndim, double *point, double *grid_point, double *grid_value);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_multiquasicubic_interpolate(int ndim, double *point, double *grid_point, double *grid_value);
+  ###CPP### ###HOST### double math_inv_dist_weight_interpolate(int npt,int ndim,double *point,double **grid_point,double *grid_value);
+  ###CPP### ###HOST### double math_inv_dist_weight_interpolate(int npt,int ndim,double *point,double **grid_point,double *grid_value,double (*metric)(int,double*, double*));
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_gaussian_distribution(double x,double mean,double sigma);
+  ###CUDA### ###GLOBAL### void math_gaussian_distribution(int npt,double *x,double *mean,double *sigma,double *out);
+  ###CUDA### ###GLOBAL### void math_gaussian_distribution(int nx,double *x,int nmean,double *mean,int nsigma,double *sigma,double *out); //out is an array of size nx*nmean*nsigma.  Output order is with running index of sigma -> mean -> x
+  
+  ###CPP### ###HOST### void math_modified_gamma_distribution(double alpha, double mu, double lambda, int nvalue, double *x, double *y);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_sigmoid(double x);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_inv_sigmoid(double x);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* math_convert2polar(double *in,double *center,double *out);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* math_hyperspherical2cartesian(int ndim,double *hyperspherical,double *cartesian);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* math_cartesian2hyperspherical(int ndim,double *cartesian,double *hyperspherical);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double math_NCR(int n, int r);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### int pow(int,int);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double pow(double,int);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double pow(double base,double exponent);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### int abs(int);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### int power_ceiling(int in,int base);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### bool have_root(double data_pt1,double data_pt2,double value); // return true if value if between (pt1, pt2)
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### bool have_root(double data_pt1,double data_pt2,double data_pt3,double data_pt4,double value); // return true if value if between (pt1, pt2)
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_frac(double value1,double value2,double value3);
+
+  ###CPP### ###CUDA### ###HOST### int math_cal_ludcomp(double **input, int ndim, double **l, double **u);  //a matrix A in form of Aij is stored as A[i][j]
+
+  ###CPP### ###CUDA### ###HOST### int math_numerical_diff(int npt,double *x,double *y,int order,double **nd); //no optimization for constant delta x.  Please use another subroutine for this case. nd is in dimension of nd[npt][order] with n[x][y] storing the y+1 derivatives at the point x. Please use even number for order
+  ###CPP### ###CUDA### ###HOST### int math_numerical_diff(int npt,double *x,double *y,int order,int shift,double **nd); //no optimization for constant delta x.  Please use another subroutine for this case. nd is in dimension of nd[npt][order] with n[x][y] storing the y+1 derivatives at the point x. Please use even number for order
+
+  namespace hibert_curve{
+    ###CPP### ###CUDA### ###HOST### ###DEVICE### int xy2d(int order,int *xy);
+    ###CPP### ###CUDA### ###HOST### ###DEVICE### int* d2xy(int order,int d,int* xy);
+    ###CPP### ###CUDA### ###HOST### ###DEVICE### int* rot(int n,int *rxy,int *xy);
+  };
+}
+#endif

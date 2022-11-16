@@ -1,0 +1,24 @@
+#include<cuda.h>
+
+#ifndef Bessel
+#define Bessel
+#include"complex.h"
+//GPU kernels and subroutines
+//Riccati Bessel from Spherical Bessel Function
+namespace libjeff{
+  ###GLOBAL### void g_bessel_riccati_besselj(int num_argument,int max_order,complex* x,complex *ratio,complex* besselj);
+  ###HOST### ###DEVICE### void d_bessel_riccati_besselj_ratio(int max_order,complex x,complex* ratio);
+  ###HOST### ###DEVICE### void d_bessel_ratio2riccati_besselj(int max_order,complex x,complex*ratio,complex* besselj);
+  ###GLOBAL### void g_bessel_riccati_besselj_ratio(int num_argument,int max_order,complex* x,complex *ratio);
+  
+  ###GLOBAL### void g_bessel_riccati_besselj(int num_argument,int max_order,double* x,double* ratio,double* besselj);
+  ###HOST### ###DEVICE### void d_bessel_riccati_besselj_ratio(int max_order,double x,double* ratio);
+  ###HOST### ###DEVICE### void d_bessel_ratio2riccati_besselj(int,double,double*,double*);
+  //Riccati Bessel from Spherical Neumann Function
+  ###GLOBAL### void g_bessel_riccati_besselk(int num_argument,int max_order,double* x,double* ratio,double* besselk);
+  ###HOST### ###DEVICE### void d_bessel_riccati_besselk_ratio(int max_order,double x,double* ratio);
+  ###HOST### ###DEVICE### void d_bessel_ratio2riccati_besselk(int max_order,double x,double* ratio,double* besselk);
+  //Riccati Bessel from Spherical Hankel Function type 1
+  ###HOST### void bessel_riccati_besselh1_gpu(int num_argument,int max_order,double* x,complex* besselh1);
+}
+#endif

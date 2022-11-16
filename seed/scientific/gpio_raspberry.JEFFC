@@ -1,0 +1,150 @@
+#include "gpio_raspberry.h"
+
+#include <cstring>
+#include <fstream>
+#include<iostream>
+
+#include "error_code.h"
+
+#define BUFFSIZE 4096
+
+gpio_raspberry::gpio_raspberry(){
+  pinnum = -1;
+}
+gpio_raspberry::gpio_raspberry(int in){
+  this->gpio_set_pinnum(in);
+}
+
+int gpio_raspberry::gpio_set_pinnum(int in){
+  if(gpio_is_pinnum_valid(in)){
+    pinnum = in;
+    return _ERRORCODE_NOERROR;
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+}
+int gpio_raspberry::gpio_get_pinnum(){
+  return pinnum;
+}
+
+int gpio_raspberry::gpio_export(){
+  if(gpio_is_pinnum_valid(this->pinnum)){
+    char *ctemp = new char [BUFFSIZE];
+    strcpy(ctemp,"/sys/class/gpio/export");
+    std::ofstream fout(ctemp);
+    if(fout < 0){
+      return _ERRORCODE_FILEOUT_OPENERROR;
+    }
+
+    fout << this->pinnum << std::endl;
+    fout.close();
+
+    delete ctemp;
+    
+    return _ERRORCODE_NOERROR;
+  }
+  else{
+    return _ERRORCODE_DATAYETTOBEINITIATED;
+  }
+}
+int gpio_raspberry::gpio_unexport(){
+  if(gpio_is_pinnum_valid(this->pinnum)){
+    char *ctemp = new char [BUFFSIZE];
+    strcpy(ctemp,"/sys/class/gpio/unexport");
+    std::ofstream fout(ctemp);
+    if(fout < 0){
+      return _ERRORCODE_FILEOUT_OPENERROR;
+    }
+
+    fout << this->pinnum << std::endl;
+    fout.close();
+
+    delete ctemp;
+
+    return _ERRORCODE_NOERROR;
+  }
+  else{
+    return _ERRORCODE_DATAYETTOBEINITIATED;
+  }  
+}
+
+int gpio_raspberry::gpio_set_value(int in){
+  if(!gpio_is_pinnum_valid(pinnum)){
+    return _ERRORCODE_DATAYETTOBEINITIATED;
+  }
+
+  char *ctemp = new char [BUFFSIZE];
+  sprintf(ctemp,"/sys/class/gpio/gpio%d/value",pinnum);
+  std::ofstream fout;
+  fout.open(ctemp);
+  if(fout < 0){
+    return _ERRORCODE_FILEOUT_OPENERROR;
+  }
+  
+  fout << in << std::endl;
+  fout.close();
+
+  delete [] ctemp;
+  
+  return _ERRORCODE_NOERROR;
+}
+int gpio_raspberry::gpio_get_value(int &out){
+  if(!gpio_is_pinnum_valid(pinnum)){
+    return _ERRORCODE_DATAYETTOBEINITIATED;
+  }
+
+  return _ERRORCODE_NOERROR;
+}
+int gpio_raspberry::gpio_set_direction(int dir){
+  if(!gpio_is_pinnum_valid(pinnum)){
+    return _ERRORCODE_DATAYETTOBEINITIATED;
+  }
+
+  char *ctemp = new char [BUFFSIZE];
+  sprintf(ctemp,"/sys/class/gpio/gpio%d/direction",pinnum);
+  //std::cout << ctemp << std::endl;
+  std::ofstream fout;
+  fout.open(ctemp);
+  if(fout < 0){
+    return _ERRORCODE_FILEOUT_OPENERROR;
+  }
+  
+  if(dir >= 0){
+    fout << "out" << std::endl;
+  }
+  else{
+    fout << "in" << std::endl;
+  }
+  fout.close();
+
+  delete [] ctemp;
+  
+  return _ERRORCODE_NOERROR;
+}
+
+bool gpio_is_pinnum_valid(int in){
+  switch(in){
+  case 2:
+  case 3:
+  case 4:
+  case 7:
+  case 8:
+  case 9:
+  case 10:
+  case 11:
+  case 14:
+  case 15:
+  case 17:
+  case 18:
+  case 22:
+  case 23:
+  case 24:
+  case 25:
+  case 27:
+    return true;
+  default:
+    return false;
+  }
+}
+

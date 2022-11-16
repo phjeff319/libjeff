@@ -1,0 +1,98 @@
+#include <iostream>
+using namespace std;
+#ifndef Date_time
+#define Date_time
+class date_time{
+  friend ostream &operator<<(ostream &, const date_time);
+ public:
+  date_time();
+  date_time(int year,int mon,int day);
+  date_time(int year,int mon,int day,int hour);
+  date_time(int year,int mon,int day,int hour,int min);
+  date_time(int year,int mon,int day,int hour,int min, int second);
+  date_time(char *timestr);
+  void set_time(int,int,int,int,int,int);
+  void set_time(int,int,int,int,int);
+  void set_time(int year,int mon,int day,int hour);
+  void set_time(int year,int mon,int day,double decimal_hour);
+  void set_time(int,int,int);
+  void set_time(int,int);
+  void set_time(int);
+  void set_sec_decimal(double in);
+  int set_time(char * timestr);
+  int set_time(char * timestr,char *format);
+  void set_time_YYYYMMDD(int yyyymmdd);
+  void set_time_YYYYMMDDHH(int yyyymmddhh);
+  void set_time_YYYYMMDDHH(char *yyyymmddhh);
+  void set_time_YYYYMMDDHHMM(char *yyyymmddhhmm);
+  void set_time_YYYYMMDDHHMMSS(char *yyyymmddhhmmss);
+  void set_time_YYMMDDHHMMSS(char *yymmddhhmmss);
+  void set_time_MJD(double mjd);
+  void set_time_HHMM(char *hhmm);
+  void set_now();
+  date_time& operator=(const date_time&);
+  date_time operator+(const date_time&) const;
+  date_time operator+=(const date_time&);
+  date_time operator-(const date_time&) const;
+  date_time operator-=(const date_time&);
+  date_time operator*(const int&) const;
+  bool isSameMonth(date_time in) const;
+  bool isSameDay(date_time in) const;
+  bool isSameMinute(date_time in) const;
+  int numberOfDay() const;
+  int numberOfMonthFrom(const date_time &x) const;
+  int numberOfDayFrom(const date_time &x) const;
+  int numberOfHourFrom(const date_time& x) const;
+  int numberOfMinuteFrom(const date_time& x) const;
+  double numberOfSecondFrom(const date_time& x) const;
+  int numberOfIntervalFrom(const date_time &ref,const date_time &interval) const;
+  unsigned int itime(char*);
+  char* get_time(char* format, char* buff) const;
+  int get_year() const;
+  int get_month() const;
+  int get_day() const;
+  int get_hour() const;
+  int get_minute() const;
+  int get_second() const;
+  double get_sec_decimal() const;
+  void correct_format();
+
+  date_time round2min(int);
+  date_time round2min();
+  date_time round2startofquarter();
+  date_time round2endofquarter();
+  date_time floor(date_time floor2); //take the start of the day as 0
+  date_time floor2min(int);
+  date_time ceiling(date_time ceil2); //take the start of the day as 0
+  date_time ceiling2min(int);
+
+  double get_ratio_between(const date_time& a,const date_time& b);// find t such that *this = (1-t)*a+t*b 
+
+  bool operator<=(const date_time&) const;
+  bool operator<(const date_time&) const;
+  bool operator>=(const date_time&) const;
+  bool operator>(const date_time&) const;
+
+  bool operator==(const date_time&) const;
+  bool operator!=(const date_time&) const;
+
+ private:
+  int time[6];
+  double sec_decimal;
+  bool check_format();
+};
+ostream &operator<<(ostream &, date_time);
+
+int sort_datetime(int ntime,date_time *to_sort);
+int get_month_from_string(const char *in);
+int cal_nft(char *min_ft,char *max_ft,char *delta_ft);
+
+const date_time ONE_YEAR(1,0,0,0);
+const date_time ONE_MONTH(0,1,0,0);
+const date_time ONE_DAY(0,0,1,0);
+const date_time ONE_HOUR(0,0,0,1);
+const date_time ONE_MINUTE(0,0,0,0,1);
+const date_time ONE_SECOND(0,0,0,0,0,1);
+const date_time HKT2UTC(0,0,0,8);
+const date_time NOTIME(-99,-99,-99);
+#endif

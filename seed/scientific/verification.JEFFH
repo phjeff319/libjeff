@@ -1,0 +1,55 @@
+#ifndef VERIFICATION
+#define VERIFICATION
+#include "tc_tracks.h"
+#include "date_time.h"
+class verification{
+ public:
+  verification();
+  verification(const verification &in);
+  ~verification();
+
+  void create(int ndim, int max_ndata,double missing_value);
+  void destroy();
+
+  double* cal_diff(double *output,double* (*metric)(int ndata,int ndim,double missing_value,double** data0, double** data1,double *output,bool (*is_valid)(int ndim,int dim_index,double *in,double missing_value)),bool (*is_valid)(int ndim,int dim_index,double *in,double missing_value));
+
+  int get_ndim() const;
+  int get_max_ndata() const;
+  int get_ndata() const;
+  double get_missing_value() const;
+
+  inline double ***get_verification_data_pairs() const {return verdata;}
+
+  void enable_extend();
+  void disable_extend();
+  bool is_auto_extend() const;
+
+  int add_data_pair(double* in1,double* in2);
+  
+  int verify_tc_tracks(int num_model_track,model_tc_track* fcst_track,tc_track* act_track,date_time fcst2verify);
+  int verify_tc_tracks_effective_sample_siegel(int num_model_track,model_tc_track* fcst_track,tc_track* act_track,date_time fcst2verify);
+
+  verification& operator=(const verification &in);
+
+ private:
+  int ndim, ndata, max_ndata;
+  double ***verdata;
+  double missing_value;
+
+  //flag for switching on/off of automatically extending the memory space
+  //extension of memeory space takes some CPU time to do. Avoid if possible.
+  //each extension double the size of the verification memory.
+  bool auto_extend;
+};
+
+double *verification_metric_rmse(int ndata,int ndim,double missing_value,double** data0,double** data1,double *output,bool (*is_valid)(int ndim,int dim_index,double *in,double missing_value));
+double *verification_metric_abs_mean_diff(int ndata,int ndim,double missing_value,double** data0,double** data1,double *output,bool (*is_valid)(int ndim,int dim_index,double *in,double missing_value));
+double *verification_metric_mean_diff(int ndata,int ndim,double missing_value,double** data0,double** data1,double *output,bool (*is_valid)(int ndim,int dim_index,double *in,double missing_value));
+double *verification_metric_tc_dpe(int ndata,int ndim,double missing_value,double** data0,double** data1,double *output,bool (*is_valid)(int ndim,int dim_index,double *in,double missing_value));
+bool is_track_pt_valid(int ndim,int dim_index,double *in,double missing_value);
+
+###CUDA### ###GLOBAL### void skill_area_in_ROC_master_kernel(int nroc,int ndata,int numthreads,int multipler_per_level,double *data,bool *obs,double *work,double *min_work,double *max_work,int max_roc_recursive_depth,int max_work_space,double convergence_delta,double *roc_curve_work,int *count_work,int *loc_count,int *grid_count,double *area,int *error); //work is of the size nroc*(data_2n), min_work max_work is of size nroc, roc_curve_work is of size nroc*(multipler_per_level^max_roc_recursive_depth+1)*4 please use 2^n+1 as max_pt, count_work is of size 4*nroc*(2^max_roc_recursive_depth+1)
+###CUDA### ###GLOBAL### void skill_partial_area_in_ROC_master_kernel(int nroc,int ndata,int numthreads,int multipler_per_level,double *data,bool *obs,double *work,double *min_work,double *max_work,int max_roc_recursive_depth,int max_work_space,double convergence_delta,double *roc_curve_work,int *count_work,int *loc_count,int *grid_count,double *min_section_angle,double *max_section_angle,double *area,int *error); //work is of the size nroc*(data_2n), min_work max_work is of size nroc, roc_curve_work is of size nroc*(multipler_per_level^max_roc_recursive_depth+1)*4 please use 2^n+1 as max_pt, count_work is of size 4*nroc*(2^max_roc_recursive_depth+1). min_section_angle and max_section angle must be between 0 and pi/2
+###CUDA### ###GLOBAL### void skill_area_in_TOC_master_kernel(int ntoc,int ndata,int numthreads,double *data,bool *obs,double *work,double *min_work,double *max_work,int max_toc_recursive_depth,int max_work_space,double convergence_delta,double *toc_curve_work,int *count_work,int *loc_count,int *grid_count,double *area,int *error); //work is of the size ntoc*(data_2n), min_work max_work is of size ntoc, toc_curve_work is of size ntoc*(multipler_per_level^max_toc_recursive_depth+1)*4 please use 2^n+1 as max_pt, count_work is of size 4*ntoc*(2^max_toc_recursive_depth+1)
+###CUDA### ###HOST### int gen_ROC_simple(int ndata,double *data,bool *obs,int &nroc_pt,double** &roc_pt); 
+#endif 

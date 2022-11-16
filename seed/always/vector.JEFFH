@@ -1,0 +1,12 @@
+#ifndef VECTOR
+#define VECTOR
+namespace libjeff{
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double vector_dot_pro(int,double*,double*);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void vector_cross_pro(double*,double*,double*);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double vector_spherical_coord_cal_norm(double *a,double *b); //a,b in "r-theta-phi" format, angles in rad
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### bool vector_isequal(int ndim,int *a,int *b);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### bool vector_isequal(int ndim,double *a,double *b);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* vector_mid_pt(int ndim,double *a,double *b,double *midpt);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double vector_cal_angle(double *a,double *b);// sign of the angle follows the sign of a x b
+}
+#endif

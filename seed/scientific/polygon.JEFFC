@@ -1,0 +1,561 @@
+#include <cstring>
+
+#include"error_code.h"
+#include"file_handler.h"
+#include"polygon.h"
+#include"string_man.h"
+#include"tags.h"
+#include"vector.h"
+
+#define GEOJSON_TEMPLATE_BASE "{\"type\":\"Feature\",\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[###data_points###]]}}"
+#define GEOJSON_TEMPLATE_PT "[###position:longitude###,###position:latitude###]"
+
+const int init_allocated_size = 100;
+
+namespace libjeff{
+  template <class vertice_type> polygon<vertice_type>::polygon(){
+    allocated_size = 0;
+    num_vertices = 0;
+    vertices = NULL;
+  }
+  template <class vertice_type> polygon<vertice_type>::polygon(const polygon<vertice_type>& in){
+    allocated_size = 0;
+    num_vertices = 0;
+    *this = in;
+  }
+  template <class vertice_type> polygon<vertice_type>::~polygon(){
+    this->destroy();
+  }
+  
+  template <class vertice_type> int polygon<vertice_type>::create(int num_vertices){
+    this->destroy();
+    
+    int i;
+    if(init_allocated_size < num_vertices){
+      allocated_size = num_vertices;
+    }
+    else{
+      allocated_size = init_allocated_size;
+    }
+    vertices = new vertice_type* [allocated_size];
+    if(vertices != NULL){
+      for(i=0;i<allocated_size;i++){
+	vertices[i] = NULL;
+	vertices[i] = new vertice_type [2];
+	if(vertices[i] == NULL){
+	  cout << "Failed to allocate memory in polygon." << endl;
+	  return _ERRORCODE_FAILEDMEMORYALLOCATION;
+	}
+      }
+    }
+    else{
+      return _ERRORCODE_FAILEDMEMORYALLOCATION;
+    }
+    
+    return _ERRORCODE_NOERROR;
+  }
+  template <class vertice_type> int polygon<vertice_type>::destroy(){
+    if(allocated_size > 0){
+      int i;
+      for(i=0;i<allocated_size;i++){
+	delete [] vertices[i];
+      }
+      delete [] vertices;
+    }
+    num_vertices = 0;
+    allocated_size = 0;
+    
+    return _ERRORCODE_NOERROR;
+  }
+  
+  template <class vertice_type> vertice_type* polygon<vertice_type>::get_vertices(int index) const{
+    if(index < -1){
+      return NULL;
+    }
+    else if(index == -1){
+      return vertices[num_vertices+index];
+    }
+    else{
+      return vertices[index%num_vertices];
+    }
+  }
+  
+  template <class vertice_type> int polygon<vertice_type>::add_vertex(int location,vertice_type *vertex){
+    if(location < -1){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+    if(location < 0){
+      location = num_vertices;
+    }
+    else if(num_vertices > 0){
+      location = location%num_vertices;
+    }
+    vertice_type *temp_vertex = new vertice_type [2];
+    
+    int i,j;
+    for(i=0;i<2;i++){
+      temp_vertex[i] = vertex[i];
+    }
+
+    if(num_vertices == allocated_size){
+      int new_num_vertices, new_allocated_size;
+      vertice_type **new_vertices = NULL;
+      
+      new_num_vertices = num_vertices + 1;
+      if(allocated_size > 0){
+	new_allocated_size = allocated_size*2;
+      }
+      else{
+	new_allocated_size = init_allocated_size;
+      }
+      new_vertices = new vertice_type* [new_allocated_size];
+      if(new_vertices != NULL){
+	for(i=0;i<new_allocated_size;i++){
+	  new_vertices[i] = NULL;
+	  new_vertices[i] = new vertice_type [2];
+	  if(new_vertices[i] == NULL){
+	    cout << "Failed to allocate memory in polygon." << endl;
+	    return _ERRORCODE_FAILEDMEMORYALLOCATION;
+	  }
+	}
+      }
+      else{
+	cout << "Failed to allocate memory in polygon." << endl;
+	return _ERRORCODE_FAILEDMEMORYALLOCATION;
+      }
+
+      for(i=0;i<location;i++){
+	for(j=0;j<2;j++){
+	  new_vertices[i][j] = vertices[i][j];
+	}
+      }
+      for(j=0;j<2;j++){
+	new_vertices[location][j] = temp_vertex[j];
+      }
+      for(i=location+1;i<new_num_vertices;i++){
+	for(j=0;j<2;j++){
+	  new_vertices[i][j] = vertices[i-1][j];
+	}
+      }
+
+      this->destroy();
+      num_vertices = new_num_vertices;
+      vertices = new_vertices;
+      allocated_size = new_allocated_size;
+    }
+    else{
+      for(i=num_vertices;i>location;i--){
+	for(j=0;j<2;j++){
+	  vertices[i][j] = vertices[i-1][j];
+	}
+      }
+      for(j=0;j<2;j++){
+	vertices[location][j] = temp_vertex[j];
+      }
+      num_vertices++;
+    }
+
+    delete [] temp_vertex;
+
+    return _ERRORCODE_NOERROR;
+  }
+  template <class vertice_type> int polygon<vertice_type>::delete_vertex(int location){
+    if(location <-1){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+
+    if(location!=-1){
+      location = location%num_vertices;
+      int i,j;
+      for(i=location+1;i<num_vertices;i++){
+	for(j=0;j<2;j++){
+	  vertices[i-1][j] = vertices[i][j];
+	}
+      }
+    }
+
+    num_vertices--;
+    return _ERRORCODE_NOERROR;
+  }
+  template <class vertice_type> char* polygon<vertice_type>::toGeoJson(char* &out) const{
+    if(out != NULL){
+      delete [] out;
+      out = NULL;
+    }
+
+    if(this->get_num_vertices() > 0){
+      size_t out_len = 0;
+      out_len += strlen(GEOJSON_TEMPLATE_BASE);
+
+      out_len += strlen(GEOJSON_TEMPLATE_PT)*this->get_num_vertices();
+
+      out = new char [out_len];
+
+      strcpy(out,GEOJSON_TEMPLATE_BASE);
+
+      tags lat("position:latitude"), lon("position:longitude");
+      tags datapt("data_points");
+
+      char *ctemp = new char [strlen(GEOJSON_TEMPLATE_PT)*100];
+
+      int i;
+      for(i=0;i<this->get_num_vertices();i++){
+	strcpy(ctemp,GEOJSON_TEMPLATE_PT);
+
+	lat.replace(ctemp,this->get_vertices(i)[1]);
+	lon.replace(ctemp,this->get_vertices(i)[0]);
+
+	if(i>0){
+	  datapt.insert_before(out,",");
+	}
+	datapt.insert_before(out,ctemp);
+      }
+      datapt.replace(out,"");
+
+      delete [] ctemp;
+    }
+
+    return out;
+  }
+  template <class vertice_type> int polygon<vertice_type>::parse(char *in){
+    int error = _ERRORCODE_NOERROR;
+
+    this->destroy();
+    char *buff = new char [strlen(in)+1];
+    char *ctemp = new char [strlen(in)+1];
+    //char *clonlat = new char [strlen(in)+1];
+    char *ctemp2;
+    strcpy(buff,in);
+
+    vertice_type lonlat[2];
+    
+    int i,j;
+    bool start=false;
+    int parentheses_lv = 0;
+    for(i=0;i<strlen(buff);i++){
+      if(!start && buff[i]=='['){
+	start=true;
+	parentheses_lv++;
+	ctemp2 = buff+i;
+      }
+      else{
+	if(buff[i]=='['){
+	  parentheses_lv++;
+	}
+	else if(buff[i]==']'){
+	  parentheses_lv--;
+	}
+
+	if(parentheses_lv == 0){
+	  buff[i+1]='\0';
+	  break;
+	}
+      }
+    }
+
+
+    if(!start){
+      error = _ERRORCODE_INPUTERROR;
+    }
+    else{
+      strcpy(ctemp,ctemp2);
+      std::cout << ctemp << std::endl;
+      int npt = libjeff::json::get_array_size(ctemp);
+      this->create(npt);
+      std::cout << npt << std::endl;
+
+      ctemp2 = NULL;
+      for(i=0;i<npt;i++){
+	/*
+	string_get_between(ctemp2,clonlat,"[","]");
+	this->add_vertex(-1,string_extract_lonlat(clonlat,lonlat));
+	ctemp2 = strstr(ctemp2,"]");
+	ctemp2 = strstr(ctemp2,"[");
+	*/
+	libjeff::json::extract_block_data(ctemp,i,ctemp2);
+	std::cout << ctemp2 << std::endl;
+	this->add_vertex(-1,string_extract_lonlat(ctemp2,lonlat));
+      }
+
+      if(ctemp2 != NULL){
+	delete [] ctemp2;
+      }
+    }
+
+    delete [] buff;
+    delete [] ctemp;
+    //delete [] clonlat;
+
+    if(error){
+      this->destroy();
+    }
+
+    return error;    
+  }
+  template <class vertice_type> void polygon<vertice_type>::make_right_hand(){
+    if(!is_closed()){
+      this->close();
+    }
+    if(!this->is_right_hand()){
+      this->reverse();
+    }
+  }
+  template <class vertice_type> void polygon<vertice_type>::make_left_hand(){
+    if(!is_closed()){
+      this->close();
+    }
+    if(this->is_right_hand()){
+      this->reverse();
+    }
+  }
+  template <class vertice_type> void polygon<vertice_type>::reverse(){
+    int i,j;
+    vertice_type* temp = new vertice_type [2];
+
+    for(i=0;i<num_vertices/2;i++){
+      for(j=0;j<2;j++){
+	temp[j] = vertices[i][j];
+	vertices[i][j] = vertices[num_vertices-i-1][j];
+	vertices[num_vertices-i-1][j] = temp[j];
+      }
+    }
+
+    delete [] temp;
+  }
+  template <class vertice_type> polygon<vertice_type> &polygon<vertice_type>::operator=(const polygon<vertice_type> &in){
+    if(this == &in){
+      return *this;
+    }
+
+    this->destroy();
+    this->create(in.get_num_vertices());
+    int i,j;
+
+    for(i=0;i<in.get_num_vertices();i++){
+      for(j=0;j<2;j++){
+	this->vertices[i][j] = (in.get_vertices(i))[j];
+      }
+    }
+    this->num_vertices = in.get_num_vertices();
+
+    return *this;
+  }
+  template <class vertice_type> void polygon<vertice_type>::remove_duplicate_vertices(){
+    int i;
+    for(i=this->get_num_vertices()-1;i>=1;i--){
+      if((this->vertices[i][0] == this->vertices[i-1][0]) && (this->vertices[i][1] == this->vertices[i-1][1])){
+	this->delete_vertex(i);
+      }
+    }
+  }
+  template <class vertice_type> bool polygon<vertice_type>::is_closed() const{
+    if(num_vertices > 0){
+      return vector_isequal(2,this->get_vertices(0),this->get_vertices(-1));
+    }
+    else{
+      return false; //empty polygon, undefined so false
+    }
+  }
+  template <class vertice_type> bool polygon<vertice_type>::is_opened() const{
+    if(num_vertices > 0){
+      return !vector_isequal(2,this->get_vertices(0),this->get_vertices(-1));
+    }
+    else{
+      return false; //empty polygon, undefined so false
+    }
+  }
+  template <class vertice_type> bool polygon<vertice_type>::is_right_hand() const{
+    if(!this->is_closed()){
+      return false;
+    }
+    else if(this->num_vertices<4){ //closed 3 points can only be a single line or single point, undefined so false
+      return false;
+    }
+    else{
+      //double *vec1 = new double [2];
+      //double *vec2 = new double [2];
+
+      int i,j;
+      double sum = 0.;
+      for(i=1;i<num_vertices;i++){
+	sum += (vertices[i][0] - vertices[i-1][0])*(vertices[i][1] + vertices[i-1][1]);
+      }
+      if(sum < 0){
+	return true;
+      }
+      else{
+	return false;
+      }
+      /*
+      double angle = 0.;
+      for(i=2;i<num_vertices;i++){
+	for(j=0;j<2;j++){
+	  vec1[j] = vertices[i-1][j] - vertices[i-2][j];
+	  vec2[j] = vertices[i][j] - vertices[i-1][j];
+	}
+	angle += vector_cal_angle(vec1,vec2);
+      }
+
+      delete [] vec1;
+      delete [] vec2;
+
+      if(angle<0){
+	return false;
+      }
+      else{
+	return true;
+      }
+      */
+    }
+  }
+  template <class vertice_type> int polygon<vertice_type>::open(){
+    if(this->is_closed()){
+      this->num_vertices--;
+    }
+    return _ERRORCODE_NOERROR;
+  }
+  template <class vertice_type> int polygon<vertice_type>::close(){
+    if(this->is_opened()){
+      this->add_vertex(-1,this->get_vertices(0));
+    }
+    return _ERRORCODE_NOERROR;
+  }
+  template <class vertice_type> void polygon<vertice_type>::check_short_segment(double threshold,char *remarks){
+    int i,j;
+    double length;
+    for(i=0;i<this->get_num_vertices()-1;i++){
+      length = 0;
+      for(j=0;j<2;j++){
+	length += ((this->get_vertices(i+1))[j] - (this->get_vertices(i))[j])*((this->get_vertices(i+1))[j] - (this->get_vertices(i))[j]);
+      }
+      if(length < threshold){
+	if(remarks!=NULL){
+	  std::cout << remarks;
+	}
+	std::cout << (this->get_vertices(i))[0] << " " << (this->get_vertices(i))[1] << " " << (this->get_vertices(i+1))[0] << " " << (this->get_vertices(i+1))[1] << endl;
+      }
+    }
+  }
+
+  int parse_mulit_polygon(char *in,int &npolygon,polygon<double>*& out){
+    int error = _ERRORCODE_NOERROR;
+    npolygon = 0;
+
+    if(out != NULL){
+      delete [] out;
+      out = NULL;
+    }
+
+    if(in != NULL){
+      int i;
+      int ndim = 0;
+      int len = strlen(in);
+      bool proper = true;
+      for(i=0;i<len;i++){
+	if(in[i]=='['){
+	  ndim++;
+	}
+	else{
+	  break;
+	}
+      }
+
+      if(ndim > 0){
+	ndim-=2;
+
+	if(ndim==1){
+	  npolygon = 1;
+	  proper = false;
+	}
+	else if(ndim==2){
+	  char *ctemp=NULL;
+
+	  npolygon = libjeff::json::get_array_size(in);
+	  
+	  if(npolygon==1){
+	    libjeff::json::extract_block_data(in,0,ctemp);
+	    if(libjeff::json::get_array_size(ctemp) > 1){
+	      npolygon = libjeff::json::get_array_size(ctemp);
+	      proper = false;
+	    }
+	  }
+
+	  if(ctemp != NULL){
+	    delete [] ctemp;
+	  }
+	}
+	else{
+	  error = _ERRORCODE_NOTIMPLEMENTED;
+	}
+
+	if(npolygon>0){
+	  out = new polygon<double> [npolygon];
+
+	  char *ctemp=NULL;
+	  if(!proper){
+	    libjeff::json::extract_block_data(in,0,ctemp);
+	  }
+	  else{
+	    ctemp = new char [strlen(in)*2];
+	    strcpy(ctemp,in);
+	  }
+
+	  if(ndim==1){
+	    out[0].parse(ctemp);
+	  }
+	  else{
+	    char *ctemp2 = NULL;
+	    for(i=0;i<npolygon;i++){
+	      libjeff::json::extract_block_data(ctemp,i,ctemp2);
+
+	      if(proper){
+		char *ctemp3 = NULL;
+		libjeff::json::extract_block_data(ctemp2,0,ctemp3);
+		 out[i].parse(ctemp3);
+
+		delete [] ctemp3;
+	      }
+	      else{
+		out[i].parse(ctemp2);
+	      }
+	    }
+
+	    if(ctemp2 != NULL){
+	      delete [] ctemp2;
+	    }
+	  }
+
+	  if(ctemp != NULL){
+	    delete [] ctemp;
+	  }
+	}
+      }
+      else{
+	error = _ERRORCODE_INPUTFORMATINCORRECT;
+      }
+    }
+    else{
+      error = _ERRORCODE_JSONBLOCKNOTFOUND;
+    }
+
+    return error;
+  }
+}
+
+ostream &operator<<(ostream &output, libjeff::polygon<double> in){
+  int i;
+  for(i=0;i<in.get_num_vertices();i++){
+    output << "( " << (in.get_vertices(i))[0] << " , " << (in.get_vertices(i))[1] << " ) ";
+  }
+  return output;
+}
+ostream &operator<<(ostream &output, libjeff::polygon<int> in){
+  int i;
+  for(i=0;i<in.get_num_vertices();i++){
+    output << "( " << (in.get_vertices(i))[0] << " , " << (in.get_vertices(i))[1] << " ) ";
+  }
+  return output;
+}
+
+template class libjeff::polygon<int>;
+template class libjeff::polygon<double>;

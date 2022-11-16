@@ -1,0 +1,67 @@
+#ifndef CUDATOOLS
+#define CUDATOOLS
+#include"complex.h"
+###CUDA### ###GLOBAL### void cuda_multiply(int n, double *a, double b, double *c);
+###CUDA### ###GLOBAL### void cuda_multiply(int n, double *a, double *b, double *c);
+###CUDA### ###GLOBAL### void cuda_multiply(int n, libjeff::complex *a, double *b, libjeff::complex *c);
+###CUDA### ###GLOBAL### void cuda_square(int n, double *a);
+###CUDA### ###GLOBAL### void cuda_sqrt(int n, double *a);
+###CUDA### ###GLOBAL### void cuda_add(int n, double *a,double *b,double *c); //c=a+b
+###CUDA### ###GLOBAL### void cuda_add(int n, double *a,double *b); //a+=b
+###CUDA### ###GLOBAL### void cuda_substract(int n,double *a,double *b); //a-=b
+###CUDA### ###GLOBAL### void cuda_substract(int n,double *a,double *b,double *c); //c=a-b
+###CUDA### ###GLOBAL### void cuda_divide(int n,double *a,double *b); //a/=b
+###CUDA### ###GLOBAL### void cuda_2real_to_complex(int n, double *a, double *b, libjeff::complex *c);
+###CUDA### ###GLOBAL### void cuda_pow(int n,double *base, double *exponent, double *out);
+###CUDA### ###GLOBAL### void cuda_pow(int n,double *base, double exponent, double *out);
+###CUDA### ###GLOBAL### void cuda_pow(int n,libjeff::complex *base, double *exponent, libjeff::complex *out);
+###CUDA### ###GLOBAL### void cuda_pow(int n,libjeff::complex *base, double exponent, libjeff::complex *out);
+###CUDA### ###GLOBAL### void cuda_set_value(int n, double *a, double b);
+###CUDA### ###GLOBAL### void cuda_set_value(int n, double *a, double *b);
+###CUDA### ###GLOBAL### void cuda_set_value(int n, int *a, int b);
+###CUDA### ###GLOBAL### void cuda_set_thread_number(int n,int *a);
+###CUDA### ###HOST### ###DEVICE### int cuda_array_tri2linear(int x, int y);
+###CUDA### ###HOST### ###DEVICE### void cuda_array_linear2tri(int k, int &n, int&m);
+###GLOBAL### void cuda_reduce_kernel(int size, int *in);
+###GLOBAL### void cuda_reduce_kernel(int size, double *in);
+###CUDA### ###HOST### double cuda_reduce(int size, double *in);
+###CUDA### ###HOST### int cuda_reduce(int size, int *in);
+
+namespace libjeff{
+  namespace host{
+    ###CUDA### ###HOST### int cuda_reduce_every_n(int num_to_sum,size_t every_n,double *in,double *out);
+  };
+  namespace device{
+    ###CUDA### ###HOST### int cuda_reduce_every_n(int num_to_sum,size_t every_n,double *in,double *out);
+  };
+}
+
+###GLOBAL### void cuda_reduce_every_n_kernel(int num_to_sum,size_t every_n,int stage,double *inout);
+
+###GLOBAL### void cuda_max_kernel(int size, double *in);
+###GLOBAL### void cuda_max_kernel(int nset,size_t size,int stage,double *in);
+###CUDA### ###HOST### double cuda_max(int size, double *in); //in is unchanged on exit
+###GLOBAL### void cuda_min_kernel(int size, double *in);
+###GLOBAL### void cuda_min_kernel(int nset,int size,int stage,double *in);
+###CUDA### ###HOST### double cuda_min(int size, double *in); //in is unchanged on exit
+###GLOBAL### void cuda_min_kernel(int size,double *a,double *b,double *min);
+
+###CUDA### ###HOST### int cuda_div_blocks(int factors_of,int numBlocks, int max_numBlocks);
+###CUDA### ###GLOBAL### void cuda_extract_every_n_kernel(int to_extract,size_t every_n,int offset,double *extract_from,double *extract_to);
+###CUDA### ###HOST### void cuda_extract_every_n(int to_extract,size_t every_n,int offset,double *extract_from,double *extract_to);
+###CUDA### ###GLOBAL### void cuda_put_every_n_kernel(int to_put,int every_n,int offset,double *put_from,double *put_into);
+###CUDA### ###GLOBAL### void cuda_expand_kernel(int num_to_expand,int expand_times,double *expand_from,double *expand_to);
+###CUDA### ###GLOBAL### void cuda_expand_kernel(int num_to_expand,int expand_times,int *expand_from,int *expand_to);
+###CUDA### ###HOST### void cuda_expand(int num_to_expand,int expand_times,double *expand_from,double *expand_to);
+###CUDA### ###HOST### void cuda_expand(int num_to_expand,int expand_times,int *expand_from,int *expand_to);
+###CUDA### ###GLOBAL### void cuda_repeat_kernel(int num_to_repeat,int repeat_times,double *repeat_from,double *repeat_to);
+###CUDA### ###HOST### void cuda_repeat(int num_to_repeat,int repeat_times,double *repeat_from,double *repeat_to);
+
+###CUDA### ###GLOBAL### void cuda_copy_kernel(int num_to_copy,double *in,double *out);
+###CUDA### ###GLOBAL### void cuda_expand_by_repeat_kernel(int original_size,int new_size,double *in,double *out);
+###CUDA### ###GLOBAL### void cuda_expand_by_repeat_kernel(int nset,int original_size,int new_size,double *in,double *out);
+
+
+###GLOBAL### void cuda_cal_x_derivatives_kernel(int nx,int ny,int nz,int xpad,int ypad,int zpad,double *x,double *f,double *mapfactor,double *dfdx);
+###GLOBAL### void cuda_cal_y_derivatives_kernel(int nx,int ny,int nz,int xpad,int ypad,int zpad,double *y,double *f,double *mapfactor,double *dfdy);
+#endif

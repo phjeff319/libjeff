@@ -1,0 +1,200 @@
+#include "error_code.h"
+#include "refinable_mesh.h"
+
+refinable_mesh::refinable_mesh(){
+  nx = 0;
+  ny = 0;
+  nz = 0;
+  mesh = NULL;
+  value = NULL;
+}
+refinable_mesh::~refinable_mesh(){
+  this->destroy();
+}
+int refinable_mesh::create(int nx,int ny,int nz,int ndim){
+  this->destroy();
+
+  if(nx > 0 && ny > 0 && nz > 0 && ndim > 0){
+    size_t ngrid = ((size_t) nx)*ny*nz;
+    mesh = new refinable_mesh *[ngrid];
+    this->nx = nx;
+    this->ny = ny;
+    this->nz = nz;
+    this->ndim = ndim;
+
+    int i,j,k;
+    if(nx == 1 && ny ==1 && nz == 1){
+      value = new double [ndim];
+    }
+    else{
+      mesh = new refinable_mesh *[ngrid];
+      for(i=0;i<nx;i++){
+	for(j=0;j<ny;j++){
+	  for(k=0;k<nz;k++){
+	    this->get_mesh(i,j,k)->create(1,1,1,ndim);
+	  }
+	}
+      }
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+}
+void refinable_mesh::destroy(){
+  if(mesh != NULL){
+    int i,j,k,m;
+    for(i=0;i<nx;i++){
+      for(j=0;j<ny;j++){
+	for(k=0;k<nz;k++){
+	  delete this->get_mesh(i,j,k);
+	}
+      }
+    }
+    delete [] mesh;
+  }
+  if(value != NULL){
+    delete [] value;
+  }
+  value = NULL;
+  mesh = NULL;
+  nx = 0;
+  ny = 0;
+  nz = 0;
+  ndim = 0;
+}
+int refinable_mesh::get_nx() const{
+  return this->nx;
+}
+int refinable_mesh::get_ny() const{
+  return this->ny;
+}
+int refinable_mesh::get_nz() const{
+  return this->nz;
+}
+int refinable_mesh::get_ndim() const{
+  return this->ndim;
+}
+int refinable_mesh::refine(int xindex,int yindex,int zindex,int xscale,int yscale,int zscale){
+}
+double* refinable_mesh::get_average(double *out){
+  if(nx > 0 && ny > 0 && nz > 0 && ndim > 0){
+    if(nx == 1 && ny == 1 && nz == 1){
+      int m;
+      for(m=0;m<ndim;m++){
+	out[m] = this->value[m];
+      }
+    }
+    else{
+      int i,j,k,m;
+    
+      double *temp_out = new double [ndim];
+      
+      for(m=0;m<ndim;m++){
+	out[m] = 0.;
+      }
+      
+      for(i=0;i<nx;i++){
+	for(j=0;j<ny;j++){
+	  for(k=0;k<nz;k++){
+	    this->get_mesh(i,j,k)->get_average(temp_out);
+	    
+	    for(m=0;m<ndim;m++){
+	      out[m] += temp_out[m];
+	    }
+	  }
+	}
+      }
+      
+      for(m=0;m<ndim;m++){
+	out[m] /= nx*ny*nz;
+      }
+
+      delete [] temp_out;
+    }
+  }
+
+  return out;
+}
+void refinable_mesh::set_value(double* in){
+  if(nx > 0 && ny > 0 && nz > 0 && ndim > 0){
+    if(nx == 1 && ny == 1 && nz == 1){
+      int m;
+      for(m=0;m<ndim;m++){
+	this->value[m] = in[m];
+      }
+    }
+    else{
+      int i,j,k,m;
+      for(i=0;i<nx;i++){
+	for(j=0;j<ny;j++){
+	  for(k=0;k<nz;k++){
+	    this->get_mesh(i,j,k)->set_value(in);
+	  }
+	}
+      }
+    }
+  }
+}
+refinable_mesh *refinable_mesh::get_mesh(int xindex,int yindex,int zindex){
+  if(xindex < 0 || yindex < 0 || zindex < 0 || xindex >= nx || yindex >= ny || zindex >= nz){
+      return NULL;
+    }
+    else{
+      return this->mesh[((xindex)*ny + yindex)*nz + zindex];
+    }
+}
+/*
+point_mesh::point_mesh(){
+  ndim = 0;
+  value = NULL;
+}
+point_mesh::~point_mesh(){
+  this->destroy();
+}
+int point_mesh::create(int nx,int ny,int nz,int ndim){
+  this->destroy();
+
+  if(ndim > 0){
+    value = new double [ndim];
+  }
+
+  return _ERRORCODE_NOERROR;
+}
+void point_mesh::destroy(){
+  if(value != NULL){
+    delete [] value;
+  }
+}
+int point_mesh::get_nx() const{
+  return 1;
+}
+int point_mesh::get_ny() const{
+  return 1;
+}
+int point_mesh::get_nz() const{
+  return 1;
+}
+int point_mesh::get_ndim() const{
+  return this->ndim;
+}
+double* point_mesh::get_average(double *out){
+  if(ndim > 0){
+    int m;
+    for(m = 0;m<ndim;m++){
+      out[m] = value[m];
+    }
+  }
+  return out;
+}
+void point_mesh::set_value(double* in){
+  if(ndim > 0){
+    int m;
+    for(m = 0;m<ndim;m++){
+      value[m] = in[m];
+    }
+  }
+}
+*/

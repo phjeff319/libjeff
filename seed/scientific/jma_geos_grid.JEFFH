@@ -1,0 +1,24 @@
+#ifndef JMAGEOSGRID
+#define JMAGEOSGRID
+#include "grid_data.h"
+#include "geos_grid.h"
+
+//using namespace libjeff;
+class jma_geos_grid : public geos_grid{
+ public:
+  ###CPP### ###CUDA### ###HOST### jma_geos_grid();
+  ###CPP### ###CUDA### ###HOST### ~jma_geos_grid();
+
+  ###CPP### ###CUDA### ###HOST### virtual grid_data* read_hrit_data(char *filename);
+
+  ###CPP### ###CUDA### ###HOST### virtual grid_data* read_hs_data(char *filename);
+  ###CPP### ###CUDA### ###HOST### int read_hs_data_segment(char *filename);
+  ###CPP### ###CUDA### ###HOST### static inline void set_default_num_file_segment(int in) { default_num_file_segment = in; }
+
+  ###CPP### ###CUDA### ###HOST### virtual grid_data* read_mtsat_level0(char *filename);
+
+ private:
+  static int default_num_file_segment;
+};
+
+#endif

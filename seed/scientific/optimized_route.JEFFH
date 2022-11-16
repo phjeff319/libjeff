@@ -1,0 +1,17 @@
+#ifndef OPTIMIZED_ROUTE
+#define OPTIMIZED_ROUTE
+
+#include "earth.h"
+#include "error_code.h"
+#include "flight_data.h"
+###XGBOOST####include "fuel_model.h"
+#include "grid_data.h"
+#include "grid_data_field.h"
+#include "model_data.h"
+#include "numerical_schemes.h"
+
+namespace libjeff{
+  int cal_wor(double *st_lonlat,double *target_lonlat,double height,grid_data_field *u,grid_data_field *v,grid_data_field *dudx,grid_data_field *dvdx,grid_data_field *dudy,grid_data_field *dvdy,double airspeed,double stepsize,double wind_cost,int max_n_route_pt,double **route,int &n_route_pt,double accuracy,double mixing); //route[max_n_route_pt][3]: lon lat heading
+  ###XGBOOST###int cal_optimized_route(model_data* fcst_data,grid_data_field *u,grid_data_field *v,grid_data_field *t,grid_data_field *z,double timestepsize,int n_route_pt,flight_data *route,flight_fuel_model* model,double min_validity);  //route: on try, the st and end point together with departure time and  weight of the aircraft at departure. On exit, the optmized flight route. timestepsize is the time step (in seconds) used for the numerical integration from a route point to another.  fuel_model must have flight level, weight and SAT as predictor.
+};
+#endif

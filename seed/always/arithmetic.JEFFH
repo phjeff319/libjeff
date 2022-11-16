@@ -1,0 +1,138 @@
+#ifndef ARITHMETIC
+#define ARITHMETIC
+
+#include "date_time.h"
+/*
+-----------------------------------------------------
+Version 0.0 (Sept 2019): Initial experimental version
+
+-----------------------------------------------------
+*/
+
+namespace libjeff{
+  namespace symbolic{
+    class operations{
+    public:
+      operations();
+      ~operations();
+      virtual int operate(char* operation,double in,double &out) const = 0;
+      virtual int operate(char* operation,int in,int &out) const = 0;
+      virtual int operate(char* operation,double in,int nparm,char **param,double &out) const = 0;
+      virtual int operate(char *operation,int in,int nparm,char **param,int &out) const = 0;
+      virtual int operate(char *operation,date_time in,int nparm,char **param,date_time &out) const = 0;
+      //virtual int operate(int in) const = 0;
+    };
+
+    class addition : public operations{
+    public:
+      addition();
+      virtual int operate(char* operation,double in,double &out) const;
+      virtual int operate(char* operation,int in,int &out) const;
+      virtual int operate(char* operation,double in,int nparm,char **param,double &out) const;
+      virtual int operate(char *operation,int in,int nparm,char **param,int &out) const;
+      virtual int operate(char *operation,date_time in,int nparm,char **param,date_time &out) const;
+    };
+    class substraction : public operations{
+    public:
+      substraction();
+      virtual int operate(char* operation,double in,double &out) const;
+      virtual int operate(char* operation,int in,int &out) const;
+      virtual int operate(char* operation,double in,int nparm,char **param,double &out) const;
+      virtual int operate(char *operation,int in,int nparm,char **param,int &out) const;
+      virtual int operate(char *operation,date_time in,int nparm,char **param,date_time &out) const;
+    };
+    class multiplication : public operations{
+    public:
+      multiplication();
+      virtual int operate(char* operation,double in,double &out) const;
+      virtual int operate(char* operation,int in,int &out) const;
+      virtual int operate(char* operation,double in,int nparm,char **param,double &out) const;
+      virtual int operate(char *operation,int in,int nparm,char **param,int &out) const;
+      virtual int operate(char *operation,date_time in,int nparm,char **param,date_time &out) const;
+    };
+    class division : public operations{
+    public:
+      division();
+      virtual int operate(char* operation,double in,double &out) const;
+      virtual int operate(char* operation,int in,int &out) const;
+      virtual int operate(char* operation,double in,int nparm,char **param,double &out) const;
+      virtual int operate(char *operation,int in,int nparm,char **param,int &out) const;
+      virtual int operate(char *operation,date_time in,int nparm,char **param,date_time &out) const;
+    };
+    class power : public operations{
+    public:
+      power();
+      virtual int operate(char* operation,double in,double &out) const;
+      virtual int operate(char* operation,int in,int &out) const;
+      virtual int operate(char* operation,double in,int nparm,char **param,double &out) const;
+      virtual int operate(char *operation,int in,int nparm,char **param,int &out) const;
+      virtual int operate(char *operation,date_time in,int nparm,char **param,date_time &out) const;
+    };
+    class sine : public operations{
+    public:
+      sine();
+      virtual int operate(char* operation,double in,double &out) const;
+      virtual int operate(char* operation,int in,int &out) const;
+      virtual int operate(char* operation,double in,int nparm,char **param,double &out) const;
+      virtual int operate(char *operation,int in,int nparm,char **param,int &out) const;
+      virtual int operate(char *operation,date_time in,int nparm,char **param,date_time &out) const;
+    };
+    class cosine : public operations{
+    public:
+      cosine();
+      virtual int operate(char* operation,double in,double &out) const;
+      virtual int operate(char* operation,int in,int &out) const;
+      virtual int operate(char* operation,double in,int nparm,char **param,double &out) const;
+      virtual int operate(char *operation,int in,int nparm,char **param,int &out) const;
+      virtual int operate(char *operation,date_time in,int nparm,char **param,date_time &out) const;
+    };
+    class tangent : public operations{
+    public:
+      tangent();
+      virtual int operate(char* operation,double in,double &out) const;
+      virtual int operate(char* operation,int in,int &out) const;
+      virtual int operate(char* operation,double in,int nparm,char **param,double &out) const;
+      virtual int operate(char *operation,int in,int nparm,char **param,int &out) const;
+      virtual int operate(char *operation,date_time in,int nparm,char **param,date_time &out) const;
+    };
+    class floor : public operations{
+    public:
+      floor();
+      virtual int operate(char* operation,double in,double &out) const;
+      virtual int operate(char* operation,int in,int &out) const;
+      virtual int operate(char* operation,double in,int nparm,char **param,double &out) const;
+      virtual int operate(char *operation,int in,int nparm,char **param,int &out) const;
+      virtual int operate(char *operation,date_time in,int nparm,char **param,date_time &out) const;
+    };
+    class ceiling : public operations{
+    public:
+      ceiling();
+      virtual int operate(char* operation,double in,double &out) const;
+      virtual int operate(char* operation,int in,int &out) const;
+      virtual int operate(char* operation,double in,int nparm,char **param,double &out) const;
+      virtual int operate(char *operation,int in,int nparm,char **param,int &out) const;
+      virtual int operate(char *operation,date_time in,int nparm,char **param,date_time &out) const;
+    };
+    
+    class operate{
+    public:
+      operate();
+      ~operate();
+      
+      static int regis(operations *in);
+      static int compute(char *operation,double in,double &out);
+      static int compute(char *operation,int in,int &out);
+      static int compute(char *operation,date_time in,date_time &out);
+    private:
+      static int num_operation;
+      static operations **functions;
+    };
+
+    //int extract(char *in,char *&operater,char *&operand); // only works for the form of A(b), b+c, b-c, b*c, b/c and b^c with c to be a constant.  Parameters would be accepted in the form of A[c](b) with c as the parameter 
+    //int extract(char *in,int &num_operater,char **&operater,char *&operand);
+    int extract(char *in,int &num_operater,char **&operater,char *&operand,int *&nparm,char ***&parm); // only works for the form of A(b), b+c, b-c, b*c, b/c and b^c with c to be a constant.  Parameters would be accepted in the form of A[c](b) with c as the parameter 
+
+
+  }
+}
+#endif

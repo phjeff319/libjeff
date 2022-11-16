@@ -1,0 +1,276 @@
+#include<cuda.h>
+#include<cstring>
+
+#include"cloud.h"
+
+#include"error_code.h"
+
+#include"cuda_setting.h"
+#include"cuda_tools.h"
+#include"grid_data_field.h"
+#include"liquid_water.h"
+#include"meteorology.h"
+#include"o2_mpm93.h"
+#include"physics_constants.h"
+#include"scatterer.h"
+
+namespace cloud_bulk_scheme{
+  __global__ void cal_cross_section(int ngrid,int nfre,double *frequency,double *liquid_content,double *droplet_density,double *water_density,complex *epsilon,double *omega3,double *omega5,double *omega6){
+    int i = blockDim.x*blockIdx.x + threadIdx.x;
+    int j,k,m;
+    //j is for deciding which term to work on
+    j=i/(ngrid*nfre);
+    // k is the layer index
+    k=(i%(ngrid*nfre))/nfre;
+    // m is the frequency index
+    m=i%nfre;
+    
+    if(i<3*ngrid*nfre){
+      complex ctemp = (epsilon[k*nfre+m] - 1.)/(epsilon[k*nfre+m] + 2.);
+      double wave_no = 2*pi*frequency[m]/phys_c;
+      
+      if(j==0){
+	omega3[k*nfre+m] = 3.*wave_no*liquid_content[k]/water_density[k]*(ctemp.imag());
+      }
+      else{
+	ctemp *= ctemp;
+	if(j==1){
+	  //omega5[k*nfre+m] = 2.1 * wave_no*wave_no*wave_no *((ctemp*(epsilon[k*nfre+m]*epsilon[k*nfre+m]+epsilon[k*nfre+m]*27.+38.)/(epsilon[k*nfre+m]*2.+3.)).imag())*liquid_content[k]/water_density[k]*pow(liquid_content[k]/(10.*pi*water_density[k]*droplet_density[k]),2./3.);
+	  omega5[k*nfre+m] = 2.1 * wave_no*wave_no*wave_no *((ctemp*(epsilon[k*nfre+m]*epsilon[k*nfre+m]+epsilon[k*nfre+m]*27.+38.)/(epsilon[k*nfre+m]*2.+3.)).imag())*liquid_content[k]/water_density[k]*exp(2./3.*log(liquid_content[k]/(10.*pi*water_density[k]*droplet_density[k])));
+	}
+	else{
+	  omega6[k*nfre+m] = 8.4* wave_no*wave_no*wave_no*wave_no *(ctemp.real())*(liquid_content[k]*liquid_content[k])/(water_density[k]*water_density[k]*pi*droplet_density[k]);
+	}
+      }
+    }
+  }
+};
+
+cloud_bulk::cloud_bulk():scatterer(){
+  cloud_fraction_index=-1;
+  qcloud_index=-1;
+  N0qcloud_index=-1;
+  qcice_index=-1;
+  N0qcice_index=-1;
+  temperature_index= 1;
+  pressure_index = 0;
+  qvapor_index = 2;
+  height_index = -3;
+  data_field = NULL;
+}
+cloud_bulk::~cloud_bulk(){
+  //empty
+}
+int cloud_bulk::set_data_field_index(char *fieldname,int in){
+  if(in < 0 || in >= num_data_field){
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+  if(strcmp(fieldname,"temperature")==0){
+    temperature_index = in;
+  }
+  else if(strcmp(fieldname,"pressure")==0){
+    pressure_index = in;
+  }
+  else if(strcmp(fieldname,"qvapor")==0){
+    qvapor_index = in;
+  }
+  else if(strcmp(fieldname,"cloud fraction")==0){
+    cloud_fraction_index = in;
+  }
+  else if(strcmp(fieldname,"qcloud")==0){
+    qcloud_index = in;
+  }
+  else if(strcmp(fieldname,"N0qcloud")==0){
+    N0qcloud_index = in;
+  }
+  else if(strcmp(fieldname,"qcice")==0){
+    qcice_index = in;
+  }
+  else if(strcmp(fieldname,"N0qcice")==0){
+    N0qcice_index = in;
+  }
+  else if(strcmp(fieldname,"height")==0){
+    height_index = in;
+  }
+  else{
+    return _ERRORCODE_INPUTERROR;
+  }
+  return _ERRORCODE_NOERROR;
+}
+int cloud_bulk::get_data_field_index(char *fieldname) const{
+  if(strcmp(fieldname,"temperature")==0){
+    return temperature_index;
+  }
+  else if(strcmp(fieldname,"pressure")==0){
+    return pressure_index;
+  }
+  else if(strcmp(fieldname,"qvapor")==0){
+    return qvapor_index;
+  }
+  else if(strcmp(fieldname,"cloud fraction")==0){
+    return cloud_fraction_index;
+  }
+  else if(strcmp(fieldname,"qcloud")==0){
+    return qcloud_index;
+  }
+  else if(strcmp(fieldname,"N0qcloud")==0){
+    return N0qcloud_index;
+  }
+  else if(strcmp(fieldname,"qcice")==0){
+    return qcice_index;
+  }
+  else if(strcmp(fieldname,"N0qcice")==0){
+    return N0qcice_index;
+  }
+  else if(strcmp(fieldname,"height")==0){
+    return height_index;
+  }
+  return -1;
+}
+
+warm_cloud_single_moment_diagnostic::warm_cloud_single_moment_diagnostic():cloud_bulk(){
+  N0 = 1e8;
+}
+warm_cloud_single_moment_diagnostic::~warm_cloud_single_moment_diagnostic(){
+  //empty
+}
+int warm_cloud_single_moment_diagnostic::host2device(){
+  //do nothing
+  return _ERRORCODE_NOERROR;
+}
+int warm_cloud_single_moment_diagnostic::add_cross_section(double *frequency,int nfre,double *sigma){
+  if(qcloud_index<0 || temperature_index<0 || data_field == NULL){
+    return _ERRORCODE_DATAYETTOBEINITIATED;
+  }
+
+  double *temperature;
+  cudaMalloc((void**) &temperature,this->data_field->get_d_ngrid()*sizeof(double));
+  (this->data_field)[temperature_index].get_data("device",temperature);
+  double *water_density;
+  cudaMalloc((void**) &water_density,this->data_field->get_d_ngrid()*sizeof(double));
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+  grid.x = (int) ceil((double) this->data_field->get_d_ngrid()*nfre/numthreads);
+
+  complex* epsilon;
+  cudaMalloc((void**) &epsilon,this->data_field->get_d_ngrid()*sizeof(complex));
+  g_liquid_water_epsilon_10GHz<<<grid,numthreads>>>(this->data_field->get_d_ngrid(),nfre,temperature,frequency,epsilon);
+  cudaFree(temperature);
+    
+  double *omega3,*omega5,*omega6;
+  cudaMalloc((void**) &omega3,this->data_field->get_d_ngrid()*sizeof(double));
+  cudaMalloc((void**) &omega5,this->data_field->get_d_ngrid()*sizeof(double));
+  cudaMalloc((void**) &omega6,this->data_field->get_d_ngrid()*sizeof(double));
+
+  double *liquid_content, *droplet_density;
+  cudaMalloc((void**) &liquid_content,this->data_field->get_d_ngrid()*sizeof(double));
+  cudaMalloc((void**) &droplet_density,this->data_field->get_d_ngrid()*sizeof(double));
+  (this->data_field)[qcloud_index].get_data("device",liquid_content);
+  cuda_set_value<<<grid,numthreads>>>(this->data_field->get_d_ngrid(),droplet_density,this->N0);
+  grid.x = (int) ceil(((double) 3*this->data_field->get_d_ngrid()*nfre)/numthreads);
+  cloud_bulk_scheme::cal_cross_section<<<grid,numthreads>>>(this->data_field->get_d_ngrid(),nfre,frequency,liquid_content,droplet_density,water_density,epsilon,omega3,omega5,omega6);
+
+  cudaFree(water_density);
+  cudaFree(epsilon);
+
+  grid.x = (int) ceil(((double) this->data_field->get_d_ngrid()*nfre)/numthreads);
+  cuda_add<<<grid,numthreads>>>(this->data_field->get_d_ngrid()*nfre,sigma,omega3);
+  cuda_add<<<grid,numthreads>>>(this->data_field->get_d_ngrid()*nfre,omega5,omega6);
+  cuda_add<<<grid,numthreads>>>(this->data_field->get_d_ngrid()*nfre,sigma,omega5);
+
+  cudaFree(omega3);
+  cudaFree(omega5);
+  cudaFree(omega6);
+
+  cudaFree(droplet_density);
+  cudaFree(liquid_content);
+  
+  return _ERRORCODE_NOERROR;
+}
+int warm_cloud_single_moment_diagnostic::set_parameter(char *name,int value){
+  //nothing to do
+  return _ERRORCODE_NOTIMPLEMENTED;
+}
+int warm_cloud_single_moment_diagnostic::set_parameter(char *name,double value){
+  if(strcmp(name,"N0")==0){
+    N0 = value;
+  }
+  else{
+    return _ERRORCODE_INPUTERROR;
+  }
+  return _ERRORCODE_NOERROR;
+}
+__global__ void set_SCS_cloud_climate_value_kernel(int num_pt,double *height,double *temperature,double *pressure,double *qvapor,double *qcloud){
+  int i = blockDim.x*blockIdx.x + threadIdx.x;
+  
+  if(i<num_pt){
+    if(qvapor[i]/libjeff::meteorology_cal_mixing_ratio(pressure[i],temperature[i],temperature[i]) > 0.95){
+      if(height[i] > 600){
+	qcloud[i] = 0.26e-3;
+      }
+      else{
+	qcloud[i] = 0.2e-3;
+      }
+    }
+    else{
+      qcloud[i] = 0.;
+    }
+  }
+}
+int set_SCS_cloud_climate_value(char *hostOrDevice,warm_cloud_single_moment_diagnostic* cloud){
+  if(cloud->get_data_field_index("qcloud")<0 || cloud->get_data_field_index("temperature")<0 || cloud->get_data_field_index("pressure")<0 || cloud->get_data_field_index("qvapor")<0 || cloud->get_data_field_index("height")<0 || cloud->get_data_field(0) == NULL){
+    return _ERRORCODE_DATAYETTOBEINITIATED;
+  }
+  
+  if(strcmp(hostOrDevice,"host")==0){
+    int i,j,k;
+    for(i=0;i<cloud->get_data_field(0)->get_nx();i++){
+      for(j=0;j<cloud->get_data_field(0)->get_ny();j++){
+	for(k=0;k<cloud->get_data_field(0)->get_nz();k++){
+	  if((*(cloud->get_data_field(cloud->get_data_field_index("qvapor"))->get_data(i,j,k)))/libjeff::meteorology_cal_mixing_ratio(*(cloud->get_data_field(cloud->get_data_field_index("pressure"))->get_data(i,j,k)),*(cloud->get_data_field(cloud->get_data_field_index("temperature"))->get_data(i,j,k)),*(cloud->get_data_field(cloud->get_data_field_index("temperature"))->get_data(i,j,k))) > 0.95){
+	    if(*(cloud->get_data_field(cloud->get_data_field_index("height"))->get_data(i,j,k)) > 600){
+	      *(cloud->get_data_field(cloud->get_data_field_index("qcloud"))->get_data(i,j,k)) = 0.26e-3;
+	    }
+	    else{
+	      *(cloud->get_data_field(cloud->get_data_field_index("qcloud"))->get_data(i,j,k)) = 0.2e-3;
+	    }
+	  }
+	  else{
+	    *(cloud->get_data_field(cloud->get_data_field_index("qcloud"))->get_data(i,j,k)) = 0.;
+	  }
+	}
+      }
+    }
+  }
+  else if(strcmp(hostOrDevice,"device")==0){
+    double *height, *temperature, *pressure, *qvapor, *qcloud;
+    cudaMalloc((void**) &height,cloud->get_data_field(0)->get_d_ngrid()*sizeof(double));
+    cudaMalloc((void**) &temperature,cloud->get_data_field(0)->get_d_ngrid()*sizeof(double));
+    cudaMalloc((void**) &pressure,cloud->get_data_field(0)->get_d_ngrid()*sizeof(double));
+    cudaMalloc((void**) &qvapor,cloud->get_data_field(0)->get_d_ngrid()*sizeof(double));
+    cudaMalloc((void**) &qcloud,cloud->get_data_field(0)->get_d_ngrid()*sizeof(double));
+
+    cloud->get_data_field(cloud->get_data_field_index("pressure"))->get_data("device",pressure);
+    cloud->get_data_field(cloud->get_data_field_index("height"))->get_data("device",height);
+    cloud->get_data_field(cloud->get_data_field_index("temperature"))->get_data("device",temperature);
+    cloud->get_data_field(cloud->get_data_field_index("qvapor"))->get_data("device",qvapor);
+
+    int numthreads = cuda_setting::get_numthreads();
+    dim3 grid;
+    grid.x = (int) ceil((double) cloud->get_data_field(0)->get_d_ngrid()/numthreads);
+    set_SCS_cloud_climate_value_kernel<<<grid,numthreads>>>(cloud->get_data_field(0)->get_d_ngrid(),height,temperature,pressure,qvapor,qcloud);
+
+    cloud->get_data_field(cloud->get_data_field_index("qcloud"))->set_data("device",qcloud);
+ 
+    cudaFree(qvapor);
+    cudaFree(qcloud);
+    cudaFree(pressure);
+    cudaFree(temperature);
+    cudaFree(height);
+  }
+  else{
+    return _ERRORCODE_INPUTERROR;
+  }
+  
+  return _ERRORCODE_NOERROR;
+}

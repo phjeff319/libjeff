@@ -1,0 +1,327 @@
+/*
+--------------------------------------------------------
+Version: 1.0.0: (unknown time) initial version
+         1.1.0: (Jan 2021) add class sftp_file
+--------------------------------------------------------
+*/
+#ifndef FILEHANDLER
+#define FILEHANDLER
+#include<cstdio>
+#include<sys/stat.h>
+
+###EXTERNAL####include"bzlib.h"
+###EXTERNAL####include"ssh_interface.h"
+#include"tags.h"
+
+using namespace std;
+
+namespace libjeff{
+  class file_handler{
+  public:
+    file_handler();
+    virtual ~file_handler();
+    
+    virtual int open(char *filename) = 0;
+    virtual int open(libjeff::file_handler *in) = 0;
+    virtual int open(char *buff, int size) = 0;
+    virtual int read(char *output,int numbytes) = 0;
+    virtual int read_file(char *&output,size_t &numbytes) = 0; //read the whole file
+    virtual int getline(char* output, int numbyte, char deliminator) = 0;
+    inline int getline(char* output, int numbyte) {return this->getline(output,numbyte,'\n');}
+    virtual long int tell() = 0;
+    virtual int seek(long int position) = 0;
+    virtual void close() = 0;
+    
+    inline int get_error() const {return this->error;}
+
+    virtual inline int get_priority() const {return 0;}
+  protected:
+    int error;
+    char *filename;
+  };
+
+  class pseudo_file : public file_handler{
+  public:
+    pseudo_file();
+    ~pseudo_file();
+    
+    virtual int open(char *filename);
+    virtual int open(libjeff::file_handler *in);
+    virtual int open(char *buff, int size);
+    virtual int read(char *output,int numbytes);
+    virtual int read_file(char *&output,size_t &numbytes);
+    virtual int getline(char* output, int numbyte, char deliminator);
+    virtual long int tell();
+    virtual int seek(long int position);
+    virtual void close();
+
+    virtual inline int get_priority() const {return 1;}
+    
+  protected:
+    //int destroy();
+
+    size_t buffersize;
+    char *file_buffer;
+    char *cursor_loc;
+  };
+  
+  class standard_file : public file_handler{
+  public:
+    
+    virtual int open(char *filename);
+    virtual int open(libjeff::file_handler *in);
+    virtual int open(char *buff, int size);
+    virtual int read(char *output,int numbytes);
+    virtual int read_file(char *&output,size_t &numbytes);
+    virtual int getline(char* output, int numbyte, char deliminator);
+    virtual long int tell();
+    virtual int seek(long int position);
+    virtual void close();
+
+    virtual inline int get_priority() const {return 1 << 30;}
+    
+  protected:
+    FILE *input;
+  };
+  
+  ###EXTERNAL###class bz_file : public pseudo_file{
+  public:
+    ~bz_file();
+    
+    virtual int open(char *filename);
+    virtual int open(libjeff::file_handler *in);
+    virtual int open(char *buff, int size);
+    virtual int read(char *output,int numbytes);
+    virtual int read_file(char *&output, size_t &numbytes);
+    virtual int getline(char* output, int numbyte, char deliminator);
+    virtual void close();
+    
+    virtual inline int get_priority() const {return 100;}
+  protected:
+    //BZFILE *bzin;
+  };
+  ###EXTERNAL###class gz_file : public pseudo_file{
+  public:
+    ~gz_file();
+    
+    virtual int open(char *filename);
+    virtual int open(libjeff::file_handler *in);
+    virtual int open(char *buff, int size);
+    virtual int read(char *output,int numbytes);
+    virtual int read_file(char *&output, size_t &numbytes);
+    virtual int getline(char* output, int numbyte, char deliminator);
+    virtual void close();
+    
+    virtual inline int get_priority() const {return 100;}
+  protected:
+  };
+  ###EXTERNAL###class sftp_file : public pseudo_file{
+  public:
+    sftp_file();
+    sftp_file(libjeff::ssh_interface* ssh);
+    ~sftp_file();
+    
+    virtual int open(char *filename);
+    virtual int open(libjeff::file_handler *in);
+    virtual int open(char *buff, int size);
+    using pseudo_file::read;
+    using pseudo_file::read_file;
+    using pseudo_file::getline;
+    using pseudo_file::tell;
+    using pseudo_file::seek;
+    virtual void close();
+
+    virtual inline int get_priority() const {return 1 << 30;}
+    
+  private:
+    libjeff::ssh_interface *ssh;
+  };
+
+  namespace outstream{
+    class file_handler{
+    public:
+      file_handler();
+      ~file_handler();
+
+      virtual int open(char *filename) = 0;
+      virtual int open(char *filename,mode_t mode) = 0;
+      //virtual int open(libjeff::ostream::file_handler *in) = 0;
+
+      virtual int write(char *input,int numbytes) = 0;
+
+      virtual void clear() = 0;
+      virtual void close() = 0;
+    
+      inline int get_error() const {return this->error;}
+
+    protected:
+      int error;
+      char *filename;
+      mode_t mode;
+    };
+
+    class pseudo_file : public file_handler{
+    public:
+      pseudo_file();
+      ~pseudo_file();
+      
+      virtual int open(char *filename);
+      virtual int open(char *filename,mode_t mode);
+      //virtual int open(libjeff::file_handler *in);
+
+      virtual int write(char *input,int numbytes);
+
+      virtual void clear();
+      virtual void close();
+      
+    protected:
+      //int destroy();
+      
+      size_t allocated_size;
+      char *file_buffer;
+      char *cursor_loc;
+    };
+
+    class standard_file : public file_handler{
+    public:
+      
+      virtual int open(char *filename);
+      virtual int open(char *filename,mode_t mode);
+
+      virtual int write(char *input,int numbytes);
+
+      virtual void close();
+    protected:
+      FILE *output;
+    };
+    /*  
+    class bz_file : public pseudo_file{
+    public:
+      virtual int open(char *filename);
+
+      virtual int write(char *input,int numbytes);
+
+      virtual void close();
+    protected:
+
+    };
+    */
+    ###EXTERNAL###class sftp_file : public pseudo_file{ //Note: SFTP file output flush out all content at the end when the file is closed. 
+    public:
+      sftp_file();
+      sftp_file(libjeff::ssh_interface* ssh);
+      ~sftp_file();
+    
+      virtual int open(char *filename);
+      virtual int open(char *filename,mode_t mode);
+      //virtual int open(libjeff::file_handler *in);
+
+      using pseudo_file::write;
+
+      virtual void close();
+      
+    private:
+      libjeff::ssh_interface *ssh;
+    };
+  }
+
+  namespace tar{
+    struct tar_header{
+      char filename[100];
+      char filemode[8];
+      char ownerID[8];
+      char groupID[8];
+      char filesize[12];
+      char lastmodified[12];
+      char checksum[8];
+      char link;
+      char linkedname[100];
+      char iden[6];
+
+    } __attribute__((packed));;
+
+    bool is_tar_content(char *buff);
+    bool is_file(char *buff);
+    size_t get_filesize(char *buff);
+    char *get_filename(char *buff,char *&out);
+
+    char* get_content(char *buff,size_t &size,char *&out);
+    char *goto_block(char *buff,size_t size,int index);
+    libjeff::file_handler* get_file(libjeff::file_handler* in,char *filename);
+  };
+}
+
+class data_block{
+ public:
+  data_block();
+  ~data_block();
+
+  int create(int size);
+  void destroy();
+
+  int enlarge_data_block(int size);
+
+  inline int get_allocated_size() const {return allocated_size;}
+  inline char* get_block_data() const {return block_data;}
+
+ protected:
+  int allocated_size;
+  char *block_data;
+};
+
+class json_block : public data_block{
+ public:
+  json_block();
+  json_block(const json_block &in);
+  ~json_block();
+
+  int read_template(char *filename);
+  int append(json_block* in);
+
+  int tags_replace(tags* tags2replace,char *replace_to);
+  int tags_replace(tags* tags2replace,int replace_to);
+
+  int trim_empty_space();
+
+  int parse(char *in);
+  int parse_no_trim(char *in);
+
+  json_block& operator=(const json_block &in);
+  json_block* extract(char *key,json_block *out) const;
+  json_block* extract(char *key,int index,json_block *out) const;
+  int get_array_size(char *key) const;
+  int replace(char *origblock,char *newblock);
+};
+
+class xml_block : public data_block{
+ public:
+  xml_block();
+  xml_block(const xml_block &in);
+  ~xml_block();
+
+  int parse(char *in);
+
+  xml_block& operator=(const xml_block &in);
+  xml_block* extract(char *key,xml_block *out) const;
+  xml_block* extract(char *key,int index,xml_block *out) const;
+};
+
+namespace libjeff{
+  namespace json{
+    int get_array_size(char *in_block_data);
+    char *extract_block_data(char *in_block_data,int index,char *&out);
+  }
+}
+
+void openfile(libjeff::file_handler* &file,char *filename);
+
+int file_handler_extract_data_from_csv(char *filename,int numfield,char **fields,char*** &csvdata,int skiplines,int commentlines,int &numdata);  //extract a column of data from csv by the header field
+int file_handler_extract_data_from_csv(char *filename,int numfield,char **fields,char**** &csvdata,int *skiplines,int headerlines,int &numdata,int *&frequency);  //extract a column of data from csv by the header field
+int file_handler_extract_data_from_csv(char *filename,int numfield,int *num_keys,char ***fields,char**** &csvdata,int **skiplines,int headerlines,int &numdata,int *&frequency);  //extract a column of data from csv by the header field
+char* file_handler_csv_extract_cell(char *filename,char *field,int row_number,int column_number,char *outbuff); //first row, col are indexed as 0, 0
+int file_handler_csv_header_enquiry(char *filename,char *field,int skiplines);
+int file_handler_csv_header_enquiry(char *filename,int num_header_line,char **field, int* skiplines);
+json_block* file_handler_read_json(libjeff::file_handler* file,int &num_block,json_block* &out);
+json_block* file_handler_read_json(char *filename,int &num_block,json_block* &out);
+ostream &operator<<(ostream &cout, json_block in);
+#endif

@@ -1,0 +1,41 @@
+#include<cuda.h>
+#ifndef RAINDROPLET
+#define RAINDROPLET
+#include"scatterer.h"
+
+class rain_droplet : public scatterer {
+ public:
+  rain_droplet();
+  rain_droplet(int gauss_laguerre_order);
+  ~rain_droplet();
+
+  virtual int add_cross_section(double *frequency,int nfre,double *sigma) = 0; //assume all array are on GPU
+
+  virtual void host2device();
+
+ protected:
+  int height_index, temperature_index, pressure_index, qvapor_index;
+
+ private:
+  int gauss_order; //usually the default value of 8 is enough
+  double *x0, *w0;
+  double *d_x0, *d_w0;
+
+  void create(int order);
+  void gauss_laguerre_setup(int order,double *x0,double *w0);
+
+  
+};
+
+class bulk_rain_scheme : public rain_droplet {
+ public:
+  bulk_rain_scheme();
+  bulk_rain_scheme(int gauss_laguerre_order);
+  ~bulk_rain_scheme();
+
+  virtual int add_cross_section(double *frequency,int nfre,double *sigma); //assume all array are on GPU
+  
+ private:
+  int qrain_index,N0qrain_index;
+};
+#endif

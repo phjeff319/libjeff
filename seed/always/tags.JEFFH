@@ -1,0 +1,102 @@
+#ifndef TAGS
+#define TAGS
+#include "date_time.h"
+//tags are in the form of ###{tag_name}|YYY%XXX### with the "|YYY" and "%XXX" parts being optional. "|YYY" is for additional operation, which "%XXX" is for formatting
+//please use alphanumeric for the {tag_name}
+/*
+-----------------------------------------------------
+Version 0.0 (    2018): Initial version
+Version 0.1 (Sep 2019): Bug fix; Support scanning tag names from a string; Support operation
+
+-----------------------------------------------------
+*/
+class tags{
+ public:
+  tags();
+  tags(char* in);
+  ~tags();
+
+  void create(int tag_name_len);
+  void create(char* tag_name);
+  void destroy();
+
+  void set_name(char *name);
+  char *get_name() const;
+
+  bool operator==(const tags&) const;
+  tags& operator=(const tags& in);
+
+  int replace(char *replace_in,char *replace_to);
+  int replace(char *replace_in,int replace_to);
+  int replace(char *replace_in,double replace_to);
+  int replace(char *replace_in,date_time replace_to); //default format yyyymmddhhmmss
+
+  int insert_after(char *insert_to,char *to_insert);
+  int insert_after(char *insert_to,int to_insert);
+  int insert_after(char *insert_to,double to_insert);
+  int insert_after(char *insert_to,date_time to_insert); //default format yyyymmddhhmmss
+
+  int insert_before(char *insert_to,char *to_insert);
+  int insert_before(char *insert_to,int to_insert);
+  int insert_before(char *insert_to,double to_insert);
+  int insert_before(char *insert_to,date_time to_insert); //default format yyyymmddhhmmss
+
+  int extract(char *whole_tag,char *out);
+  //Advanced routines. Use with cautions
+  int extract_format(char *whole_tag,char *out); //need to include also the ### parts.  If multiple tags with the same name exist in the variable whole_tag, the first one will be extracted.  Return a empty string if there is no formatting part
+  int extract_operation(char *whole_tag,char *out); //need to include also the ### parts. If multiple tags with the same name exist in the variable whole_tag, the first one will be extracted.  Return a empty string if there is no operation part
+
+ private:
+  int tag_name_len;
+  char *tag_name;
+}; 
+
+namespace libjeff{
+  namespace data_names{
+    class known_tags{
+    public:
+      //known_tags();
+      ~known_tags();
+      
+      static int regis(tags *in);
+      static int regis(char *in);
+      static bool isknown(tags *in);
+    private:
+      static int num_tag;
+      static int allocated_size;
+      static tags *tag_list;
+    };
+
+    char *extract_elements(tags *in, char *&out);
+    char *extract_namespace(tags *in, char *&out);
+  }
+  /*
+  namespace tags_aid{
+    class repeat_insertion_aid{ //optimization function for repeatly inserting into certain tag on a string
+      repeat_insertion_aid();
+      ~repeat_insertion_aid();
+
+      int allocate(int size);
+      int free();
+
+      void set_buff(char *in);
+      inline char *get_buff() const {return buff;}
+
+    private:
+      char *buff;
+      int size;
+      int ntags;
+      tags* list;
+
+    };
+  }
+  */
+}
+
+bool is_tag_balanced(char *in);
+bool is_valid_tag(char *in);
+char *get_tag_name(char *in,char *out);
+char *get_tag_option(char *in,char *out);
+int list_tag(char *in,int &num_tags,tags *&tag_list);
+bool is_consistent_with_tags(char *to_check,char *format,int num_tags,tags *tag_list);
+#endif

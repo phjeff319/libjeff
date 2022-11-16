@@ -1,0 +1,14 @@
+#ifndef GRIB_TOOLS
+#define GRIB_TOOLS
+#include "date_time.h"
+#include "grid_data_field.h"
+
+int grib_tools_get_rec_levels_variables(char* filename,int &num_records,char** &levels,char** &variables);
+int grib_tools_get_rec_with_levels_variables(char* filename,char *levels,char *variables,date_time valid_time,char *lat_res,char *lon_res,char *from_lat,char *to_lat,char *from_lon,char *to_lon,int &nsize,double* &rec,double &missing); //lat_res,lon_res,from_lat,to_lat,from_lon,to_lon are all optional. Set them to NULL if there is no preference for them
+int grib_tools_get_rec_with_levels_variables(char* filename,char *levels,char *variables,date_time valid_time,int num_param,char **param_name,char **param_value,int &nsize,double* &rec,double &missing); //if param_name content latitudeO+First/Last, longitudeOf + First/Last, iDirection, jDirection, the code will try to search for a domain large enough to cover the desired area if exact match cannot be found
+int* grib_tools_get_rec_with_levels_variables(char* filename,int nvariable,char **levels,char **variables,date_time valid_time,int num_param,char **param_name,char **param_value,int *nsize,double** rec,double &missing,int *error); //if param_name content latitudeO+First/Last, longitudeOf + First/Last, iDirection, jDirection, the code will try to search for a domain large enough to cover the desired area if exact match cannot be found
+
+int grib_tools_encode_grib(char *sample_file,const libjeff::grid_data_field* fields,int zindex,long centerID,long level,char *variables,date_time modelrun,double missingValue,int nkeys,char **keys,char **key_values,char* &buffer,size_t &size);
+int grib_tools_encode_grib(char *sample_file,const libjeff::grid_data_field* fields,int zindex,long centerID,long level,char *variables,date_time modelrun,double missingValue,int nkeys,char **keys,char **key_values,bool asdouble,char* &buffer,size_t &size);
+
+#endif

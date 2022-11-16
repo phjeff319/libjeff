@@ -1,0 +1,785 @@
+###CUDA####include<cuda.h>
+#include<cmath>
+#include<iostream>
+#include<fstream>
+#include<iomanip>
+#include<cstring>
+#include<cstdlib>
+using namespace std;
+
+#include "grid_data.h"
+#include "jma_geos_grid.h"
+
+#include "hrit_header.h"
+#include "himawari_standard_header.h"
+
+#include "file_check.h"
+#include "file_handler.h"
+#include "meteorology.h"
+#include "string_man.h"
+#include "tools.h"
+using namespace libjeff;
+
+//#include <typeinfo>
+
+void create_lookup_table(char* lookuptable,int &nlookup_value,double *&lookup_value){
+  char *buff = new char [strlen(lookuptable)];
+  char *temp;
+  char *tag = new char [5];
+  int n_ctl_pt, *ctl_pt;
+  double *ctl_value;
+  tag[0] = '\r';
+  tag[1] = '\0';
+  n_ctl_pt = check_num_tag_in_string(strstr(lookuptable,"0:="),":=");
+  //cout << n_ctl_pt << endl;
+  if(n_ctl_pt > 0){
+    ctl_pt = new int [n_ctl_pt];
+    ctl_value = new double [n_ctl_pt];
+
+    int i,j;
+    for(i=0;i<strlen(lookuptable);i++){
+      if(lookuptable[i]=='\n'){
+        lookuptable[i]='\r';
+      }
+    }
+
+    temp = strstr(lookuptable,"0:=");
+/*
+    for(i=0;i<3;i++){
+      temp=strstr(temp,tag)+strlen(tag);
+    }
+*/
+    for(i=0;i<n_ctl_pt;i++){
+      strcpy(buff,temp);
+      if(strstr(buff,tag)!=NULL){
+	*strstr(buff,tag)='\0';
+      }
+
+      //if(*strstr(buff,":=")==NULL) cout << "Error! " << buff << endl;
+      ctl_value[i] = atof(strstr(buff,":=")+strlen(":="));
+      *strstr(buff,":=") = '\0';
+      ctl_pt[i] = atoi(buff);
+      /*
+      cout << i << " " << ctl_pt[i] << " " << ctl_value[i] << " ";
+      for(j=0;j<strlen(temp);j++){
+	cout << (((int) temp[j])!=13 && ((int) temp[j])!=127?temp[j]:'\n');
+      }
+      cout << endl;
+      */
+      if(strstr(temp,tag)!=NULL){
+	temp=strstr(temp,tag)+strlen(tag);
+      }
+    }
+
+    nlookup_value = ctl_pt[n_ctl_pt-1]+1;
+    //cout << nlookup_value << endl;
+    lookup_value = new double [nlookup_value];
+
+    j=1;
+    for(i=0;i<nlookup_value;i++){
+      if(i>ctl_pt[j]) j++;
+      lookup_value[i] = ctl_value[j-1] + ((double) (i-ctl_pt[j-1]))/(ctl_pt[j] - ctl_pt[j-1])*(ctl_value[j] - ctl_value[j-1]);
+    }
+
+    delete [] ctl_pt;
+    delete [] ctl_value;
+  }
+  delete [] tag;
+  delete [] buff;
+}
+
+void read_hrit_image(char *filename,uint16_t *img_data){
+  hrit_pri_header *primary_hdr = new hrit_pri_header ;
+
+  //cout << filename << endl;
+  file_handler *file;
+  if(strstr(filename,".bz2")!=NULL){
+    //cout << "bz2 mode" << endl;
+    file = new bz_file;
+  }
+  else{
+    file = new standard_file;
+  }
+  file->open(filename);
+  file->read((char*) primary_hdr,sizeof(hrit_pri_header));
+  reverse_endian(primary_hdr);
+  char *buff = new char [primary_hdr->total_header_length-primary_hdr->header_length];
+  file->read(buff,primary_hdr->total_header_length-primary_hdr->header_length);
+  delete [] buff;
+  file->read((char *) img_data,primary_hdr->data_field_length/8);
+  file->close();
+  delete file;
+
+  delete [] primary_hdr;
+}
+
+int jma_geos_grid::default_num_file_segment = 10;
+
+###CPP### ###CUDA### ###HOST### jma_geos_grid::jma_geos_grid():geos_grid(){
+
+}
+
+###CPP### ###CUDA### ###HOST### jma_geos_grid::~jma_geos_grid(){
+}
+
+###CPP### ###CUDA### ###HOST### grid_data* jma_geos_grid::read_hrit_data(char *filename){
+  hrit_header_common hrit_common_hdr;
+  hrit_pri_header *primary_hdr = new hrit_pri_header ;
+  hrit_image_struct_header *image_struct_hdr = NULL;
+  hrit_image_navigation_header *image_navigation_hdr = NULL;
+  hrit_image_data_function_header *image_data_function_hdr = NULL;
+  hrit_annotation_header *annotation_hdr = NULL;
+  hrit_time_stamp_header *time_stamp = NULL;
+  hrit_ancillary_text_header *ancillary_text = NULL;
+  hrit_image_segment_id_header *image_seg_info = NULL;
+  hrit_image_compression_header *image_compresson_hdr = NULL;
+  hrit_image_observation_time_header *image_obs_time = NULL;
+  hrit_image_quality_info_header *image_quality_info = NULL;
+
+  if(!file_check_exist(filename)){
+    cout << "Error! File " << filename << " does not exist or empty" << endl;
+    return NULL;
+  }
+
+  int num_byte_read = 0;
+
+  file_handler *file;
+  if(is_bz2_file(filename)!=false){
+    file = new bz_file;
+  }
+  else{
+    file = new standard_file;
+  }
+  
+  file->open(filename);
+  switch(file->get_error()){
+  case BZ_CONFIG_ERROR:
+    cout << "Error! Library mis-compiled." << endl;
+    return NULL;
+    break;
+  case BZ_PARAM_ERROR:
+    cout << "Error! Parameter error." << endl;
+    return NULL;
+    break;
+  case BZ_IO_ERROR:
+    cout << "IO error." << endl;
+    return NULL;
+    break;
+  case BZ_MEM_ERROR:
+    cout << "Mem error." << endl;
+    return NULL;
+    break;
+  default:
+    break;
+  }
+  file->read((char *) primary_hdr,sizeof(hrit_pri_header));
+  num_byte_read += sizeof(hrit_pri_header);
+  reverse_endian(primary_hdr);
+
+  if(primary_hdr->header_type != 0 || primary_hdr->header_length != 16){
+    cout << "Error! Invalid primary header read from " << filename << endl;
+    return NULL;
+  }
+
+  //long int last_post;
+  while(num_byte_read < primary_hdr->total_header_length){
+    //    last_post = file->tell();
+    file->read((char *) &hrit_common_hdr,sizeof(hrit_header_common));
+    reverse_endian(&hrit_common_hdr);
+    //file->seek(last_post);
+
+    switch((int) hrit_common_hdr.header_type){
+    case 1:
+      reverse_endian(&hrit_common_hdr);
+      image_struct_hdr = new hrit_image_struct_header;
+      strncpy((char *) image_struct_hdr,(char *) &hrit_common_hdr,sizeof(hrit_header_common));
+      file->read(((char *) image_struct_hdr)+sizeof(hrit_header_common),sizeof(hrit_image_struct_header) - sizeof(hrit_header_common));
+      reverse_endian(image_struct_hdr);
+      reverse_endian(&hrit_common_hdr);
+      break;
+    case 2:
+      reverse_endian(&hrit_common_hdr);
+      image_navigation_hdr = new hrit_image_navigation_header;
+      strncpy((char *) image_navigation_hdr,(char *) &hrit_common_hdr,sizeof(hrit_header_common));
+      file->read(((char *) image_navigation_hdr)+sizeof(hrit_header_common),sizeof(hrit_image_navigation_header) - sizeof(hrit_header_common));
+      reverse_endian(image_navigation_hdr);
+      reverse_endian(&hrit_common_hdr);
+      break;
+    case 3:
+      image_data_function_hdr = new hrit_image_data_function_header;
+      image_data_function_hdr->definition = new char [hrit_common_hdr.header_length-3];
+      //file->read((char *) image_data_function_hdr,3);
+      strncpy((char *) image_data_function_hdr,(char *) &hrit_common_hdr,sizeof(hrit_header_common));
+      file->read(image_data_function_hdr->definition,hrit_common_hdr.header_length-3);
+      image_data_function_hdr->definition[hrit_common_hdr.header_length-4]='\0';
+      //reverse_endian(image_data_function_hdr);
+      break;
+    case 4:
+      annotation_hdr = new hrit_annotation_header;
+      annotation_hdr->text = new char [hrit_common_hdr.header_length-3];
+      strncpy((char *) annotation_hdr,(char *) &hrit_common_hdr,sizeof(hrit_header_common));
+      //file->read((char *) annotation_hdr,3);
+      file->read(annotation_hdr->text,hrit_common_hdr.header_length-3);
+      //reverse_endian(annotation_hdr);
+      break;
+    case 5:
+      reverse_endian(&hrit_common_hdr);
+      time_stamp = new hrit_time_stamp_header;
+      strncpy((char *) time_stamp,(char *) &hrit_common_hdr,sizeof(hrit_header_common));
+      file->read(((char *) time_stamp)+sizeof(hrit_header_common),sizeof(hrit_time_stamp_header)-sizeof(hrit_header_common));
+      reverse_endian(time_stamp);
+      reverse_endian(&hrit_common_hdr);
+      break;
+    case 6:
+      ancillary_text = new hrit_ancillary_text_header;
+      ancillary_text->text = new char [hrit_common_hdr.header_length-3];
+      //file->read((char *) ancillary_text,3);
+      strncpy((char *) ancillary_text,(char *) &hrit_common_hdr,sizeof(hrit_header_common));
+      file->read(ancillary_text->text,hrit_common_hdr.header_length-3);
+      //reverse_endian(ancillary_text);
+    case 128:
+      reverse_endian(&hrit_common_hdr);
+      image_seg_info = new hrit_image_segment_id_header;
+      strncpy((char *) image_seg_info,(char *) &hrit_common_hdr,sizeof(hrit_header_common));
+      file->read(((char *) image_seg_info)+sizeof(hrit_header_common),sizeof(hrit_image_segment_id_header)-sizeof(hrit_header_common));
+      reverse_endian(image_seg_info);
+      reverse_endian(&hrit_common_hdr);
+      break;
+    case 130:
+      image_compresson_hdr = new hrit_image_compression_header;
+      image_compresson_hdr->compression_info = new char [hrit_common_hdr.header_length-3];
+      //file->read((char *) image_compresson_hdr,3);
+      strncpy((char *) image_compresson_hdr,(char *) &hrit_common_hdr,sizeof(hrit_header_common));
+      file->read(image_compresson_hdr->compression_info,hrit_common_hdr.header_length-3);
+      //reverse_endian(image_compresson_hdr);
+      break;
+    case 131:
+      image_obs_time = new hrit_image_observation_time_header;
+      image_obs_time->observation_time = new char [hrit_common_hdr.header_length-3];
+      //file->read((char *) image_obs_time ,3);
+      strncpy((char *) image_obs_time,(char *) &hrit_common_hdr,sizeof(hrit_header_common));
+      file->read(image_obs_time->observation_time,hrit_common_hdr.header_length-3);
+      //reverse_endian(image_obs_time);
+      break;
+    case 132:
+      image_quality_info = new hrit_image_quality_info_header;
+      image_quality_info->quality_info = new char [hrit_common_hdr.header_length-3];
+      strncpy((char *) image_quality_info,(char *) &hrit_common_hdr,sizeof(hrit_header_common));
+      //file->read((char *) image_quality_info,3);
+      file->read(image_quality_info->quality_info,hrit_common_hdr.header_length-3);
+      //reverse_endian(image_quality_info);
+      break;
+    }
+    num_byte_read += hrit_common_hdr.header_length;
+  }
+  //cout << (uint32_t) primary_hdr->total_header_length << " " << num_byte_read << endl;
+  file->close();
+  delete file;
+
+  int i,j;
+  /*
+  cout << (int) primary_hdr->header_type << " " << primary_hdr->header_length << " " << (int) primary_hdr->file_type << " " << (uint32_t) primary_hdr->total_header_length << " " << (unsigned long long) primary_hdr->data_field_length << endl;
+  
+  if(image_struct_hdr!=NULL){
+    cout << (int) image_struct_hdr->header_type << " " << image_struct_hdr->header_length << " " << (unsigned int) image_struct_hdr->num_bits << " " << image_struct_hdr->num_column << " " << image_struct_hdr->num_lines << " " << (unsigned int) image_struct_hdr->compression << endl;
+  }
+  
+  if(image_navigation_hdr != NULL){
+    cout << (int) image_navigation_hdr->header_type << " " << image_navigation_hdr->header_length << " " << image_navigation_hdr->projection << " " << image_navigation_hdr->cfac << " " << image_navigation_hdr->lfac << " " << image_navigation_hdr->coff << " " << image_navigation_hdr->loff << endl;
+  }
+  
+  if(image_data_function_hdr!=NULL){
+    cout << (int) image_data_function_hdr->header_type << " " << image_data_function_hdr->header_length << endl;
+    for(i=0;i<image_data_function_hdr->header_length-3;i++){
+  //for(i=0;i<20;i++){
+    //cout << (int) image_data_function_hdr->definition[i] << " ";
+    //cout << image_data_function_hdr->definition[i];
+      cout << (((int) image_data_function_hdr->definition[i])!=13 && ((int) image_data_function_hdr->definition[i])!=127?image_data_function_hdr->definition[i]:'\n');
+    }
+    cout << endl;
+  }
+  
+  cout << time_stamp->header_length << " " << time_stamp->cds_t_field_day << " " << time_stamp->cds_t_field_ms << endl;
+  if(ancillary_text!=NULL){
+    cout << (int) ancillary_text->header_type << " " << ancillary_text->header_length << endl;
+  //for(i=0;i<ancillary_text->header_length-3;i++){
+    for(i=0;i<20;i++){
+      cout << (int) ancillary_text->text[i] << " ";
+    //cout << ancillary_text->text[i];
+    //cout << (((int) ancillary_text->definition[i])!=13 && ((int) ancillary_text->definition[i])!=127?ancillary_text->definition[i]:'\n');
+    }
+    cout << endl;
+  }
+  if(image_seg_info!=NULL){
+    cout << (int) image_seg_info->header_type << " " << image_seg_info->header_length << " " << (int) image_seg_info->image_seg_no << " " << (int) image_seg_info->total_no_seg << " " << image_seg_info->line_no_seg << endl;
+  }
+  if(image_compresson_hdr!=NULL){
+    cout << (int) image_compresson_hdr->header_type << " " << image_compresson_hdr->header_length << endl;
+    for(i=0;i<image_compresson_hdr->header_length-3;i++){
+      cout << (((int) image_compresson_hdr->compression_info[i])!=13?image_compresson_hdr->compression_info[i]:'\n');
+    }
+    cout << endl;
+  }
+  cout << endl;
+
+  if(image_obs_time!=NULL){
+    cout << (int) image_obs_time->header_type << " " << image_obs_time->header_length << endl;
+    for(i=0;i<image_obs_time->header_length-3;i++){
+      cout << (((int) image_obs_time->observation_time[i])!=13?image_obs_time->observation_time[i]:'\n');
+    }
+    cout << endl;
+  }
+  cout << endl;
+
+  if(image_quality_info!=NULL){
+    cout << (int) image_quality_info->header_type << " " << image_quality_info->header_length << endl;
+    for(i=0;i<image_quality_info->header_length-3;i++){
+      cout << (((int) image_quality_info->quality_info[i])!=13?image_quality_info->quality_info[i]:'\n');
+    }
+    cout << endl;
+  }
+  cout << endl;
+
+  //cout << num_byte_read << endl;
+  */  
+
+  char *buff = new char [4096];
+  strncpy(buff,strstr(image_navigation_hdr->projection,"(")+strlen("("),10);
+  *strstr(buff,")")='\0';
+
+  if(image_struct_hdr==NULL){
+    cout << "Error! Cannot find image structure header in the data" << endl;
+  }
+/*
+  if(image_seg_info==NULL){
+    cout << "Error! Cannot find image segment info in the data" << endl;
+  }
+*/
+  int num_seg = this->default_num_file_segment;
+  if(image_seg_info!=NULL){
+    num_seg = image_seg_info->total_no_seg;
+  }
+  this->create(image_struct_hdr->num_column,image_struct_hdr->num_lines*num_seg,1,1,atof(buff),42164000.);
+
+  //cout << this->get_nx() << " " << this->get_ny() << endl;
+
+  for(i=1;i<=this->get_nx();i++){
+    this->x[i-1] = ((double) (i - image_navigation_hdr->coff))/image_navigation_hdr->cfac*pow(2.,16.);
+  }
+  for(i=1;i<=this->get_ny();i++){
+    this->y[i-1] = ((double) (i - image_navigation_hdr->loff))/image_navigation_hdr->lfac*pow(2.,16.);
+  }
+
+  if(image_struct_hdr->num_bits != 16){
+    cout << "Error! This code has not yet implemented a version for number of bits per pixel not equal to 16!" << endl;
+    return NULL;
+  }
+
+  int nlookup_value;
+  double *lookup_value;
+
+  create_lookup_table(image_data_function_hdr->definition,nlookup_value,lookup_value);
+  //cout << "here" << endl;
+
+  int num_pixel = primary_hdr->data_field_length/image_struct_hdr->num_bits;
+  uint16_t *img_data = new uint16_t [num_pixel];
+  char *temp_filename = new char [4096];
+  char *buff2 = new char [4096];
+  char *ending = new char [4096];
+  string_reverse(filename,buff);
+  for(i=1;i<=num_seg;i++){
+    string_reverse(strstr(buff,"_"),temp_filename);
+    strcpy(buff2,buff);
+    *strstr(buff2,"_")='\0';
+    string_reverse(buff2,ending);
+    int num_digit_in_seg_field;
+    if(strstr(ending,".")!=NULL){
+      num_digit_in_seg_field = strstr(ending,".") - ending;
+    }
+    else{
+      num_digit_in_seg_field = strlen(ending);
+    }
+    strcpy(buff2,ending+num_digit_in_seg_field);
+    strcpy(ending,buff2);
+
+    if(num_digit_in_seg_field==3){
+      sprintf(buff2,"%3.3d",i);
+    }
+    else if(num_digit_in_seg_field==2){
+      sprintf(buff2,"%2.2d",i);
+    }
+    strcat(temp_filename,buff2);
+
+    strcat(temp_filename,ending);
+
+    read_hrit_image(temp_filename,img_data);
+
+    uint16_t *temp_img_data = new uint16_t;
+    bool not_reverse_endian = 0;
+    for(j=0;j<num_pixel;j++){
+      *temp_img_data = img_data[j];
+      reverse_endian(temp_img_data);
+      if(*temp_img_data>nlookup_value){
+	not_reverse_endian = 1;
+	break;
+      }
+    }
+    delete temp_img_data;
+
+    for(j=0;j<num_pixel;j++){
+      if(!not_reverse_endian){
+        reverse_endian(img_data+j);
+      }
+      //cout << img_data[j] << endl;
+      int x=j%image_struct_hdr->num_column;
+      int y=(i-1)*image_struct_hdr->num_lines + j/image_struct_hdr->num_column;
+
+      *(this->get_data(x,y,0))=lookup_value[img_data[j]];
+    }
+  }
+
+  delete [] img_data;
+  delete [] lookup_value;
+  delete [] temp_filename;
+  delete [] buff;
+  delete [] buff2;
+  delete [] ending;
+  
+  if(primary_hdr != NULL){
+    delete primary_hdr;
+  }
+  if(image_struct_hdr != NULL){
+    delete image_struct_hdr;
+  }
+  if(image_navigation_hdr != NULL){
+    delete image_navigation_hdr;
+  }
+  if(image_data_function_hdr != NULL){
+    delete [] image_data_function_hdr->definition;
+    delete image_data_function_hdr;
+  }
+  if(annotation_hdr != NULL){
+    delete [] annotation_hdr->text;
+    delete annotation_hdr;
+  }
+  if(time_stamp != NULL){
+    delete time_stamp;
+  }
+  if(ancillary_text != NULL){
+    delete [] ancillary_text->text;
+    delete ancillary_text;
+  }
+  if(image_seg_info != NULL){
+    delete image_seg_info;
+  }
+  if(image_compresson_hdr != NULL){
+    delete [] image_compresson_hdr->compression_info;
+    delete image_compresson_hdr;
+  }
+  if(image_obs_time != NULL){
+    delete [] image_obs_time->observation_time;
+    delete image_obs_time;
+  }
+  if(image_quality_info != NULL){
+    delete [] image_quality_info->quality_info;
+    delete image_quality_info;
+  }
+
+  return this;
+}
+
+###CPP### ###CUDA### ###HOST### grid_data* jma_geos_grid::read_hs_data(char *filename){
+  int num_seg, curr_seg;
+
+  int i;
+  char *ctemp = new char [4096];
+  char *ctemp2 = new char [4096];
+  char *dir = new char [4096];
+  strcpy(dir,"");
+
+  string_reverse(filename,ctemp);
+  strcpy(ctemp2,ctemp);
+  if(strstr(ctemp2,"/")!=NULL){
+    string_reverse(strstr(ctemp2,"/"),dir);
+    *strstr(ctemp2,"/")='\0';
+  }
+  char *file = new char [4096];
+  strcpy(file,ctemp2);
+  
+  string_reverse(ctemp2,ctemp);
+  if(strstr(ctemp,"_S")==NULL){
+    cout << "Error! File name in a pattern cannot be recognised." << endl;
+    return NULL;
+  }
+  strcpy(ctemp2,strstr(ctemp,"_S")+strlen("_S"));
+  *strstr(ctemp2,".")='\0';
+
+  int itemp = atoi(ctemp2);
+  num_seg = itemp%100;
+  curr_seg = itemp/100;
+
+  char *temp_filename = new char [4096]; 
+  for(i=1;i<=num_seg;i++){
+    strcpy(temp_filename,filename);
+    
+    sprintf(ctemp,"_S%2.2d%2.2d.",i,num_seg);
+    sprintf(ctemp2,"_S%2.2d%2.2d.",curr_seg,num_seg);
+    
+    string_replace(temp_filename,ctemp2,ctemp);
+    //cout << temp_filename << endl;
+    if(this->read_hs_data_segment(temp_filename)!=0){
+      return NULL;
+    }
+  }
+  
+  delete [] temp_filename;
+  delete [] dir;
+  delete [] file;
+  delete [] ctemp2;
+  delete [] ctemp;
+  return this;
+}
+
+###CPP### ###CUDA### ###HOST### int jma_geos_grid::read_hs_data_segment(char *filename){
+  //cout << "Entering read_hs_data_segment." << endl;
+  himawari_standard_basic_header *basic_header;
+  himawari_standard_data_header *data_header;
+  himawari_standard_projection_info_header *projection_info;
+  himawari_standard_navigation_info_header *navigation_info;
+  himawari_standard_calibration_info_header *calibration_info;
+  himawari_standard_intercalibration_info_header *intercalibration_info;
+  himawari_standard_segment_info_header *segment_info;
+  himawari_standard_navigation_correction_info_header *navigation_correction_info;
+  himawari_standard_observation_time_info_header *observation_time_info;
+  himawari_standard_error_info_header *error_info;
+  himawari_standard_spare_header *spare;
+
+   if(!file_check_exist(filename)){
+    cout << "Error! File " << filename << " does not exist or empty" << endl;
+    return 1;
+  }
+
+  basic_header = new himawari_standard_basic_header;
+  data_header = new himawari_standard_data_header;
+  projection_info = new himawari_standard_projection_info_header;
+  navigation_info = new himawari_standard_navigation_info_header;
+  intercalibration_info = new himawari_standard_intercalibration_info_header;
+  segment_info = new himawari_standard_segment_info_header;
+  navigation_correction_info = new himawari_standard_navigation_correction_info_header;
+  observation_time_info = new himawari_standard_observation_time_info_header;
+  error_info = new himawari_standard_error_info_header;
+  spare = new himawari_standard_spare_header;
+
+  file_handler *file;
+  if(is_bz2_file(filename)!=false){
+    file = new bz_file;
+  }
+  else{
+    file = new standard_file;
+  }
+
+  char *temp_filename = new char [strlen(filename)+10];
+  char *ctemp = filename;
+  int i;//,j;
+  bool isIR;
+  for(i=0;i<check_num_tag_in_string(filename,"/");i++){
+    ctemp=strstr(ctemp,"/")+1;
+  }
+  strcpy(temp_filename,ctemp+22);
+  *strstr(temp_filename,"_") = '\0';
+  if(atoi(temp_filename)<=6){
+    isIR=0;
+    //vis_nir_calibration_info = new himawari_standard_vis_nir_calibration_info_header;
+    //calibration_info = vis_nir_calibration_info;
+    calibration_info = new himawari_standard_vis_nir_calibration_info_header;
+  }
+  else{
+    isIR=1;
+    calibration_info = new himawari_standard_IR_calibration_info_header;
+  }
+    
+  //cout << sizeof(*calibration_info) << endl;
+  //cout << typeid(calibration_info).name() << endl;
+  //cout << typeid(*calibration_info).name() << endl;
+
+  file->open(filename);
+  file->read((char *) basic_header,sizeof(himawari_standard_basic_header));
+  file->read((char *) data_header,sizeof(himawari_standard_data_header));
+  file->read((char *) projection_info,sizeof(himawari_standard_projection_info_header));
+  file->read((char *) navigation_info,sizeof(himawari_standard_navigation_info_header));
+  file->read((char *) calibration_info,sizeof(himawari_standard_vis_nir_calibration_info_header));
+  file->read((char *) intercalibration_info,sizeof(himawari_standard_intercalibration_info_header));
+  file->read((char *) segment_info,sizeof(himawari_standard_segment_info_header));
+
+  file->read((char *) navigation_correction_info,21);
+  if(navigation_correction_info->num_corr>0){
+    navigation_correction_info->corr_info = new himawari_standard_navigation_correction_info [navigation_correction_info->num_corr];
+    file->read((char *) navigation_correction_info->corr_info,navigation_correction_info->num_corr*sizeof(himawari_standard_navigation_correction_info));
+  }
+  file->read((char *) navigation_correction_info->spare,40);
+
+  file->read((char *) observation_time_info,5);
+  if(observation_time_info->num_obstime > 0){
+    observation_time_info->obs_time_info = new himawari_standard_observation_time_info [observation_time_info->num_obstime];
+    file->read((char *) observation_time_info->obs_time_info,observation_time_info->num_obstime*sizeof(himawari_standard_observation_time_info));
+  }
+  file->read((char *) observation_time_info->spare,40);
+
+  file->read((char *) error_info,7);
+  if(error_info->num_error_info > 0){
+    error_info->error_info = new himawari_standard_error_info[error_info->num_error_info];
+    file->read((char *) error_info->error_info,error_info->num_error_info*sizeof(himawari_standard_error_info));
+  }
+  file->read((char *) error_info->spare,40);
+  
+  file->read((char *) spare,sizeof(himawari_standard_spare_header));
+
+  int num_pixel = data_header->num_column*data_header->num_lines;
+
+  if(segment_info->seg_no==1){
+    //cout << "Allocating " << data_header->num_column << " x " << data_header->num_lines*((unsigned int) segment_info->num_seg) << endl;
+    this->create(data_header->num_column,data_header->num_lines*((unsigned int) segment_info->num_seg),1,1,projection_info->sat_lon,projection_info->dist2earth_center);
+    /*
+    for(i=0;i<data_header->num_column*data_header->num_lines*((unsigned int) segment_info->num_seg);i++){
+      this->grid1D[i] = 0.;
+    }
+    */
+    for(i=1;i<=this->get_nx();i++){
+      this->x[i-1] = ((double) (i - projection_info->coff))/projection_info->cfac*pow(2.,16.);
+    }
+    for(i=1;i<=this->get_ny();i++){
+      this->y[i-1] = ((double) (i - projection_info->loff))/projection_info->lfac*pow(2.,16.);
+    }
+  }
+
+  /*
+  cout << (int) basic_header->header_type << " " << basic_header->header_length << " " << basic_header->total_numer_of_header  << " " << (int) basic_header->byte_order << " " << basic_header->satellite << " " << basic_header->center_name << " " << basic_header->obs_area << " " << basic_header->other_info << " " << basic_header->obs_timeline << " " << basic_header->obs_st_time << " " << basic_header->obs_end_time << " " << basic_header->file_create_time << " " << basic_header->total_header_len << " " << basic_header->total_data_len << " " << basic_header->file_format_ver << endl;
+  cout << (int) data_header->header_type << " " << data_header->header_length << " " << data_header->num_column << " " << data_header->num_lines << endl;
+  cout << (int) projection_info->header_type << " " << projection_info->header_length << " " << projection_info->cfac << " " << projection_info->lfac << " " << projection_info->coff << " " << projection_info->loff << endl;
+  cout << (int) navigation_info->header_type  << " " << navigation_info->header_length<< endl;
+  cout << (int) calibration_info->header_type << " " << calibration_info->header_length << " " << calibration_info->wavelength << " " << calibration_info->conversion_gain << " " << calibration_info->conversion_count;
+  if(isIR){
+    cout << " " << ((himawari_standard_IR_calibration_info_header *) calibration_info)->c << " " << ((himawari_standard_IR_calibration_info_header *) calibration_info)->h << " " << ((himawari_standard_IR_calibration_info_header *) calibration_info)->k << " " << ((himawari_standard_IR_calibration_info_header *) calibration_info)->coeff0_I2T << " " << ((himawari_standard_IR_calibration_info_header *) calibration_info)->coeff1_I2T << " " << ((himawari_standard_IR_calibration_info_header *) calibration_info)->coeff2_I2T;
+  }
+  cout << endl;
+  cout << (int) intercalibration_info->header_type << " " << intercalibration_info->header_length << endl;
+  cout << (int) segment_info->header_type << " " << segment_info->header_length << " " << (int) segment_info->seg_no << "/" << (int) segment_info->num_seg << " " << segment_info->seg_first_line_no << endl;
+  cout << (int) navigation_correction_info->header_type << " " << navigation_correction_info->header_length << " " << navigation_correction_info->num_corr << endl;
+  cout << (int) observation_time_info->header_type << " " << observation_time_info->header_length << " " << observation_time_info->num_obstime << endl;
+  if(observation_time_info->num_obstime > 0){
+    cout << "----------------------Observation Time Info---------------------" << endl;
+    char ctemp[4096];
+    for(i=0;i<observation_time_info->num_obstime;i++){
+      date_time line_time;
+      line_time.set_time_MJD((observation_time_info->obs_time_info[i]).obs_time);
+      cout << (observation_time_info->obs_time_info[i]).line_num << "\t" << setprecision(25) << (observation_time_info->obs_time_info[i]).obs_time << "\t" << line_time.get_time("yyyy-mm-dd_hh:mm:ss",ctemp) << endl;
+    }
+    cout << "----------------------------------------------------------------" << endl;
+  }
+  cout << (int) error_info->header_type << " " << error_info->header_length << endl;
+  cout << (int) spare->header_type << " " << spare->header_length << endl;
+  */
+
+  delete [] temp_filename;
+
+  uint16_t *temp_count = new uint16_t [data_header->num_column*data_header->num_lines];
+  file->read((char *) temp_count,data_header->num_column*data_header->num_lines*sizeof(uint16_t));
+
+  file->close();
+  delete file;
+
+  double *temp_data = new double [num_pixel];
+
+  //cout << "Finished reading in from file." << endl;
+
+  for(i=0;i<num_pixel;i++){
+    if(temp_count[i]!=calibration_info->error_value && temp_count[i]!=calibration_info->outside_scan_value){
+      temp_data[i] = (calibration_info->conversion_gain)*((uint16_t) temp_count[i]) + (calibration_info->conversion_count);
+    }
+    else{
+      temp_data[i] = -9999.;
+    }
+  }
+  delete [] temp_count;
+
+  //cout << "Finished conversion from count to radiance." << endl;
+
+  double wavelength = calibration_info->wavelength*0.000001;
+  if(isIR){
+    for(i=0;i<num_pixel;i++){
+      if(temp_data[i]>0){
+	temp_data[i] *= 1000000.;//unit conversion from per micron to per meter
+	temp_data[i] = meteorology_radiance2bt(temp_data[i],wavelength);
+	temp_data[i] = ((himawari_standard_IR_calibration_info_header *) calibration_info)->coeff2_I2T * temp_data[i]*temp_data[i] + ((himawari_standard_IR_calibration_info_header *) calibration_info)->coeff1_I2T * temp_data[i] + ((himawari_standard_IR_calibration_info_header *) calibration_info)->coeff0_I2T;
+      }	
+      else{
+	temp_data[i] = 0.;
+      }
+    }
+  }
+  else{
+    for(i=0;i<num_pixel;i++){
+      if(temp_data[i]>0){
+	temp_data[i] *= ((himawari_standard_vis_nir_calibration_info_header *) calibration_info)->coeff_radiance2albedo;
+      }	
+      else{
+	temp_data[i] = 0.;
+      }
+    }
+  }
+
+  //cout << "Finished conversion from radiance to albedo/brightness temperature" << endl;
+
+  /*
+  int write_indexi;
+  int read_indexi;
+  for(i=0;i<data_header->num_lines;i++){
+    write_indexi = i+segment_info->seg_first_line_no-1;
+    read_indexi = i*data_header->num_column;
+    for(j=0;j<data_header->num_column;j++){
+      //cout << i << " " << read_indexi << " " << write_indexi << " " << j << endl;
+      (this->grid1D)[j*this->get_ny()+write_indexi]=temp_data[read_indexi + j];
+      //*(this->get_data(j,segment_info->seg_first_line_no+i-1,0)) = temp_data[i*data_header->num_column + j];
+    }
+  }
+  */
+  for(i=0;i<num_pixel;i++){
+    int x = i%data_header->num_column;
+    int y = i/data_header->num_column + +segment_info->seg_first_line_no-1;
+    //cout << x << " " << y << " " << i << endl;
+    *(this->get_data(x,y,0)) = temp_data[i];
+  }
+  //cout << "Finished writing to data structure." << endl;
+
+  delete [] temp_data;
+ 
+  delete basic_header;
+  delete data_header;
+  delete projection_info;
+  delete navigation_info;
+  delete calibration_info;
+  delete intercalibration_info;
+  delete segment_info;
+  if(navigation_correction_info->num_corr > 0){
+    delete [] navigation_correction_info->corr_info;
+  }
+  delete navigation_correction_info;
+  if(observation_time_info->num_obstime > 0){
+    delete [] observation_time_info->obs_time_info;
+  }
+  delete observation_time_info;
+  if(error_info->num_error_info > 0){
+    delete [] error_info->error_info;
+  }
+  delete error_info;
+  delete spare;
+
+  //cout << "Exiting read_hs_data_segment." << endl;
+
+  return 0;
+}
+
+###CPP### ###CUDA### ###HOST### grid_data* jma_geos_grid::read_mtsat_level0(char *filename){
+
+  return this;
+}

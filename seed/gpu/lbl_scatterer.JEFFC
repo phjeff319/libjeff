@@ -1,0 +1,22 @@
+#include"lbl_scatterer.h"
+
+lbl_scatterer::lbl_scatterer():scatterer(){
+  nline = 0;
+  nparam = 0;
+  wk = NULL;
+  as = NULL;
+  d_wk = NULL;
+  d_as = NULL;
+
+  parm_file = new char [4092];
+}
+lbl_scatterer::~lbl_scatterer(){
+  nline = 0;
+  nparam = 0;
+  wk = NULL;
+  as = NULL;
+  d_wk = NULL;
+  d_as = NULL;
+
+  delete [] parm_file;
+}

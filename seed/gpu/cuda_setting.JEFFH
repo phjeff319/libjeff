@@ -1,0 +1,19 @@
+#ifndef Cuda_setting
+#define Cuda_setting
+
+class cuda_setting{
+ public:
+  cuda_setting();
+  ~cuda_setting();
+  
+  static int set_numthreads(int in);
+  static int get_numthreads();
+
+  static int setup();
+
+ private:
+  static int numthreads;
+  static int max_numthreads;
+  static int max_blockdim[3];
+};
+#endif

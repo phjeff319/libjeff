@@ -1,0 +1,85 @@
+#ifndef DEBUGMODE
+#define DEBUGMODE
+#include <iostream>
+#include <sys/time.h>
+
+namespace libjeff{
+  class debug_setting{
+  public:
+    static void set_debug_mode_warning(bool on);
+    static void set_debug_mode_debug_log(bool on);  //Be warned! Turn on debug log significantly slow down the code
+    static void set_debug_mode_subroutine_trace(bool on);
+    static void set_debug_mode_debug_message(bool on);
+    static void set_debug_mode_bound_check(bool on);
+    static void set_debug_mode_timing(bool on);
+    static void set_debug_mode_debug_check(bool on);
+    static void set_debug_mode_GPU_monitor(bool on);
+
+    static void debug_mode_raise_subroutine_level();
+    static void debug_mode_lower_subroutine_level();
+
+    static bool get_debug_mode_warning();
+    static bool get_debug_mode_debug_log();
+    static bool get_debug_mode_subroutine_trace();
+    static bool get_debug_mode_debug_message();
+    static bool get_debug_mode_bound_check();
+    static bool get_debug_mode_timing();
+    static bool get_debug_mode_debug_check();
+    static bool get_debug_mode_GPU_monitor();
+
+    static int get_subroutine_level();
+    
+  private:
+    static unsigned int debug_flag;
+    static unsigned int subroutine_level;
+  }; 
+  
+  class debug_log{
+  public:
+    //debug_log();
+    //~debug_log();
+
+    void destroy();
+    
+    void clear();
+
+    char *get_log() const;
+
+    void append(char in);
+    void append(char *in);
+    void append(int in);
+    void append(double in);
+    
+  private:
+    void check_space(int len);
+
+    static int log_size;
+    static char *log;
+    
+  };
+
+  class stop_watch{
+  public:
+    stop_watch();
+
+    double click();
+    void stop();
+    void reset();
+
+    inline double get_acc() const {return acc;}
+
+  private:
+    struct timeval record; 
+    bool isstart;
+    double acc;
+  };
+
+  void print_trace(bool isenter,char *subroutine_name);
+}
+libjeff::debug_log &operator<<(libjeff::debug_log &log,char in);
+libjeff::debug_log &operator<<(libjeff::debug_log &log,char *in);
+libjeff::debug_log &operator<<(libjeff::debug_log &log,int in);
+libjeff::debug_log &operator<<(libjeff::debug_log &log,double in);
+std::ostream &operator<<(std::ostream &cout,libjeff::debug_log& in);
+
+#endif

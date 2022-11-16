@@ -1,0 +1,67 @@
+#include <iostream>
+#include <fstream>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <sstream>
+#include "file_check.h"
+#include "earth.h"
+
+#ifndef STATIONMETA
+#define STATIONMETA
+class station_meta_data{
+ public:
+  ###CPP### ###CUDA### ###HOST### station_meta_data();
+  ###CPP### ###CUDA### ###HOST### station_meta_data(const station_meta_data &data);
+  ###CPP### ###CUDA### ###HOST### ~station_meta_data();
+  ###CPP### ###CUDA### ###HOST### void create(double lat,double lon,double altitude,char *id);
+  ###CPP### ###CUDA### ###HOST### void set_lat(const double &lat);
+  ###CPP### ###CUDA### ###HOST### void set_lon(const double &lon);
+  ###CPP### ###CUDA### ###HOST### void set_altitude(const double &altitude);
+  ###CPP### ###CUDA### ###HOST### void set_id(const char *id);
+
+  ###CPP### ###CUDA### ###HOST### bool operator==(const station_meta_data &in);
+
+  ###CPP### ###CUDA### ###HOST### double get_lat() const;
+  ###CPP### ###CUDA### ###HOST### double get_lon() const;
+  ###CPP### ###CUDA### ###HOST### double get_altitude() const;
+  ###CPP### ###CUDA### ###HOST### char *get_id() const;
+
+  ###CPP### ###CUDA### ###HOST### bool isvalid();
+
+  ###CPP### ###CUDA### ###HOST### station_meta_data &operator=(const station_meta_data &in);
+
+ private:
+  double lat, lon, altitude;
+  char *id;
+};
+
+class station_meta{
+ public:
+  station_meta();
+  station_meta(const station_meta &meta);
+  ~station_meta();
+  void destroy();
+  void create(const int& num_aws,station_meta_data* aws);
+
+  void read_file(char* filename);
+
+  int get_num_aws() const;
+
+  station_meta &operator=(const station_meta &in);
+  station_meta &operator+=(const station_meta &in);
+
+  station_meta_data* get_station_meta_data(int index) const;
+  station_meta_data* get_station_meta_data(const char *id) const;
+  station_meta_data* get_station_meta_data(const char *id);
+
+  void filter_sharp_hills(const station_meta& in, const double &radius, const double &threshold_ratio);
+
+ private:
+  void create(const int& num_aws);
+  int num_aws;
+  station_meta_data *aws_info;
+};
+
+std::ostream &operator<<(std::ostream &output, const station_meta& tooutput);
+#endif

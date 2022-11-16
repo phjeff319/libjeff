@@ -1,0 +1,82 @@
+#include<cuda.h>
+#include<iostream>
+using namespace std;
+
+#include"cuda_setting.h"
+#include"debug_mode.h"
+
+#include"error_code.h"
+
+int cuda_setting::numthreads;
+int cuda_setting::max_numthreads;
+int cuda_setting::max_blockdim[3];
+
+cuda_setting::cuda_setting(){
+  this->setup();
+}
+
+int cuda_setting::setup(){
+  cudaDeviceProp device_info;
+  int i,j;
+  int *count;
+  count = new int;
+  cudaGetDeviceCount(count);
+  int error = _ERRORCODE_NOERROR;
+  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+    std::cout << "Number of GPU device: " << *count << std::endl;
+  }
+  if(*count <= 0){
+    std::cout << "Fatal error! No GPU device found." << std::endl;
+    error = _ERRORCODE_UNKNOWNERROR;
+  }
+
+  for(i=0;i<*count;i++){
+    cudaGetDeviceProperties(&device_info,i);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaGetDeviceProperties@cuda_setting" << endl;
+    
+    if(i==0){
+      max_numthreads=device_info.maxThreadsPerBlock;
+      for(j=0;j<3;j++){
+	max_blockdim[j] = device_info.maxGridSize[j];
+      }
+    }
+    else{
+      if(max_numthreads < device_info.maxThreadsPerBlock){
+	max_numthreads=device_info.maxThreadsPerBlock;
+      }
+
+      for(j=0;j<3;j++){
+	if(max_blockdim[j] < device_info.maxGridSize[j]){
+	  max_blockdim[j] = device_info.maxGridSize[j];
+	}
+      }
+    }
+  }
+  
+  numthreads = max_numthreads;
+  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+    std::cout << "Maximum number of block size: " << max_blockdim[0] << " " << max_blockdim[1] << " " << max_blockdim[2] << std::endl;
+    std::cout << "Default number of threads: " << numthreads << std::endl;
+  }
+ 
+  delete count;
+
+  return error;
+}
+cuda_setting::~cuda_setting(){
+}
+int cuda_setting::set_numthreads(int in){
+  if(in > 0){
+    numthreads = in;
+    return _ERRORCODE_NOERROR;
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+}
+int cuda_setting::get_numthreads() {
+  if(numthreads==0){
+    setup();
+  }
+  return numthreads;
+}

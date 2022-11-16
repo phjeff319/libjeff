@@ -1,0 +1,8 @@
+#ifndef GZINTERFACE
+#define GZINTERFACE
+
+namespace libjeff{
+  int gz_decompress(char* in,size_t in_size,char *&out,size_t &out_size);
+};
+
+#endif

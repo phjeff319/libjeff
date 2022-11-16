@@ -1,0 +1,82 @@
+#include <vector>
+
+#include "data_bank.h"
+#include "debug_mode.h"
+#include "error_code.h"
+
+namespace libjeff{
+  const int init_allocate_space = 1000;
+
+  data_bank::data_bank(){
+    //data_pts =  NULL;
+  }
+  data_bank::~data_bank(){
+    this->destroy();
+  }
+  /*
+  int data_bank::create(int size,void (*in)(int block_size,data_bank_pts* &inout)){
+    this->destroy();
+    
+    if(size > init_allocate_space){
+      nallocated_block = size;
+    }
+    else{
+      nallocated_block = init_allocate_space;
+    }
+    
+    data_pts = new data_bank_pts* [nallocated_block];
+    int i;
+    for(i=0;i<nallocated_block;i++){
+      data_pts[i] = NULL;
+    }
+    npt = 0;
+    allocator=in;
+
+    return _ERRORCODE_NOERROR;
+  }
+  */
+  int data_bank::create(void (*in)(data_bank_pts* &inout)){
+    this->destroy();
+    allocator=in;
+
+    return _ERRORCODE_NOERROR;
+  }
+  void data_bank::destroy(){
+    int i;
+    for(i=0;i<this->get_num_data_pts();i++){
+      delete data_pts[i];
+    }
+    /*
+    if(nallocated_block > 0){
+      if(npt > 0){
+	int i;
+	for(i=0;i<npt;i++){
+	  delete [] data_pts[i];
+	}
+      }
+      delete [] data_pts;
+    }
+    nallocated_block = 0;
+    npt = 0;
+    data_pts =  NULL;
+    */
+    data_pts.clear();
+    
+  }
+  data_bank_pts* data_bank::get_data(int index){
+    if(index < 0 || index >= this->get_num_data_pts()){
+      return NULL;
+    }
+    else{
+      return this->data_pts[index];
+    }
+  }
+  int data_bank::append(data_bank_pts* in){
+    data_bank_pts* new_node;
+    this->allocator(new_node);
+    *new_node = *in;
+    this->data_pts.push_back(new_node);
+
+    return _ERRORCODE_NOERROR;
+  }
+}

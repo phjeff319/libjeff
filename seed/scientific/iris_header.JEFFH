@@ -1,0 +1,405 @@
+const int DB_VEL=3;
+const int DB_ZDR=5;
+const int DB_KDP=14;
+const int DB_RHOHV=19;
+const int DB_PHIDP=16;
+
+//copied from Ruby/F3
+/* Structure header */
+struct ymds_time{
+  int32_t SecondsSinceMidnight;
+  uint16_t MillisecondsInLower10Bits;
+  int16_t Year;
+  int16_t Month;
+  int16_t Day;
+};
+
+struct color_scale_def{
+  uint32_t iflags;
+  int32_t istart;
+  int32_t istep;
+  int16_t icolcnt;
+  uint16_t iset_and_scale;
+  uint16_t ilevel_seams[16];
+};
+
+struct general_psi_struct{
+  char space[80];
+};
+
+struct ndop_psi_struct{
+  char spare1[48];
+  int32_t time_window;
+  int32_t CAPPIHeight;
+  int32_t resolution;
+  uint32_t min_cross_angle;
+  uint32_t flags;
+  char sitecode[4];
+  char spare2[8];
+};
+
+struct cappi_psi_struct{
+  uint32_t ShearFlag;
+  int32_t CAPPIHeight;
+  uint16_t Flags;
+  uint16_t AzimuthSmoothingForShear;
+  char VVPShearCorrection[12];
+  uint32_t MaxAgeForVVPShearCorrection;
+  char spare[52];
+};
+
+struct vil_psi_struct{
+  char spare1[4];
+  int32_t BottomOfHeightInterval;
+  int32_t TopOfHeightInterval;
+  char spare2[68];
+};
+
+struct Structure_Header{
+  int16_t StructureIdentifier;
+  int16_t FormatVersionNumber;
+  int32_t NumberOfBytesEntireStructure;
+  int16_t Reserved;
+  int16_t Flags;
+}; //12 Bytes
+
+/* Product configuration structure */
+struct Product_Configuration_Structure{
+  struct Structure_Header StructureHeader;
+  uint16_t ProductTypeCode;
+  uint16_t SchedulingCode;
+  int32_t NumberOfSecondsSkipBetweenRuns;
+  struct ymds_time TimeProductGenerated;
+  struct ymds_time TimeInputIngestSweep;
+  struct ymds_time TimeInputIngestFile;
+  
+  char spare1[6];
+  
+  char NameProductConfigurationFile[12];
+  char NameTaskUsedGenerateData[12];
+  uint16_t FlagWord;
+  
+  int32_t Xscale;
+  int32_t Yscale;
+  int32_t Zscale;
+  int32_t XSizeArray;
+  int32_t YSizeArray;
+  int32_t ZSizeArray;
+  int32_t XLocationOfRadarInDataArray;
+  int32_t YLocationOfRadarInDataArray;
+  int32_t ZLocationOfRadarInDataArray;
+  int32_t MaximumRange;
+  
+  char spare2[2];
+  
+  uint16_t DataTypeGenerated;
+  char NameOfProjection[12];
+  uint16_t DataTypeUsedAsInput;
+  unsigned char ProjectionType;
+  
+  char spare3[1];
+  
+  int16_t RadialSmoother;
+  int16_t NumberOfTimesOfRunOfProductConfiguration;
+  int32_t ZRRelationshipConstant;
+  int32_t ZRRelationshipExponent;
+  int16_t XSmoother;
+  int16_t YSmoother;
+  
+  struct general_psi_struct productInfo;
+  
+  char spare4[28];
+  struct color_scale_def Colors;
+};
+
+/* Product end structure */
+struct Product_End_Structure{
+  char SiteName[16];
+  char IRIS_OpenVersionProductMade[8];
+  char IRIS_OpenVersionIngestDataCameFrom[8];
+  struct ymds_time OldestInputIngestFile;
+  
+  char spare5[46];
+  
+  char SiteNameIngestDataCameFrom[16];
+  int16_t MinutesLocalTimeAheadOfGMT;
+  uint32_t CenterLatitude;
+  uint32_t Centerlongitude;
+  int16_t GroundHeightRelativeToSeaLevel;
+  int16_t RadarHeightAboveGround;
+  
+  int32_t PRF;
+  int32_t PulseWidth;
+  uint16_t TypeOfSignalProcessor;
+  uint16_t TriggerRateScheme;
+  int16_t NumberOfSamplesUsed;
+  char ClutterFilterFileName[12];
+  uint16_t NumberLinearBasedFilterForFirstBin;
+  int32_t Wavelength;
+  int32_t TruncationHeight;
+  int32_t RangeOfFirstBin;
+  int32_t RangeOfLastBin;
+  int32_t NumberOfOutputBins;
+  uint16_t FlagWord;
+  int16_t NumberOfFileUsedToMakeProduct;
+  char spare6[64];
+  uint16_t NumberLogBasedFilterForFirstBin;
+  
+  char spare7[2];
+  
+  uint32_t ProjectionReferenceLatitude;
+  uint32_t ProjectionReferenceLongitude;
+  int16_t ProductSequenceNumber;
+  int16_t ColorNumbersUpTo16Steps[16];
+  char spare8[2];
+  int16_t ReferenceHeight;
+  int16_t NumberOfElementsInProductArray;
+  
+  char spare9[20];
+};
+
+struct  IRIS_Header {
+  struct Structure_Header StructureHeader;
+  struct Product_Configuration_Structure ProductConfigurationStructure;
+  struct Product_End_Structure ProductEndStructure;
+};
+
+//End of Ruby code
+struct IRIS_Header_Block {
+  struct IRIS_Header irisHeader;
+  char blank[5504];
+};
+
+struct DSP_Data_Mask{
+  uint32_t mask0;
+  uint32_t extendedHeader;
+  uint32_t mask1;
+  uint32_t mask2;
+  uint32_t mask3;
+  uint32_t mask4;
+};
+
+struct Task_Sched_info{
+  int32_t startTime;
+  int32_t stopTime;
+  int32_t skipTime;
+  int32_t timeLastRun;
+  int32_t timeUsed;
+  int32_t relativeDay;
+  uint16_t flag;
+  char spare[94];
+};
+struct Task_dsp_info{
+  uint16_t majorMode;
+  uint16_t dspType;
+  DSP_Data_Mask curDataMask;
+  DSP_Data_Mask oriDataMask;
+  char dsp_mode[32];
+  char spare[52];
+  int32_t prf;
+  int32_t pulsewidth;
+  uint16_t prfmodeFlag;
+  int16_t prfDelay;
+  uint16_t agcFeedback;
+  int16_t sampleSize;
+  uint16_t gainControlFlag;
+  char clutterFilename[12];
+  uint8_t linearFilterNum;
+  uint8_t logFilterNum;
+  int16_t attenuation;
+  uint16_t gasAttenuation;
+  uint16_t isCluttermapUsed;
+  uint16_t XMTphaseSeq;
+  uint32_t mask;
+  uint16_t playbackFlag;
+  char spare2[2];
+  char rayHeaderName[16];
+  char spare3[120];
+};
+struct Task_dsp_mode_batch{
+  uint16_t lowPRFHz;
+  uint16_t lowPRFfraction;
+  int16_t lowPRFSampleSize;
+  int16_t lowPRFRange;
+  int16_t thresholdZ;
+  int16_t thresholdVel;
+  int16_t thresholdWidth;
+  char spare[18];
+};
+struct Task_calib_info{
+  int16_t ZSlope;
+  int16_t ZThreshold;
+  int16_t clutterCorrectionThreshold;
+  int16_t SQIThreshold;
+  int16_t powerThreshold;
+  char spare[8];
+  int16_t calibReflectivity;
+  uint16_t flag_uncorrectedZ;
+  uint16_t flag_correctedZ;
+  uint16_t flag_vel;
+  uint16_t flag_width;
+  uint16_t flag_ZDR;
+  char spare2[6];
+  uint16_t flags;
+  char spare3[2];
+  int16_t LDRbias;
+  int16_t ZDRbias;
+  int16_t pointClutterThreshold;
+  uint16_t pointClutterBinSkip;
+  int16_t hor_io_calib_value;
+  int16_t vert_io_calib_value;
+  int16_t h_calibNoise;
+  int16_t v_calibNoise;
+  int16_t h_radar_const;
+  int16_t v_radar_const;
+  uint16_t receiverBandwidth;
+  int16_t flag2;
+  char spare4[256];
+};
+struct Task_range_info{
+  int32_t firstBinRange;
+  int32_t lastBinRange;
+  int16_t numInputBins;
+  int16_t numOutputBins;
+  int32_t stepInputBins;
+  int32_t stepOutputBins;
+  uint16_t flag;
+  int16_t rangeFlag;
+  char spare[136];
+};
+struct Task_scan_info{
+  uint16_t scanMode;
+  int16_t angularResolution;
+  char spare[2];
+  int16_t numSweep;
+  char taskScanInfo[200];
+  char spare2[112];
+};
+struct Task_ppi_scan_info{
+  uint16_t leftAzimuth;
+  uint16_t rightAzimuth;
+  uint16_t elevations[40];
+  char spare[115];
+  char startOfFirstSectorSweep;
+};
+struct Task_misc_info{
+  int32_t wavelength;
+  char serialNo[16];
+  int32_t transmitPower;
+  uint16_t flags;
+  uint16_t polarization;
+  int32_t trunHeight;
+  char sparePol[18];
+  char spare[12];
+  int16_t numBytesComment;
+  uint32_t h_beamwidth;
+  uint32_t v_beamwidth;
+  uint32_t storage[10];
+  char spare2[208];
+};
+struct Task_end_info{
+  int16_t majorNum;
+  int16_t minorNum;
+  char taskConfigFilename[12];
+  char taskDescription[80];
+  int32_t numTasks;
+  uint16_t taskState;
+  char spare[2];
+  struct ymds_time dataTime;
+  uint8_t hclass[6];
+  char spare2[198];
+};
+
+struct Task_Configuration {
+  struct Structure_Header StructureHeader;
+  struct Task_Sched_info scheduleInfo;
+  struct Task_dsp_info dspInfo;
+  struct Task_calib_info calibInfo;
+  struct Task_range_info rangeInfo;
+  struct Task_scan_info scanInfo;
+  struct Task_misc_info miscInfo;
+  struct Task_end_info taskEndInfo;
+  char comment[720];
+};
+
+struct Ingest_Configuration {
+  char filename[80];
+  int16_t num_assoc_datafile;
+  int16_t numSweep;
+  int32_t total_size;
+  struct ymds_time scanTime;
+  char spare[12];
+  int16_t numByteHeader;
+  int16_t numByteExtendHeader;
+  int16_t numTaskConfigTable;
+  int16_t playbackVersion;
+  char spare2[4];
+  char irisVersion[8];
+  char hardwarename[16];
+  int16_t localTimeZone;
+  char siteName[16];
+  int16_t standardTimeZone;
+  uint32_t lat;
+  uint32_t lon;
+  int16_t heightOfGround;
+  int16_t heightAboveGround;
+  uint16_t resolution;
+  uint16_t firstRayIndex;
+  uint16_t numRays;
+  int16_t numBytesinGparam;
+  int32_t altitude;
+  int32_t velocity[3];
+  int32_t offset[3];
+  uint32_t faultStatus;
+  int16_t meltingLayerHeight;
+  char spare3[2];
+  char localTimeZoneStr[8];
+  uint32_t flags;
+  char configName[16];
+  char spare4[228];
+};
+
+struct Ingest_Header {
+  struct Structure_Header StructureHeader;
+  struct Ingest_Configuration ingestConfig;
+  struct Task_Configuration taskConfig;
+  char spare[732];
+  char gparm[128];
+  char reserved[920];
+};
+
+struct Ingest_Header_Block {
+  struct Ingest_Header ingest_header;
+  char blank[1260];
+};
+
+struct Ingest_Data_Header {
+  struct Structure_Header StructureHeader;
+  struct ymds_time datetime;
+  int16_t sweep_no;
+  int16_t resolution;
+  int16_t indexOfFirstRay;
+  int16_t Irtotl;
+  int16_t Iwritn;
+  uint16_t sweep_angle;
+  int16_t numBitsPerBin;
+  uint16_t dataType;
+  char spare[36];
+};
+
+struct ndop_data {
+  uint16_t u;
+  uint16_t v;
+  uint16_t deltaDB;
+  uint8_t sqi;
+  char spare[5];
+};
+
+struct raw_Prod_bdhr{
+  int16_t recordNum;
+  int16_t sweepNum;
+  int16_t byteOffset;
+  int16_t rayNumber;
+  uint16_t flags;
+  char spare[2];
+};

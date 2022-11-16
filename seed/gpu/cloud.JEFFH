@@ -1,0 +1,37 @@
+#include<cuda.h>
+#ifndef CLOUD
+#define CLOUD
+#include"scatterer.h"
+class cloud_bulk : public scatterer {
+ public:
+  cloud_bulk();
+  ~cloud_bulk();
+  virtual int host2device() = 0;
+  virtual int add_cross_section(double *frequency,int nfre,double *sigma) = 0; //assume all array are on GPU
+  virtual int set_parameter(char *name,double value) = 0;
+  virtual int set_parameter(char *name,int value) = 0;
+  virtual int set_data_field_index(char *fieldname,int in);
+
+  virtual int get_data_field_index(char *fieldname) const;
+  
+ protected:
+  int height_index,cloud_fraction_index, qcloud_index, N0qcloud_index, qcice_index, N0qcice_index, temperature_index, pressure_index, qvapor_index;
+};
+
+class warm_cloud_single_moment_diagnostic : public cloud_bulk {
+ public:
+  warm_cloud_single_moment_diagnostic();
+  ~warm_cloud_single_moment_diagnostic();
+  virtual int host2device();
+  virtual int add_cross_section(double *frequency,int nfre,double *sigma); //frequency, sigma are on GPU
+  virtual int set_parameter(char *name,double value);
+  virtual int set_parameter(char *name,int value);
+  
+ protected:
+  double N0; //assume gamma size distribution with alpha = 2 and nu = 1 to simplifer the implementation
+  // please add a better prognostic cloud class for better modeling
+};
+
+int set_SCS_cloud_climate_value(char *hostOrDevice,warm_cloud_single_moment_diagnostic* cloud);
+
+#endif

@@ -1,0 +1,414 @@
+#include <cstring>
+#include <iostream>
+#include <libssh/libssh.h>
+#include <libssh/sftp.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+
+#include "debug_mode.h"
+#include "error_code.h"
+#include "ssh_interface.h"
+#include "string_man.h"
+
+#define DEFAULT_TIMEOUT 60000
+
+namespace libjeff{
+  void ssh_interface::init(){
+    this->sshc = new ssh_session;
+    *this->sshc = ssh_new();
+    this->channel = NULL;
+    this->hostname = new char [4096];
+    this->username = new char [4096];
+    this->password = new char [4096];
+    strcpy(this->password,"");
+    this->set_pubkey_auth(true);
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      this->set_verbosity(SSH_LOG_PACKET);
+    }
+    else{
+      this->set_verbosity(SSH_LOG_NOLOG);
+    }
+    long timeout = DEFAULT_TIMEOUT;
+    this->set(SSH_OPTIONS_TIMEOUT,&timeout);
+    connected = false;
+  }
+  int ssh_interface::init(sftp_session *sftp){
+    if(*(this->sshc) == NULL){
+      return _ERRORCODE_SSH_NOT_SETUP;
+    }
+
+    int error = _ERRORCODE_NOERROR;
+    *sftp = sftp_new(*sshc);
+    if(*sftp == NULL){
+      std::cout << "Error in sftp_new. " << ssh_get_error(*(this->sshc)) << std::endl;
+    }
+    else{
+      error = sftp_init(*sftp);
+    }
+
+    return error;
+  }
+
+  ssh_interface::ssh_interface(){
+    this->init();
+  }
+  ssh_interface::ssh_interface(char* hostname,char *username, char*password):ssh_interface(hostname,username,password,22){
+  }
+  ssh_interface::ssh_interface(char* hostname,char *username, char*password,int port){
+    this->init();
+
+    this->set_hostname(hostname);
+    this->set_username(username);
+    this->set_password(password);
+    this->set_port(port);
+    this->set(SSH_OPTIONS_KNOWNHOSTS,"~/.ssh/known_hosts");
+
+    int error = this->connect();
+    if(libjeff::debug_setting::get_debug_mode_warning() && error){
+      std::cout << "Warning! Error in SSH connection. Please check your input" <<std::endl;
+    }
+  }
+  ssh_interface::~ssh_interface(){
+    if(this->channel != NULL){
+      ssh_channel_send_eof(*(this->channel));
+      ssh_channel_close(*(this->channel));
+      ssh_channel_free(*(this->channel));
+      delete channel;
+    }
+    channel = NULL;
+
+    if(is_connected()){
+      ssh_disconnect(*this->sshc);
+    }
+    ssh_free(*this->sshc);
+    delete this->sshc;
+
+    delete [] username;
+    delete [] hostname;
+    delete [] password;
+  }
+
+  void ssh_interface::set_port(int ssh_port){
+    this->ssh_port = ssh_port;
+    this->set(SSH_OPTIONS_PORT,&this->ssh_port);
+  }
+  void ssh_interface::set_hostname(char *hostname){
+    strcpy(this->hostname,hostname);
+    this->set(SSH_OPTIONS_HOST,this->hostname);
+  }
+  void ssh_interface::set_username(char *username){
+    strcpy(this->username,username);
+    this->set(SSH_OPTIONS_USER,this->username);
+  }
+  void ssh_interface::set_password(char *password){
+    strcpy(this->password,password);
+  }
+  void ssh_interface::set_pubkey_auth(bool on){
+    this->pubkey_auth = 0;
+    if(on){
+      this->pubkey_auth = 1;
+    }
+    this->set(SSH_OPTIONS_PUBKEY_AUTH,&this->pubkey_auth);
+  }
+  void ssh_interface::set_verbosity(int verbosity){
+    this->verbosity = verbosity;
+    this->set(SSH_OPTIONS_LOG_VERBOSITY,&this->verbosity);
+  }
+  void ssh_interface::set(enum ssh_options_e options,const void* value){
+    ssh_options_set(*this->sshc,options,value);
+  }
+
+  int ssh_interface::connect(){
+    if(!connected){
+      if(this->sshc == NULL){
+	return _ERRORCODE_SSH_NOT_SETUP;
+      }
+      
+      int error = ssh_connect(*this->sshc);
+      if(error != SSH_OK){
+	return _ERRORCODE_SSH_CONNECTION_ERROR;
+      }
+      enum ssh_known_hosts_e state = ssh_session_is_known_server(*this->sshc);
+      switch(state){
+      case SSH_KNOWN_HOSTS_OK:
+	break;
+      case SSH_KNOWN_HOSTS_CHANGED:
+	return _ERRORCODE_SSH_HOST_CHANGED;
+      case SSH_KNOWN_HOSTS_OTHER:
+	return _ERRORCODE_SSH_HOST_OTHER;
+      case SSH_KNOWN_HOSTS_ERROR:
+	return _ERRORCODE_SSH_HOST_ERROR;
+      default:
+	return _ERRORCODE_SSH_UNKNOWN_ERROR;
+      }
+      
+      if(pubkey_auth){
+	error = ssh_userauth_publickey_auto(*(this->sshc),this->username,this->password);
+      }
+      else{
+	return _ERRORCODE_NOTIMPLEMENTED;
+      }
+      
+      connected = true;
+    }
+    
+    return _ERRORCODE_NOERROR;
+  }
+  int ssh_interface::sftp_get_file(char *filepath,char* &outbuff,size_t &fsize){
+    if(!connected){
+      return _ERRORCODE_SSH_NOT_CONNECTED;
+    }
+
+    sftp_session *sftp = new sftp_session;
+    sftp_file *file = new sftp_file;
+
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "SFTP mode reading " << filepath << std::endl;
+    }
+
+    int ssherror = this->init(sftp);
+    int error = _ERRORCODE_NOERROR;
+
+    if(!ssherror){
+      int access_type = O_RDONLY;
+      *file = sftp_open(*sftp,filepath,access_type,0);
+      sftp_attributes attri;
+      attri = sftp_stat(*sftp,filepath);
+      if(attri == NULL){
+	error = sftp_get_error(*sftp);
+	//std::cout << "Error from sftp_stat. Code = " << error << std::endl;
+	fsize = 0;
+      }
+      else{
+	fsize = attri->size;
+	if(outbuff != NULL){
+	  delete [] outbuff;
+	}
+	sftp_attributes_free(attri);
+      }
+
+      if(fsize > 0){
+	outbuff = new char [fsize];
+
+      
+	size_t outsize = 0;
+	size_t remaining = fsize - outsize;
+	while(remaining > 0){
+	  outsize += sftp_read(*file,outbuff+outsize,remaining);
+	  remaining = fsize - outsize;
+	}
+    //outbuff[fsize] = 0;
+    /*
+    error = ssh_scp_pull_request(*scp);
+    fsize = ssh_scp_request_get_size64(*scp);
+    
+    if(outbuff != NULL){
+      delete [] outbuff;
+    }
+    outbuff = new char [fsize];
+    */
+    /*
+    sftp_session sftp;
+    sftp = sftp_new(*(this->sshc));
+
+    error = sftp_init(sftp);
+
+    sftp_file sftpfile;
+
+    sftpfile = sftp_open(sftp,filepath,O_RDONLY,0);
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Reading: " << filepath << std::endl;
+    }
+    sftp_read(sftpfile,outbuff,fsize);
+    sftp_close(sftpfile);
+
+    sftp_free(sftp);
+    */
+    //ssh_scp_accept_request(*scp);
+    /*
+    int byteread=0;
+    size_t temp_size;
+    while(byteread < fsize){
+    */
+    //error = ssh_scp_read(*scp,outbuff,fsize);
+
+    /*
+      byteread += 65536;
+    }
+    */
+    //error = ssh_scp_pull_request(*scp);
+	sftp_close(*file);
+      }
+      else{
+	error = _ERRORCODE_FILEREADERROR;
+      }
+    
+      sftp_free(*sftp);
+    }
+
+    delete file;
+    delete sftp;
+    
+    return error;
+  }
+  size_t ssh_interface::sftp_get_file_size(char *filepath){
+    sftp_session *sftp = new sftp_session;
+    sftp_file *file = new sftp_file;
+
+    int error = this->init(sftp);
+    size_t fsize;
+
+    if(!error){
+      int access_type = O_RDONLY;
+      *file = sftp_open(*sftp,filepath,access_type,0);
+      sftp_attributes attri;
+      attri = sftp_stat(*sftp,filepath);
+      
+      fsize = attri->size;
+      sftp_attributes_free(attri);
+    }
+    else{
+      fsize = -1;
+    }
+
+    delete file;
+    delete sftp;
+
+    return fsize;
+  }
+  int ssh_interface::sftp_list_item(const char* inpath,char ** &content,int &num_item){
+    int error = _ERRORCODE_NOERROR;
+
+    if(content != NULL){
+      return _ERRORCODE_POTENTIAL_MEMORYLEAK;
+    }
+
+    sftp_session *sftp = new sftp_session;
+    sftp_dir *dir = new sftp_dir;
+    sftp_attributes attri;
+
+    error = this->init(sftp);
+
+    *dir = sftp_opendir(*sftp,inpath);
+
+    num_item = 0;
+    while((attri = sftp_readdir(*sftp,*dir)) != NULL){
+      num_item++;
+      sftp_attributes_free(attri);
+    }
+
+    if(num_item > 2){
+      num_item -= 2;
+    }
+
+    error = sftp_closedir(*dir);
+
+    if(num_item > 0){
+      content = new char *[num_item];
+
+      int i=0;
+      *dir = sftp_opendir(*sftp,inpath);
+      while((attri = sftp_readdir(*sftp,*dir)) != NULL){
+	if(strcmp(attri->name,".") != 0 && strcmp(attri->name,"..")){
+	  content[i] = new char [strlen(attri->name)+10];
+	  strcpy(content[i],attri->name);
+	  i++;
+	}
+	sftp_attributes_free(attri);
+      }
+
+      error = sftp_closedir(*dir);
+    }
+
+    delete dir;
+    sftp_free(*sftp);
+    delete sftp;
+
+    return error;
+  }
+  int ssh_interface::sftp_create_dir(char *directory,mode_t mode){
+    if(!connected){
+      return _ERRORCODE_SSH_NOT_CONNECTED;
+    }
+    int error = _ERRORCODE_NOERROR;
+    
+    if(strcmp(directory,"./")!=0 && strstr(directory,"/")!=NULL && strncmp(directory,"../",3) != 0 && strstr(directory,"/../")==NULL){
+      sftp_session *sftp = new sftp_session;
+      
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "SFTP mode mkdir " << directory << std::endl;
+      }
+      
+      int ssherror = this->init(sftp);
+      
+      if(!ssherror){
+	char *tempdir = new char [strlen(directory)+10];
+	char *ctemp = new char [strlen(directory)+10];
+
+	int count = string_count_pattern(directory,"/");
+	int i;
+
+	strcpy(tempdir,"");
+
+	for(i=0;i<count;i++){
+	  strcat(tempdir,string_extract_field(directory,"/",i,ctemp));
+	  strcat(tempdir,"/");
+	  
+	
+	  error = sftp_mkdir(*sftp,tempdir,mode);
+	
+	  if(error != SSH_OK){
+	    if(sftp_get_error(*sftp) != SSH_FX_FILE_ALREADY_EXISTS){
+	      error = _ERRORCODE_SFTP_MKDIR_FAILED;
+	      break;
+	    }
+	    else{
+	      error = _ERRORCODE_NOERROR;
+	    }
+	  }
+	}
+	
+	delete [] ctemp;
+	delete [] tempdir;
+      }
+
+      sftp_free(*sftp);
+      delete sftp;
+    }
+    else if(strncmp(directory,"../",3) != 0 || strstr(directory,"/../")==NULL){
+      error = _ERRORCODE_SFTP_RELATIVE_PATH;
+    }
+
+    return error;
+  }
+  int ssh_interface::sftp_write_file(char *filepath,char* buff,size_t fsize,mode_t mode){
+    if(!connected){
+      return _ERRORCODE_SSH_NOT_CONNECTED;
+    }
+    int error = _ERRORCODE_NOERROR;
+
+    sftp_session *sftp = new sftp_session;
+      
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "SFTP mode write file " << filepath << std::endl;
+    }
+
+    int ssherror = this->init(sftp);
+      
+    if(!ssherror){
+      sftp_file *file = new sftp_file;
+      int access_type = O_WRONLY | O_CREAT | O_TRUNC;
+      *file = sftp_open(*sftp,filepath,access_type,mode);
+
+      int write_len = sftp_write(*file,buff,fsize);
+
+      sftp_close(*file);
+      delete file;
+      sftp_free(*sftp);
+    }
+
+    delete sftp;
+
+    return error;
+  }
+};

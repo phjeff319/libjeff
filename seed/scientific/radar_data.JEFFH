@@ -1,0 +1,147 @@
+#ifndef RADAR_DATA
+#define RADAR_DATA
+#include<stdint.h>
+
+#include<gsl/gsl_wavelet.h>
+
+#include "grid_data.h"
+#include "grid_data_field.h"
+#include "date_time.h"
+
+#include "vertical_profile.h"
+
+struct cinrad_radar_site{
+  char sitecode[32];
+  char sitename[32];
+  double lat,lon,height;
+};
+
+class cinrad_radar_site_list{
+ public:
+  cinrad_radar_site_list();
+  cinrad_radar_site_list(char* filename);
+
+  static cinrad_radar_site* get_site_by_code(char* code);
+  static cinrad_radar_site* get_site_by_name(char* name);
+
+  static bool is_initialized();
+
+ private:
+  int create(char* filename);
+
+  static int num_site;
+  static cinrad_radar_site* list;
+};
+
+
+class radar_data{
+ public:
+  ###CPP### ###CUDA### ###HOST### radar_data();
+  ###CPP### ###CUDA### ###HOST### ~radar_data();
+
+  ###CPP### ###CUDA### ###HOST### void destroy();
+
+  ###CPP### ###CUDA### ###HOST### inline int get_ndim() const {return ndim;};
+
+  ###CPP### ###CUDA### ###HOST### int read_melco_lidar_los_ppi(char *filename);
+  ###CPP### ###CUDA### ###HOST### int read_melco_lidar_los_ppi(char *data_path,char *scan_type,date_time scan_time,date_time tolerance);
+  ###CPP### ###CUDA### ###HOST### int read_iris_raw_ppi(char *filename);
+  ###CPP### ###CUDA### ###HOST### int read_iris_cappi_product(char *filename);
+  ###CPP### ###CUDA### ###HOST### int read_iris_ndop_product(char *filename);
+
+  ###CPP### ###CUDA### ###HOST### int read_cinrad_raw_ppi(char *sitename,char *sitecode,char *nameformat,date_time scantime,char *timeformat);
+
+  ###CPP### ###CUDA### ###HOST### int write_to_little_R(ofstream& fout,double horitonal_thin,double vertical_thin,const libjeff::vertical_profile* profile,bool (*filter)(double in)) const;
+
+  ###CPP### ###CUDA### ###HOST### inline void set_scan_time(date_time in) {scan_time = in;}
+
+  ###CPP### ###CUDA### ###HOST### inline grid_data* get_data_grid() const {return data_grid;}
+  ###CPP### ###CUDA### ###HOST### inline date_time get_scan_time() const {return scan_time;}
+  ###CPP### ###CUDA### ###HOST### inline double get_site_lat() const {return site_lat;};
+  ###CPP### ###CUDA### ###HOST### inline double get_site_lon() const {return site_lon;};
+  ###CPP### ###CUDA### ###HOST### inline double get_site_height() const {return site_height;};
+  ###CPP### ###CUDA### ###HOST### inline int get_coordSys() const {return coordSys;};
+
+  ###CPP### ###CUDA### ###HOST### inline int get_dbz_index() const {return dbz_index;}
+  
+  ###CPP### ###CUDA### ###HOST### libjeff::grid_data_field* get_reflectivity(libjeff::grid_data_field* out) const;
+  ###CPP### ###CUDA### ###HOST### libjeff::grid_data_field* get_doppler_velocity(libjeff::grid_data_field* out) const;
+
+  int append_sweep(const radar_data &in);
+
+  ###CPP### ###CUDA### ###HOST### inline void set_missing_value(double in) {this->missing_value = in;}
+  ###CPP### ###CUDA### ###HOST### inline double get_missing_value() const {return this->missing_value;}
+
+  ###CPP### ###CUDA### ###HOST### void set_coordSys(int in);
+
+  ###CPP### ###CUDA### ###HOST### void allocate_data_grid(void (*allocation)(grid_data* &in));
+
+  ###CPP### ###CUDA### ###HOST### int thinning(double horizontal_thin,double vertical_thin,const libjeff::vertical_profile* profile,bool (*filter)(double in),radar_data *out) const;
+
+  ###CPP### ###CUDA### ###HOST### int wavelet_filter3(const gsl_wavelet_type* wavelet,int member,int* thin_x, int* thin_z);
+
+  //--------------------------------------------------
+  // inputCoordinates are either "Lat-Long-Height" or "Theta-Phi-Range"
+  // in case of "Theta-Phi-R" to "Lat-Long-Height", first guess of the beam angle is provided to temp[0]
+  ###CPP### ###CUDA### ###HOST### inline double* multiple_linear_interpolate(char *inputCoordinates,double ptx, double pty, double ptz, double *temp) const { return multiple_linear_interpolate(inputCoordinates,ptx,pty,ptz,NULL,NULL,temp);}
+  ###CPP### ###CUDA### ###HOST### inline double* multiple_linear_interpolate(char *inputCoordinates,double ptx, double pty, double ptz, double *fg, double *temp) const { return multiple_linear_interpolate(inputCoordinates,ptx,pty,ptz,NULL,fg,temp);}
+  ###CPP### ###CUDA### ###HOST### inline double* multiple_linear_interpolate(char *inputCoordinates,double ptx, double pty, double ptz, const libjeff::vertical_profile* profile, double *temp) const { return multiple_linear_interpolate(inputCoordinates,ptx,pty,ptz,profile,NULL,temp);}
+  ###CPP### ###CUDA### ###HOST### double* multiple_linear_interpolate(char *inputCoordinates,double ptx, double pty, double ptz, const libjeff::vertical_profile* profile, double *fg,double *temp) const; // fg is only used to interpolate from "Theta-Phi-R" to "Lat-Long-Height"
+  //-------------------------------------------------
+
+  ###CPP### ###CUDA### ###HOST### int multiple_linear_interpolate_from(const radar_data& in, const libjeff::vertical_profile* profile, grid_data* fg); //fg is only needed for interpolation from PPI to CAPPI.  set fg to NULL if you don't want to provide a first guess
+
+  ###CPP### ###CUDA### ###HOST### int nearest_to(char *inputCoordinates,double ptx, double pty, double ptz, int max_neighbour, const libjeff::vertical_profile* profile, double *fg,double *temp) const;
+
+  //###CUDA### ###HOST### double* multiple_linear_interpolate(char *inputCoordinates,int npt,double *ptx, double *pty, double *ptz, const libjeff::vertical_profile* profile, double *temp) const;
+
+  ###CPP### ###CUDA### ###HOST### radar_data& operator=(const radar_data &in);
+
+  ###CPP### ###CUDA### ###HOST### int ppi_composite_by_priority(int nradar,radar_data* in,double horizontal_thin,double vertical_thin,double dv_error,double ref_error);
+  ###CPP### ###CUDA### ###HOST### int ppi_composite_weighting(int nradar,radar_data* in,double horizontal_thin,double vertical_thin,double dv_error,double ref_error);
+  ###CPP### ###CUDA### ###HOST### int ppi_composite(int nradar,radar_data* in,double horizontal_thin,double vertical_thin,double dv_error,double ref_error,char* method);
+
+ private:
+  //Warning! Execution of these private function assume the data_grid has been correctly initialized (Since you are modifying the class, it is assumed that you know what you are doing.)
+  ###CPP### ###CUDA### ###HOST### void set_x(int index,double value);
+  ###CPP### ###CUDA### ###HOST### void set_y(int index,double value);
+  ###CPP### ###CUDA### ###HOST### void set_z(int index,double value);
+  ###CPP### ###CUDA### ###HOST### void fill_missing_value();
+
+  //this function should not be called by users because it just read the data without setting the site information
+  ###CPP### ###CUDA### ###HOST### int read_cinrad_raw_ppi(char *filename);
+
+  date_time scan_time;
+  double site_lat, site_lon, site_height;
+  grid_data* data_grid;
+  double missing_value;
+  int ndim;
+  int coordSys; //0 undefined, 1 lon-lat-height, 2 theta-phi-r
+  int dbz_index, dv_index, zdr_index, kdp_index, phidp_index, rhoHV_index;
+};
+
+###CPP### ###CUDA### ###HOST### int radar_data_read_HKO_iris_raw_ppi(radar_data* to_read,char *dirnameformat,char *sitename,date_time scantime); //please use ###DIR YYYY###, ###DIR YYYYMM###, ###DIR YYYYMMDD###, ###SITE NAME### in the dirs_format, scantime in UTC
+###CPP### ###CUDA### ###HOST### ###DEVICE### date_time get_time_melco_LIDAR_filename(char *filename);
+
+###CPP### ###CUDA### ###HOST### ###DEVICE### double binaryangle2double(uint32_t in);
+###CPP### ###CUDA### ###HOST### ###DEVICE### double binaryangle2double(uint16_t in);
+###CPP### ###CUDA### ###HOST### ###DEVICE### double twobyte2vel(uint16_t in,double missing);
+###CPP### ###CUDA### ###HOST### ###DEVICE### double twobyte2reflectivity(uint16_t in, double missing_value);
+###CPP### ###CUDA### ###HOST### ###DEVICE### double twobyte2rainfall(uint16_t in, double missing_value);
+// From 2015 A2 summer intern Cherry
+###CPP### ###CUDA### ###HOST### ###DEVICE### double byte2velocity(uint8_t in,double Nyquist);
+###CPP### ###CUDA### ###HOST### ###DEVICE### double byte2reflectivity(uint8_t in);
+###CPP### ###CUDA### ###HOST### ###DEVICE### double byte2width(uint8_t in);
+###CPP### ###CUDA### ###HOST### ###DEVICE### double byte2ZDR(uint8_t in);
+###CPP### ###CUDA### ###HOST### ###DEVICE### double byte2KDP(uint8_t in,double wavelength);
+###CPP### ###CUDA### ###HOST### ###DEVICE### double byte2PhiDP(uint8_t in);
+###CPP### ###CUDA### ###HOST### ###DEVICE### double byte2VELC(uint8_t in);
+###CPP### ###CUDA### ###HOST### ###DEVICE### double byte2SQI(uint8_t in);
+###CPP### ###CUDA### ###HOST### ###DEVICE### double byte2RhoHV(uint8_t in);
+// CINRAD subroutine
+namespace cinrad{
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double byte2reflectivity(uint8_t in, double missing_value);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double byte2velocity(uint8_t in,short int velRes, double missing_value);
+};
+//------------------------------------------
+#endif

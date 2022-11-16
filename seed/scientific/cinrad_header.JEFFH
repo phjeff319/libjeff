@@ -1,0 +1,72 @@
+struct cinrad_read_header{
+  char filename[9]; // !0001-0009!Êý¾Ý±êÊ¶"ARCHIEVE2"
+  char fileext[3]; // !0010-0012!À©Õ¹Ãû
+  //¼ÇÂ¼ÐÅÏ¢£¨Message Header£©!!
+  short int messageSize;
+  char channelID;
+  char messageType;
+  short int IDSequence;             // !0017-0018!¼ÇÂ¼Ë³ÐòºÅ
+  short int MessageGenerationDate;  // !0019-0020!¼ÇÂ¼²úÉúÈÕÆÚ[u]
+  int MessageGenerationTime;   // !0021-0024!¼ÇÂ¼²úÉúGMTÊ±¼ä[u]
+  short int MessageSegmentsNumber;  // !0025-0026!¼ÇÂ¼´«Êä·Ö¶Î¶ÎÊý
+  short int MessageSegmentsID;      // !0027-0028!¼ÇÂ¼´«Êä·Ö¶Î¶ÎºÅ
+  //Digital Radar Data Header£©!!
+  int RadialCollectionTime;
+  short int RadialCollectionDate;
+  unsigned short int UnambiguousRange;
+  unsigned short int AzimuthAngle;
+  short int AzimuthNumber;
+  short int RadialStatus;
+  short int ElevationAngle;
+  short int ElevationNumber;
+  short int FirstGateRangeOfRef;
+  short int FirstGateRangeOfDoppler;
+  short int RefGateSize; 
+  short int DopplerGateSize;
+  short int RefGates;
+  short int DopplerGates;
+  short int SectorNumber;
+  float CalCon;
+  unsigned short int RefPoint;
+  unsigned short int VelPoint;
+  unsigned short int SWPoint;
+  short int VelResolution;
+  short int VCP;
+  short int Unused[4];
+  unsigned short int RefPlaybackPoint;
+  unsigned short int VelPlaybackPoint;
+  unsigned short int SWPlaybackPoint;
+  short int Nyquist;
+  short int AAF;
+  short int TOVER;
+  short int Spares[17];
+  //»ù±¾Êý¾Ý£¨Radar Base Data£©!!
+  char RVSDen[2300];
+  //Ö¡±àÂëÐÅÏ¢£¨Frame Check Sequence£©!!
+  char FraCheSeq[4];
+  
+} __attribute__((packed));;
+
+struct cinrad_header{
+  double UnambiguousRange;
+  double AzimuthAngle;
+  int AzimuthNumber;
+  double ElevationAngle;
+  int ElevationNumber;
+  double FirstGateRangeOfRef;
+  double FirstGateRangeOfDoppler;
+  double RefGateSize; 
+  double DopplerGateSize;
+  int RefGates;
+  int DopplerGates;
+
+  int RefPoint;
+  int VelPoint;
+  int SWPoint;
+  int VelResolution;
+  int RefPlaybackPoint;
+  int VelPlaybackPoint;
+  int SWPlaybackPoint;
+
+  char FraCheSeq[4];
+};

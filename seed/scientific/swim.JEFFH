@@ -1,0 +1,282 @@
+#ifndef SWIM
+#define SWIM
+#include "CivetServer.h"
+
+#include "file_handler.h"
+#include "timed_grid_data.h"
+
+/*
+-----------------------------------------------------
+Version 0.0 (2019): Initial experimental version
+Version 0.1 (Mar 2021): Revised SWIM config structure and support of multiple domain. Add backward compatibility
+-----------------------------------------------------
+*/
+
+const int BUFFSIZE = 4096;
+
+namespace libjeff{
+  enum class verticalCoordinateType{
+    fl,
+    plv
+  };
+
+  struct grib_keys{
+    char name[BUFFSIZE], value[BUFFSIZE];
+  };
+
+  struct swim_config_leg_segment{
+    date_time min_ft;
+    date_time max_ft;
+    date_time delta_ft;
+
+    int nlevels;
+    char **levels2read;
+    double *levels, *plv;
+
+    int nsub_table;
+    int *nelements2read;
+    //char ***elementslist;
+    char ***elements2read; //elements2read[sub_table][nelements[sub_table]][BUFFSIZE]
+    char **filename;
+
+    int *ngribkeys;
+    grib_keys **keys;
+    
+    int *nprefix;
+    char ***file_prefix;
+    
+    int nx;
+    int ny;
+    bool isperiodic[3];
+    double period[3];
+    double deltax;
+    double deltay;
+    double startx;
+    double starty;
+    
+    int nft;
+  };
+
+  struct swim_config_leg{
+    int nsegment;
+    int nelements;
+    char **elementslist;
+    swim_config_leg_segment *segments;
+  };
+
+  struct swim_config_v1_struct{
+    date_time min_ft;
+    date_time max_ft;
+    char modelrun_update[BUFFSIZE];
+
+    date_time delta_model_time;
+
+    int ntable;
+    swim_config_leg* legs;
+    verticalCoordinateType* vertical_coordinate;
+  };
+  
+  struct swim_config_v0_struct{
+    date_time min_ft;
+    date_time max_ft;
+    char modelrun_update[BUFFSIZE];
+
+    int ntable;
+    date_time delta_model_time;
+    date_time *delta_ft;
+    int *nlevels;
+    char ***levels2read;
+    double **levels, **plv;
+
+    verticalCoordinateType* vertical_coordinate;
+    
+    int *nsub_table;
+    int **nelements;
+    char ****elements2read;
+    char ****elementslist;
+    char ***filename;
+    
+    int **ngribkeys;
+    grib_keys ***keys;
+    
+    int **nprefix;
+    char ****file_prefix;
+    
+    int *nx;
+    int *ny;
+    bool **isperiodic;
+    double **period;
+    double *deltax;
+    double *deltay;
+    double *startx;
+    double *starty;
+    
+    int *nft;
+    
+  };
+
+  class swim_config{
+  public:
+    virtual int parse_config(json_block* config) = 0;
+    virtual void* get_config() = 0;
+    virtual swim_config& operator=(const swim_config& in) = 0;
+    virtual void destroy() = 0;
+    virtual char* get_version() = 0;
+    virtual char* get_update_schedule() const = 0;
+    virtual int spatial_domain_setup(timed_grid_data **&fcst_data) = 0;
+    virtual int time_domain_setup(timed_grid_data **fcst_data,date_time init_time) = 0;
+    virtual int vertical_level_setup(timed_grid_data **fcst_data,char *level_type) const = 0;
+    virtual int free_domain(timed_grid_data **&fcst_data) const = 0;
+    //virtual char* get_element(int table_index,int dim_index) = 0;
+    virtual int get_element_list(int* &nelement,char*** &element_list) = 0;    
+    virtual bool check_data(date_time model_run) const = 0;
+    virtual int read_data(timed_grid_data **fcst_data,date_time model_run) = 0;
+    virtual int get_ntable() const = 0;
+    virtual libjeff::verticalCoordinateType* get_vertical_coordinate() const = 0;
+    virtual int* get_table_and_element_index(date_time modelrun,date_time valid_time,double *xy,double* level,char *element,int *index) const = 0;
+    virtual int* get_table_and_element_index(date_time modelrun,date_time valid_time,double *xy,double* level,char* leveltype,char *element,int *index) const = 0;
+
+    virtual date_time get_previous_run(date_time model_run) const = 0;
+    
+  private:
+  };
+
+  class swim_config_v0 : public swim_config{
+  public:
+    swim_config_v0();
+    ~swim_config_v0();
+    virtual int parse_config(json_block* config);
+    virtual swim_config_v0_struct* get_config();
+    virtual swim_config& operator=(const swim_config& in);
+    virtual void destroy();
+    virtual inline char* get_version() {return "v1.0";}
+    virtual char* get_update_schedule() const;
+    virtual int spatial_domain_setup(timed_grid_data **&fcst_data);
+    virtual int time_domain_setup(timed_grid_data **fcst_data,date_time init_time);
+    virtual int vertical_level_setup(timed_grid_data **fcst_data,char *level_type) const;
+    virtual int free_domain(timed_grid_data **&fcst_data) const;
+    //virtual char* get_element(int table_index,int dim_index);
+    virtual int get_element_list(int* &nelement,char*** &element_list);
+    virtual bool check_data(date_time model_run) const;
+    virtual int read_data(timed_grid_data **fcst_data,date_time model_run);
+    virtual int get_ntable() const;
+    virtual libjeff::verticalCoordinateType* get_vertical_coordinate() const;
+    virtual int* get_table_and_element_index(date_time modelrun,date_time valid_time,double *xy,double* level,char *element,int *index) const;
+    virtual int* get_table_and_element_index(date_time modelrun,date_time valid_time,double *xy,double* level,char* leveltype,char *element,int *index) const;
+    virtual date_time get_previous_run(date_time model_run) const;
+
+  private:
+    swim_config_v0_struct* config;
+  };
+
+  class swim_config_v1 : public swim_config{
+  public:
+    swim_config_v1();
+    ~swim_config_v1();
+    virtual int parse_config(json_block* config);
+    virtual swim_config_v1_struct* get_config();
+    virtual swim_config& operator=(const swim_config& in);
+    virtual void destroy();
+    virtual inline char* get_version() {return "v1.1";}
+    virtual char* get_update_schedule() const;
+    virtual int spatial_domain_setup(timed_grid_data **&fcst_data);
+    virtual int time_domain_setup(timed_grid_data **fcst_data,date_time init_time);
+    virtual int vertical_level_setup(timed_grid_data **fcst_data,char *level_type) const;
+    virtual int free_domain(timed_grid_data **&fcst_data) const;
+    //virtual char* get_element(int table_index,int dim_index) == 0;
+    virtual int get_element_list(int* &nelement,char*** &element_list);
+    virtual bool check_data(date_time model_run) const;
+    virtual int read_data(timed_grid_data **fcst_data,date_time model_run);
+    virtual int get_ntable() const;
+    virtual libjeff::verticalCoordinateType* get_vertical_coordinate() const;
+    virtual int* get_table_and_element_index(date_time modelrun,date_time valid_time,double *xy,double* level,char *element,int *index) const;
+    virtual int* get_table_and_element_index(date_time modelrun,date_time valid_time,double *xy,double* level,char* leveltype,char *element,int *index) const;
+    virtual date_time get_previous_run(date_time model_run) const;
+    
+  private:
+    swim_config_v1_struct* config;
+  };
+  
+  class swim_server_status_handler : public CivetHandler{
+  public:
+    bool handleGet(CivetServer *server, struct mg_connection *conn);
+  };
+
+  class swim_server : public CivetServer{
+  public:
+    swim_server(std::vector<std::string> options);
+    //swim_server(char* port,char *vcs_uri,char *ts_uri,char *raster_uri);
+    swim_server(std::vector<std::string> options,char *vcs_uri,char *ts_uri,char *raster_uri,swim_config* config);
+
+    void set_data_grid(timed_grid_data** in);
+    timed_grid_data** get_data_grid() const;
+
+    //int set_element_list(char ***list);
+    int set_vcs_handler(CivetHandler* in);
+    int set_ts_handler(CivetHandler* in);
+    int set_raster_handler(CivetHandler* in);
+
+    void set_is_ready(bool in);
+    bool get_is_ready();
+
+    int set_config(swim_config *in);
+    swim_config *get_config() const;
+
+    int set_init_time(const date_time& in);
+    date_time get_init_time() const;
+
+    char *get_element(int table_no,int element_no);
+    char **get_element(int table_no);
+    char ***get_element_list();
+
+  private:
+    int setup(char *vcs_uri,char *ts_uri,char *raster_uri);
+    //void start();
+
+    timed_grid_data** data_grid;
+    date_time init_time;
+    
+    CivetHandler* h_vcs;
+    CivetHandler* h_ts;
+    CivetHandler* h_raster;
+    CivetHandler* h_server_stat;
+
+    //CivetServer *server;
+    //char *port;
+    char *vcs_uri;
+    char *ts_uri;
+    char *raster_uri;
+    
+    int ndata_grid;
+
+    int *nelement;
+    char ***element_list;
+    
+    bool is_ready;
+
+    swim_config* config;
+  };
+
+  bool is_derivable(int ndim,char **list,char *to_calculate);
+  bool is_derivable(int ntable,int *ndim,char ***list,char *to_calculate);
+  int cal_derivable(int ndim,char **list,double *raw,char *to_calculate,double *additional_param,double &result); 
+  /*
+    additional_param:
+    [0]: pressure in hPa (for conversion between t, td and rh, and calculation of lcl)
+    [1]: track angle (for conversion between u,v and head wind, cross wind
+    [2]: not used
+   */
+  namespace swim{
+    int parse_config(json_block* config,swim_config *&out);
+    char *generate_filename(char *nametag,char* prefix,date_time inittime,date_time valid_time,char *buff);
+    bool vertical_coordinate_match(libjeff::verticalCoordinateType layerType,char *surfacename);
+    bool vertical_coordinate_convertable(libjeff::verticalCoordinateType layerType,char *surfacename);
+    double vertical_coordinate_conversion(libjeff::verticalCoordinateType layerType,char *surfacename,double in);  //convert from surfacename type to the layerType type 
+    bool is_2D_element(char *in);
+    bool is_3D_element(char *in);
+    bool is_known_element(char *in);
+  }
+}
+
+
+#endif

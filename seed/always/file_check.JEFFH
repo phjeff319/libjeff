@@ -1,0 +1,23 @@
+#ifndef File_check
+#define File_check
+###EXTERNAL####include"file_handler.h"
+
+namespace libjeff{
+  bool file_check_exist(char*);
+  int file_check_length(char*);
+  int file_check_size(char*);
+  void file_check_list_directory(char* inpath,char** &content,int &num_dir);
+  void file_check_list_item(char* inpath,char ** &content,int &num_item);
+
+  ###EXTERNAL###void file_check_list_item(libjeff::file_handler* file,char ** &content,int &num_item);
+
+  bool is_grib_file(char *filename);
+  bool is_netcdf_file(char *filename);
+  bool is_bz2_file(char *filename);
+  bool is_gz_file(char *filename);
+  bool is_sftp_file(char *filename); // check for sftp://{username}:{password}@{hostname}:{port}{file path}
+  bool is_tar_file(char *filename);
+
+  int file_handler_sftp_file_decipher(char *filename,char *username,char *password,char* hostname,char *filepath,char *port);
+}
+#endif

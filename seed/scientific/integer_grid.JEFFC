@@ -1,0 +1,205 @@
+#include "integer_grid.h"
+###CPP### ###CUDA### ###HOST### integer_grid::integer_grid():regular_grid():grid_data(){
+}
+###CPP### ###CUDA### ###HOST### integer_grid::integer_grid(int nx,int ny,int nz,int ndim):grid_data(){
+  this->create(nx,ny,nz,ndim);
+}
+###CPP### ###CUDA### ###HOST### integer_grid::~integer_grid(){
+  this->destroy();
+}
+
+###CPP### ###CUDA### ###HOST### void integer_grid::create(int nx,int ny,int nz,int ndim){
+  this->regular_grid::create(nx,ny,nz,ndim);
+}
+
+###CPP### ###CUDA### ###HOST### void integer_grid::create(int nx,int ny,int nz,int ndim,int *idummy,double* ddummy){
+  this->create(nx,ny,nz,ndim);
+  
+  this->set_offset(idummy);
+  this->set_scale(ddummy);
+}
+###CUDA### ###HOST### void regular_grid::create_gpu(int nx,int ny,int nz,int ndim){
+  grid_data::create_gpu(nx,ny,nz,ndim);
+  
+  if(nx > 0 && ny > 0 && nz > 0 && ndim > 0){
+    cudaMalloc(&d_x,d_nx*sizeof(double));
+    cudaMalloc(&d_y,d_ny*sizeof(double));
+    cudaMalloc(&d_z,d_nz*sizeof(double));
+  }
+}
+
+###CUDA### ###HOST### void host2device(){
+  this->host2device(0.nx-1,0,ny-1,0,nz-1,0,ndim-1);
+}
+###CUDA### ###HOST### void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim){
+}
+###CUDA### ###HOST### void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work){
+}
+###CUDA### ###HOST### void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work,int nstream){
+  //if nstream > 1, work must be pinned memory allocated by cudaMallocHost
+}
+###CUDA### ###HOST### void device2host(){
+  this->device2host(0.nx-1,0,ny-1,0,nz-1,0,ndim-1);
+}
+###CUDA### ###HOST### void device2host(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim){
+}
+
+###CPP### ###CUDA### ###HOST### void integer_grid::set_offset(int *idummy){
+  offsetx = idummy[0];
+  offsety = idummy[1];
+  offsetz = idummy[2];
+}
+###CPP### ###CUDA### ###HOST### void integer_grid::set_scale(double *ddummy){
+  scalex = ddummy[0];
+  scaley = ddummy[1];
+  scalez = ddummy[2];
+}
+
+###CPP### ###CUDA### ###HOST### void integer_grid::set_x(double *indata){
+  if(this->nx > 1){
+    offsetx = indata[0];
+    scalex = intdata[1] - indata[0];
+  }
+  regular_grid::set_x(indata);
+}
+###CPP### ###CUDA### ###HOST### void integer_grid::set_x(float *indata){
+  if(this->nx > 1){
+    offsetx = indata[0];
+    scalex = intdata[1] - indata[0];
+  }
+  regular_grid::set_x(indata);
+}
+###CPP### ###CUDA### ###HOST### void integer_grid::set_y(double *indata){
+  if(this->ny > 1){
+    offsety = indata[0];
+    scaley = intdata[1] - indata[0];
+  }
+  regular_grid::set_y(indata);
+}
+###CPP### ###CUDA### ###HOST### void integer_grid::set_y(float *indata){
+  if(this->ny > 1){
+    offsety = indata[0];
+    scaley = intdata[1] - indata[0];
+  }
+  regular_grid::set_y(indata);
+}
+###CPP### ###CUDA### ###HOST### void integer_grid::set_z(double *indata){
+  if(this->nz > 1){
+    offsetz = indata[0];
+    scalez = intdata[1] - indata[0];
+  }
+  regular_grid::set_z(indata);
+}
+###CPP### ###CUDA### ###HOST### void integer_grid::set_z(float *indata){
+  if(this->nz > 1){
+    offsetz = indata[0];
+    scalez = intdata[1] - indata[0];
+  }
+  regular_grid::set_z(indata);
+}
+
+###CPP### ###CUDA### ###HOST### double integer_grid::get_z(int ix,int iy,int iz){
+  return (iz*scalez + offsetz);
+}
+###CPP### ###CUDA### ###HOST### double integer_grid::get_z(double ix,double iy,double iz){
+  return (iz*scalez + offsetz);
+}
+###CPP### ###CUDA### ###HOST### double integer_grid::get_y(int ix,int iy,int iz){
+  return (iy*scaley + offsety);
+}
+###CPP### ###CUDA### ###HOST### double integer_grid::get_y(double ix,double iy,double iz){
+  return (iy*scaley + offsety);
+}
+###CPP### ###CUDA### ###HOST### double integer_grid::get_x(int ix,int iy,int iz){
+  return (ix*scalex + offsetx);
+}
+###CPP### ###CUDA### ###HOST### double integer_grid::get_x(double ix,double iy,double iz){
+  return (ix*scalex + offsetx);
+}
+###CPP### ###CUDA### ###HOST### double* integer_grid::get_coordinate(int index,double *work){
+  work[0] = this->get_x(index/(ny*nz),(index/nz)%ny,index%nz);
+  work[1] = this->get_y(index/(ny*nz),(index/nz)%ny,index%nz);
+  work[2] = this->get_z(index/(ny*nz),(index/nz)%ny,index%nz);
+  return work;
+}
+###CPP### ###CUDA### ###HOST### double* integer_grid::get_coordinate(int ix,int iy,int iz,double *work){
+  work[0] = this->get_x(ix,iy,iz);
+  work[1] = this->get_y(ix,iy,iz);
+  work[2] = this->get_z(ix,iy,iz);
+  return work;
+}
+
+###CPP### ###CUDA### ###HOST### grid_data& integer_grid::operator=(const grid_data& in){
+  if(this == &in){
+    return *this;
+  }
+
+  this->create(in.get_nx(),in.get_ny(),in.get_nz(),in.get_ndim());
+  this->offsetx = in.offsetx;
+  this->offsety = in.offsety;
+  this->offsetz = in.offsetz;
+  this->scalex = in.scalex;
+  this->scaley = in.scaley;
+  this->scalez = in.scalez;
+  this->set_x(in.get_x());
+  this->set_y(in.get_y());
+  this->set_z(in.get_z());
+  this->set_data(in.get_data());
+  ###CUDA### if(in.get_d_nx()>0){
+    this->create_gpu(in.get_d_nx(),in.get_d_ny(),in.get_d_nz(),in.get_d_ndim());
+    cudaMemcpy(d_x,in.get_d_x(),in.get_d_nx()*sizeof(double),cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_y,in.get_d_y(),in.get_d_ny()*sizeof(double),cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_z,in.get_d_z(),in.get_d_nz()*sizeof(double),cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_grid1D,in.get_d_data(),in.get_d_nx()*in.get_d_ny()*in.get_d_nz()*in.get_d_ndim()*sizeof(double),cudaMemcpyDeviceToDevice);
+  }
+
+  return *this;
+}
+
+###CPP### ###CUDA### ###HOST### double* integer_grid::multiple_linear_interpolate(double x, double y, double z, double *temp) const{
+  int grid_dim = 0;
+  if(this->nx > 1){
+    grid_dim++;
+  }
+  if(this->ny > 1){
+    grid_dim++;
+  }
+  if(this->nz > 1){
+    grid_dim++;
+  }
+
+  int i;
+  double **temp_grid;
+  temp_grid = new double *[grid_dim];
+  for(i=0;i<grid_dim;i++){
+    temp_grid[i] = new double [2];
+  }
+  
+  double *temp_data;
+  temp_data = new double [pow(2,grid_dim)];
+  
+  double *point = new double [3];
+  point[0] = ptx;
+  point[1] = pty;
+  point[2] = ptz;
+
+  int xloc, yloc, zloc;
+  if(scalex > 0){
+  }
+  else{
+  }
+
+  for(i=0;i<grid_dim;i++){
+    delete [] temp_grid[i];
+  }
+  delete [] temp_grid;
+  delete [] temp_data;
+  delete [] point;
+
+  return temp;
+}
+###CUDA### ###HOST### double* integer_grid::multiple_linear_interpolate(int npt,double *x, double *y, double *z, double *temp){
+}
+
+###CPP### ###CUDA### ###HOST### double* integer_grid::multiple_cubic_interpolate(double x, double y, double z, double *temp) const{
+}

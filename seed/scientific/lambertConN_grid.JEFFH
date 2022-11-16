@@ -1,0 +1,100 @@
+#ifndef LAMBERTCONN
+#define LAMBERTCONN
+#include "grid_data.h"
+#include "map_projection.h"
+#include "regular_grid.h"
+
+class lambertConN_grid : public regular_grid{
+ public:
+  ###CPP### ###CUDA### ###HOST### lambertConN_grid();
+  ###CPP### ###CUDA### ###HOST### lambertConN_grid(int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### lambertConN_grid(double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,int latloc,int lonloc,int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### ~lambertConN_grid();
+  
+  ###CPP### ###CUDA### ###HOST### void create(double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,int latloc,int lonloc,int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### virtual void create(int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### virtual void create(int nx,int ny,int nz,int ndim,int *idummy1,double* ddummy);
+  /*
+    ddummy[0]=truelat1
+    ddummy[1]=truelat2
+    ddummy[2]=ref_lat
+    ddummy[3]=ref_lon
+    ddummy[4]=lat_res
+    ddummy[5]=lon_res
+
+    idummy[0]=latloc
+    idummy[1]=lonloc
+   */
+  ###CUDA### ###HOST### virtual void create_gpu(int nx,int ny,int nz,int ndim);
+  ###CUDA### ###HOST### virtual void host2device();
+  ###CUDA### ###HOST### virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim);
+  ###CUDA### ###HOST### inline virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work) {host2device(from_x,to_x,from_y,to_y,from_z,to_z,from_dim,to_dim,work,1);}
+  ###CUDA### ###HOST### virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work,int nstream);
+  ###CUDA### ###HOST### virtual void device2host();
+  ###CUDA### ###HOST### virtual void device2host(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim);    
+  
+  ###CPP### ###CUDA### ###HOST### inline virtual double get_z(int ix,int iy,int iz) const {return regular_grid::get_z(ix,iy,iz);}
+  using grid_data::get_z;
+  ###CPP### ###CUDA### ###HOST### virtual double* get_z_address(int ix,int iy,int iz) const;
+  ###CPP### ###CUDA### ###HOST### inline virtual double get_y(int ix,int iy,int iz) const {return y[ix*ny+iy];}
+  using grid_data::get_y;
+  ###CPP### ###CUDA### ###HOST### virtual double* get_y_address(int ix,int iy,int iz) const;
+  ###CPP### ###CUDA### ###HOST### inline virtual double get_x(int ix,int iy,int iz) const {return x[ix*ny+iy];}
+  using grid_data::get_x;
+  ###CPP### ###CUDA### ###HOST### virtual double* get_x_address(int ix,int iy,int iz) const;
+  
+  ###CPP### ###CUDA### ###HOST### inline virtual double *get_data(int ix,int iy,int iz) const {return grid_data::get_data(ix*ny*nz + iy*nz + iz);}
+  ###CPP### ###CUDA### ###HOST### inline virtual double *get_data4dim(int dim,double *work) const {return regular_grid::get_data4dim(dim,work);}
+  ###CPP### ###CUDA### ###HOST### inline virtual float *get_data4dim(int dim,float *work) const {return regular_grid::get_data4dim(dim,work);}
+  
+  ###CPP### ###CUDA### ###HOST### virtual double *get_coordinate(int index,double *work) const;
+  ###CPP### ###CUDA### ###HOST### virtual double *get_coordinate(int ix,int iy,int iz,double *work) const;
+  
+  ###CPP### ###CUDA### ###HOST### inline virtual void set_data4dim(int dim,double* indata) {regular_grid::set_data4dim(dim,indata);}
+  ###CPP### ###CUDA### ###HOST### inline virtual void set_data4dim(int dim,float* indata) {regular_grid::set_data4dim(dim,indata);}
+  
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(double *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(float *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(int ix,int iy,int iz,double x);
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(int ix,int iy,int iz,float x);
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(double *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(float *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(int ix,int iy,int iz,double y);
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(int ix,int iy,int iz,float y);
+  ###CPP### ###CUDA### ###HOST### inline virtual void set_z(double *indata) {regular_grid::set_z(indata);}
+  ###CPP### ###CUDA### ###HOST### inline virtual void set_z(float *indata) {regular_grid::set_z(indata);}
+  
+  ###CPP### ###CUDA### ###HOST### inline void set_truelat(double *in) {this->set_truelat(in[0],in[1]);}
+  ###CPP### ###CUDA### ###HOST### void set_truelat(double truelat1,double truelat2);
+  ###CPP### ###CUDA### ###HOST### inline void set_ref_latlon(double *in) {this->set_ref_latlon(in[0],in[1]);}
+  ###CPP### ###CUDA### ###HOST### void set_ref_latlon(double ref_lat,double ref_lon);
+  ###CPP### ###CUDA### ###HOST### void set_res(double lat_res,double lon_res);
+  ###CPP### ###CUDA### ###HOST### void set_latlonloc(int latloc,int lonloc);
+  
+  ###CPP### ###CUDA### ###HOST### double cal_xindex(double *latlon) const;
+  ###CPP### ###CUDA### ###HOST### double cal_yindex(double *latlon) const;
+  ###CPP### ###CUDA### ###HOST### double *cal_xyindex(double *latlon,double* xyindex_work) const;
+  ###CUDA### ###HOST### double *cal_xyindex(int npt,double *latlon,double* xyindex_work) const;
+  
+  ###CPP### ###CUDA### ###HOST### virtual grid_data& operator=(const grid_data& in);
+
+  //###CPP### ###CUDA### ###HOST### virtual int read_NHM_fortrain_binarydata(char *name_format,int nelements,char **elements,int nlevels,char **level_names); //For lambert-confromal grid
+  //using grid_data::read_NHM_fortrain_binarydata;
+  
+  ###CPP### ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(double lon, double lat, double ptz, double *temp);
+  ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(int npt,double *lon, double *lat, double *ptz, double *temp);
+
+  ###CPP### ###CUDA### ###HOST### virtual inline int get_grid_code() const { return LAMBERTCONN_GRID_CODE; }
+  
+ private:
+  ###CPP### ###CUDA### ###HOST### inline void gen_grid() {libjeff::gen_lambertConN(y,x,ref_latlon[0],ref_latlon[1],truelat[0],truelat[1],lat_res,lon_res,ny,nx,latloc,lonloc);}
+  
+  double *truelat,*ref_latlon;
+  double lat_res,lon_res;
+  int latloc,lonloc;
+  
+};
+
+###CUDA### ###GLOBAL### void lambertConN_grid_set_date4multilinear_interpolate(int npt,int outer_ndim,int grid_dim,double *latlonheight,double *xyz,int nx_st,int nx_end,int ny_st,int ny_end,int nz_st,int nz_end,int ndim_st,int ndim_end,double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,int latloc,int lonloc,double *z,double *data,double *grid_loc,double *grid_data);
+###CPP### ###CUDA### ###HOST### void lambertConN_grid_allocation(grid_data* &in);
+#endif

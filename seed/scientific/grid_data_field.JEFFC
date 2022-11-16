@@ -1,0 +1,774 @@
+#include<cmath>
+###CUDA####include<cuda.h>
+#include<iostream>
+using namespace std;
+
+###CUDA####include"cuda_setting.h"
+###CUDA####include"cuda_tools.h"
+
+#include"grid_data.h"
+#include"grid_data_field.h"
+
+#include"error_code.h"
+
+using namespace libjeff;
+namespace libjeff{
+  ###CPP### ###CUDA### ###HOST### grid_data_field::grid_data_field(){
+    to_map = NULL;
+    dim_index = 0;
+  }
+  ###CPP### ###CUDA### ###HOST### grid_data_field::grid_data_field(grid_data* to_point,int dim_index){
+    this->set(to_point,dim_index);
+  }
+  ###CPP### ###CUDA### ###HOST### double* grid_data_field::get_data(int ix,int iy,int iz) const{
+    if(dim_index >= 0){
+      return this->to_map->get_data(ix,iy,iz)+dim_index;
+    }
+    else{
+      if(dim_index==-1){
+	return this->to_map->get_x_address(ix,iy,iz);
+      }
+      else if(dim_index==-2){
+	return this->to_map->get_y_address(ix,iy,iz);
+      }
+      else if(dim_index==-3){
+	return this->to_map->get_z_address(ix,iy,iz);
+      }
+      else{
+	return NULL;
+      }
+    }
+  }
+  ###CUDA### ###HOST### int grid_data_field::get_in_batch(int nbatchx,int nbatchy,int nbatchz,int batchx_index,int batchy_index,int batchz_index,int padx,int pady,int padz,char *field,double *out) const{
+    if(this->get_nx()%nbatchx != 0 || this->get_ny()%nbatchy != 0 || this->get_nz()%nbatchz != 0){
+      return _ERRORCODE_INPUTBATCHERROR;
+    }
+    if(padx < 0 || pady < 0 || padz < 0){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+    if(batchx_index < 0 || batchx_index >= nbatchx || batchy_index < 0 || batchy_index >= nbatchy || batchz_index < 0 || batchz_index >= nbatchz){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+
+    int i,j,k;
+    int batchx_size = this->get_nx()/nbatchx;
+    int batchy_size = this->get_ny()/nbatchy;
+    int batchz_size = this->get_nz()/nbatchz;
+    if(strcmp(field,"X.X")==0){
+      for(i=0;i<batchx_size;i++){
+	out[i+padx] = this->get_x(batchx_index*batchx_size+i,0,0);
+      }
+
+      if(padx > 0){
+	if(batchx_index==0){
+	  if(this->is_x_periodic()){
+	    for(i=1;i<=padx;i++){
+	      out[padx-i] = this->get_x(this->get_nx()-i,0,0);
+	    }
+	  }
+	  else{
+	    for(i=1;i<=padx;i++){
+	      out[padx-i] = this->get_x(0,0,0);
+	    }
+	  }
+	}
+	else{
+	  for(i=1;i<=padx;i++){
+	    out[padx-i] = this->get_x(batchx_index*batchx_size-i,0,0);
+	  }
+	}
+      }
+    }
+    else if(strcmp(field,"X.XY")==0){
+      for(j=0;j<batchy_size;j++){
+	for(i=0;i<batchx_size;i++){
+	}
+      }
+    }
+    else if(strcmp(field,"X.XYZ")==0){
+    }
+    else if(strcmp(field,"Y.Y")==0){
+      for(j=0;j<batchy_size;j++){
+	out[j+pady] = this->get_y(0,batchy_index*batchy_size+j,0);
+      }
+
+      if(pady > 0){
+	if(batchy_index==0){
+	  if(this->is_y_periodic()){
+	    for(j=1;j<=pady;j++){
+	      out[pady-j] = this->get_y(0,this->get_ny()-j,0);
+	    }
+	  }
+	  else{
+	    for(j=1;j<=pady;j++){
+	      out[pady-j] = this->get_y(0,0,0);
+	    }
+	  }
+	}
+	else{
+	  for(j=1;j<=pady;j++){
+	    out[pady-j] = this->get_y(0,batchy_index*batchy_size-j,0);
+	  }
+	}
+      }
+    }
+    else if(strcmp(field,"Y.XY")==0){
+    }
+    else if(strcmp(field,"Y.XYZ")==0){
+    }
+    else if(strcmp(field,"Z.Z")==0){
+      for(k=0;k<batchz_size;k++){
+	out[k+padz] = this->get_z(0,0,batchz_index*batchz_size+k);
+      }
+
+      if(padz > 0){
+	if(batchz_index==0){
+	  if(this->is_z_periodic()){
+	    for(k=1;k<=padz;k++){
+	      out[padz-k] = this->get_z(0,0,this->get_nz()-k);
+	    }
+	  }
+	  else{
+	    for(k=1;k<=padz;k++){
+	      out[padz-k] = this->get_z(0,0,0);
+	    }
+	  }
+	}
+	else{
+	  for(k=1;k<=padz;k++){
+	    out[padz-k] = this->get_z(0,0,batchz_index*batchz_size-k);
+	  }
+	}
+      }
+    }
+    else if(strcmp(field,"Z.XYZ")==0){
+    }
+    else if(strcmp(field,"data")==0){
+      for(i=0;i<batchx_size;i++){
+	for(j=0;j<batchy_size;j++){
+	  for(k=0;k<batchz_size;k++){
+	    out[((i+padx)*(batchy_size+2*pady)+j+pady)*(batchz_size+2*padz)+k+padz] = *(this->get_data(batchx_index*batchx_size+i,batchy_index*batchy_size+j,batchz_index*batchz_size+k));
+	  }
+	}
+      }
+
+      if(padz > 0){
+	if(batchz_index==0){
+	  if(this->is_z_periodic()){
+	    for(i=0;i<batchx_size;i++){
+	      for(j=0;j<batchy_size;j++){
+		for(k=1;k<=padz;k++){
+		  out[((i+padx)*(batchy_size+2*pady)+j+pady)*(batchz_size+2*padz)+padz-k] = *(this->get_data(batchx_index*batchx_size+i,batchy_index*batchy_size+j,this->get_nz()-k));
+		}
+	      }
+	    }
+	  }
+	  else{
+	    for(i=0;i<batchx_size;i++){
+	      for(j=0;j<batchy_size;j++){
+		for(k=1;k<=padz;k++){
+		  out[((i+padx)*(batchy_size+2*pady)+j+pady)*(batchz_size+2*padz)+padz-k] = *(this->get_data(batchx_index*batchx_size+i,batchy_index*batchy_size+j,0));
+		}
+	      }
+	    }
+	  }
+	}
+	else{
+	  for(i=0;i<batchx_size;i++){
+	    for(j=0;j<batchy_size;j++){
+	      for(k=1;k<=padz;k++){
+		out[((i+padx)*(batchy_size+2*pady)+j+pady)*(batchz_size+2*padz)+padz-k] = *(this->get_data(batchx_index*batchx_size+i,batchy_index*batchy_size+j,batchz_index*batchz_size-k));
+	      }
+	    }
+	  }
+	}
+      }
+
+      
+    }
+    else{
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+
+  ###CPP### ###CUDA### ###HOST### void grid_data_field::set(grid_data* to_point,int dim_index){
+    this->to_map = to_point;
+    this->dim_index = dim_index;
+  }
+  ###CPP### ###CUDA### ###HOST### void grid_data_field::unset(){
+    this->to_map = NULL;
+    this->dim_index = 0;
+  }
+  ###CPP### ###CUDA### ###HOST### bool grid_data_field::isset(){
+    return (this->to_map==NULL?false:true);
+  }
+
+
+  ###CPP### ###CUDA### ###HOST### double grid_data_field::max() const{
+    return this->max(0,this->get_nx()-1,0,this->get_ny()-1,0,this->get_nz()-1);
+  }
+  ###CPP### ###CUDA### ###HOST### double grid_data_field::max(int minx,int maxx,int miny,int maxy,int minz,int maxz) const{
+    if(minx < 0) minx = 0;
+    if(maxx >= this->get_nx()) maxx = this->get_nx()-1;
+    if(miny < 0) miny = 0;
+    if(maxy >= this->get_ny()) maxy = this->get_ny()-1;
+    if(minz < 0) minz = 0;
+    if(maxz >= this->get_nz()) maxz = this->get_nz()-1;
+    double result = *(this->get_data(minx,miny,minz));
+    int i,j,k;
+
+    for(i=minx;i<=maxx;i++){
+      for(j=miny;j<=maxy;j++){
+	for(k=minz;k<=maxz;k++){
+	  if(result < *(this->get_data(i,j,k))) result = *(this->get_data(i,j,k));
+	}
+      }
+    }
+
+    return result;
+  }
+  ###CPP### ###CUDA### ###HOST### double grid_data_field::min() const {
+    return this->min(0,this->get_nx()-1,0,this->get_ny()-1,0,this->get_nz()-1);
+  }
+  ###CPP### ###CUDA### ###HOST### double grid_data_field::min(int minx,int maxx,int miny,int maxy,int minz,int maxz) const{
+    if(minx < 0) minx = 0;
+    if(maxx >= this->get_nx()) maxx = this->get_nx()-1;
+    if(miny < 0) miny = 0;
+    if(maxy >= this->get_ny()) maxy = this->get_ny()-1;
+    if(minz < 0) minz = 0;
+    if(maxz >= this->get_nz()) maxz = this->get_nz()-1;
+    double result = *(this->get_data(minx,miny,minz));
+    int i,j,k;
+
+    for(i=minx;i<=maxx;i++){
+      for(j=miny;j<=maxy;j++){
+	for(k=minz;k<=maxz;k++){
+	  if(result > *(this->get_data(i,j,k))) result = *(this->get_data(i,j,k));
+	}
+      }
+    }
+
+    return result;
+  }
+/*
+  ###CUDA### ###HOST### double grid_data_field::d_max() const{
+    return this->d_max(0,this->get_d_nx()-1,0,this->get_d_ny()-1,0,this->get_d_nz()-1);
+  }
+  ###CUDA### ###HOST### double grid_data_field::d_max(int minx,int maxx,int miny,int maxy,int minz,int maxz) const{
+  }
+  ###CUDA### ###HOST### double grid_data_field::d_min() const{
+    return this->d_min(0,this->get_d_nx()-1,0,this->get_d_ny()-1,0,this->get_d_nz()-1);
+  }
+  ###CUDA### ###HOST### double grid_data_field::d_min(int minx,int maxx,int miny,int maxy,int minz,int maxz) const{
+  }
+*/
+
+  ###CUDA### ###HOST### double grid_data_field::d_max() const{
+    double *temp_data;
+    cudaMalloc((void**) &temp_data,this->get_d_ngrid()*sizeof(double));
+    cuda_extract_every_n(this->get_d_ngrid(),this->get_grid_data()->get_ndim(),this->get_dim_index(),this->get_grid_data()->get_d_data(),temp_data);
+
+    double result = cuda_max(this->get_d_ngrid(),temp_data);
+    cudaFree(temp_data);
+    return result;
+  }
+  ###CUDA### ###HOST### double grid_data_field::d_min() const{
+    double *temp_data;
+    cudaMalloc((void**) &temp_data,this->get_d_ngrid()*sizeof(double));
+    cuda_extract_every_n(this->get_d_ngrid(),this->get_grid_data()->get_ndim(),this->get_dim_index(),this->get_grid_data()->get_d_data(),temp_data);
+
+    double result = cuda_min(this->get_d_ngrid(),temp_data);
+    cudaFree(temp_data);
+    return result;
+  }
+
+  ###CPP### ###CUDA### ###HOST### int grid_data_field::cal_x_derivatives(const grid_data_field* src){
+    int i,j,k;
+    for(i=1;i<this->get_nx()-1;i++){
+      for(j=0;j<this->get_ny();j++){
+	for(k=0;k<this->get_nz();k++){
+	  *(this->get_data(i,j,k)) = (*(src->get_data(i+1,j,k)) - *(src->get_data(i-1,j,k)))/((src->get_x(i+1,j,k)) - (src->get_x(i-1,j,k)));
+	}
+      }
+    }
+
+    if(src->is_x_periodic()){
+      for(j=0;j<this->get_ny();j++){
+	for(k=0;k<this->get_nz();k++){
+	  *this->get_data(0,j,k) = (*(src->get_data(1,j,k)) - *(src->get_data(this->get_nx()-1,j,k)))/((src->get_x(1,j,k)) - (src->get_x(this->get_nx()-1,j,k)) + src->get_x_period());
+	  *this->get_data(this->get_nx()-1,j,k) = (*(src->get_data(0,j,k)) - *(src->get_data(this->get_nx()-2,j,k)))/((src->get_x(0,j,k)) - (src->get_x(this->get_nx()-2,j,k)) + src->get_x_period());
+	}
+      }
+    }
+    else{
+      for(j=0;j<this->get_ny();j++){
+	for(k=0;k<this->get_nz();k++){
+	  *this->get_data(0,j,k) = *this->get_data(1,j,k);
+	  *this->get_data(this->get_nx()-1,j,k) = *this->get_data(this->get_nx()-2,j,k);
+	}
+      }
+    }
+    
+    return _ERRORCODE_NOERROR;
+  }
+  ###CPP### ###CUDA### ###HOST### int grid_data_field::cal_y_derivatives(const grid_data_field* src){
+    int i,j,k;
+    for(i=0;i<this->get_nx();i++){
+      for(j=1;j<this->get_ny()-1;j++){
+	for(k=0;k<this->get_nz();k++){
+	  *this->get_data(i,j,k) = (*(src->get_data(i,j+1,k)) - *(src->get_data(i,j-1,k)))/((src->get_y(i,j+1,k)) - (src->get_y(i,j-1,k)));
+	}
+      }
+    }
+
+    if(src->is_y_periodic()){
+      for(i=0;i<this->get_nx();i++){
+	for(k=0;k<this->get_nz();k++){
+	  *this->get_data(i,0,k) = (*(src->get_data(i,1,k)) - *(src->get_data(i,this->get_ny()-1,k)))/((src->get_y(i,1,k)) - (src->get_y(i,this->get_ny()-1,k)) + src->get_y_period());
+	  *this->get_data(i,this->get_ny()-1,k) = (*(src->get_data(i,0,k)) - *(src->get_data(i,this->get_ny()-2,k)))/((src->get_y(i,0,k)) - (src->get_y(i,this->get_ny()-2,k)) + src->get_y_period());
+	}
+      }
+    }
+    else{
+      for(i=0;i<this->get_nx();i++){
+	for(k=0;k<this->get_nz();k++){
+	  *this->get_data(i,0,k) = *this->get_data(i,1,k);
+	  *this->get_data(i,this->get_ny()-1,k) = *this->get_data(i,this->get_ny()-2,k);
+	}
+      }
+    }
+    
+    return _ERRORCODE_NOERROR;
+  }
+  ###CPP### ###CUDA### ###HOST### int grid_data_field::cal_z_derivatives(const grid_data_field* src){
+    int i,j,k;
+    for(i=0;i<this->get_nx();i++){
+      for(j=0;j<this->get_ny();j++){
+	for(k=1;k<this->get_nz()-1;k++){
+	  *this->get_data(i,j,k) = (*(src->get_data(i,j,k+1)) - *(src->get_data(i,j,k-1)))/((src->get_y(i,j,k+1)) - (src->get_y(i,j,k-1)));
+	}
+      }
+    }
+
+    if(src->is_z_periodic()){
+      for(i=0;i<this->get_nx();i++){
+	for(j=0;j<this->get_ny();j++){
+	  *this->get_data(i,j,0) = (*(src->get_data(i,j,1)) - *(src->get_data(i,j,this->get_nz()-1)))/((src->get_y(i,j,1)) - (src->get_y(i,j,this->get_nz()-1)) + src->get_z_period());
+	  *this->get_data(i,j,this->get_nz()-1) = (*(src->get_data(i,j,0)) - *(src->get_data(i,j,this->get_nz()-2)))/((src->get_y(i,j,0)) - (src->get_y(i,j,this->get_nz()-2)) + src->get_z_period());
+	}
+      }
+    }
+    else{
+      for(i=0;i<this->get_nx();i++){
+	for(j=0;j<this->get_ny();j++){
+	  *this->get_data(i,j,0) = *this->get_data(i,j,1);
+	  *this->get_data(i,j,this->get_nz()-1) = *this->get_data(i,j,this->get_nz()-2);
+	}
+      }
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+
+  ###CPP### ###CUDA### ###HOST### double& grid_data_field::operator[](size_t idx){
+    if(to_map != NULL){
+      return *(to_map->get_data()+idx*to_map->get_ndim()+dim_index);
+    }
+    double *temp=NULL;
+    return *temp;
+  }
+  ###CPP### ###CUDA### ###HOST### grid_data_field& grid_data_field::operator=(const grid_data_field &in){
+    if(&in == this){
+      return *this;
+    }
+
+    this->to_map = in.to_map;
+    this->dim_index = in.dim_index;
+
+    return *this;
+  }
+  ###CPP### ###CUDA### ###HOST### grid_data_field grid_data_field::operator+=(const grid_data_field &in){
+    if(!grid_data_field_check_grid_inconsistence(this,&in)){
+      int i,j,k;
+      for(i=0;i<this->get_nx();i++){
+	for(j=0;j<this->get_ny();j++){
+	  for(k=0;k<this->get_nz();k++){
+	    *(this->get_data(i,j,k)) += *(in.get_data(i,j,k));
+	  }
+	}
+      }
+    }
+    else{
+      cout << "Error! grid_data_fields inconsistent." << endl;
+    }
+    return *this;
+  }
+  ###CPP### ###CUDA### ###HOST### grid_data_field grid_data_field::operator-=(const grid_data_field &in){
+    if(!grid_data_field_check_grid_inconsistence(this,&in)){
+      int i,j,k;
+      for(i=0;i<this->get_nx();i++){
+	for(j=0;j<this->get_ny();j++){
+	  for(k=0;k<this->get_nz();k++){
+	    *(this->get_data(i,j,k)) -= *(in.get_data(i,j,k));
+	  }
+	}
+      }
+    }
+    else{
+      cout << "Error! grid_data_fields inconsistent." << endl;
+    }
+    return *this;
+  }
+  ###CPP### ###CUDA### ###HOST### grid_data_field grid_data_field::operator-=(double in){
+    int i,j,k;
+    for(i=0;i<this->get_nx();i++){
+      for(j=0;j<this->get_ny();j++){
+	for(k=0;k<this->get_nz();k++){
+	  *(this->get_data(i,j,k)) -= in;
+	}
+      }
+    }
+    return *this;
+  }
+  ###CPP### ###CUDA### ###HOST### grid_data_field grid_data_field::operator*=(const grid_data_field &in){
+    if(!grid_data_field_check_grid_inconsistence(this,&in)){
+      int i,j,k;
+      for(i=0;i<this->get_nx();i++){
+	for(j=0;j<this->get_ny();j++){
+	  for(k=0;k<this->get_nz();k++){
+	    *(this->get_data(i,j,k)) *= *(in.get_data(i,j,k));
+	  }
+	}
+      }
+    }
+    else{
+      cout << "Error! grid_data_fields inconsistent." << endl;
+    }
+    return *this;
+  }
+  ###CPP### ###CUDA### ###HOST### grid_data_field grid_data_field::operator*=(double in){
+    int i,j,k;
+    for(i=0;i<this->get_nx();i++){
+      for(j=0;j<this->get_ny();j++){
+	for(k=0;k<this->get_nz();k++){
+	  *(this->get_data(i,j,k)) *= in;
+	}
+      }
+    }
+    return *this;
+  }
+  ###CPP### ###CUDA### ###HOST### grid_data_field grid_data_field::operator/=(const grid_data_field &in){
+    if(!grid_data_field_check_grid_inconsistence(this,&in)){
+      int i,j,k;
+      for(i=0;i<this->get_nx();i++){
+	for(j=0;j<this->get_ny();j++){
+	  for(k=0;k<this->get_nz();k++){
+	    *(this->get_data(i,j,k)) /= *(in.get_data(i,j,k));
+	  }
+	}
+      }
+    }
+    else{
+      cout << "Error! grid_data_fields inconsistent." << endl;
+    }
+    return *this;
+  }
+  ###CPP### ###CUDA### ###HOST### grid_data_field grid_data_field::operator/=(double in){
+    int i,j,k;
+    for(i=0;i<this->get_nx();i++){
+      for(j=0;j<this->get_ny();j++){
+	for(k=0;k<this->get_nz();k++){
+	  *(this->get_data(i,j,k)) /= in;
+	}
+      }
+    }
+    return *this;
+  }
+  ###CPP### ###CUDA### ###HOST### int grid_data_field::copy(const grid_data_field &in){
+    if(&in == this){
+      return _ERRORCODE_NOERROR;
+    }
+    else if(grid_data_field_check_grid_inconsistence(this,&in)){
+      return _ERRORCODE_DATAINCONSISTENCE;
+    }
+
+    int i,j,k;
+    for(i=0;i<this->get_nx();i++){
+      for(j=0;j<this->get_ny();j++){
+	for(k=0;k<this->get_nz();k++){
+	  *(this->get_data(i,j,k)) = *(in.get_data(i,j,k));
+	}
+      }
+    }
+    
+    return _ERRORCODE_NOERROR;
+  }
+
+  ###CUDA### ###GLOBAL### void gaussian_smooth_kernel(int nx,int ny,int nz,double *in,int x_neightbour,int y_neightbour,double radius,double *out){
+    int pt_index=blockDim.x*blockIdx.x + threadIdx.x;
+    int z_index = pt_index%nz;
+    int y_index = (pt_index/nz)%ny;
+    int x_index = pt_index/nz/ny;
+
+    int i,j;
+    double weight, total_weight;
+    
+    if(x_index < nx){
+      total_weight = 0;
+      out[pt_index] = 0;
+      for(i=-x_neightbour;i<=x_neightbour;i++){
+	for(j=-y_neightbour;j<=y_neightbour;j++){
+	  weight = exp(-(i*i+j*j)/(4.*radius));
+	  total_weight += weight;
+
+	  if(x_index+i >= 0 && x_index+i < nx && y_index+j >= 0 && y_index+j < ny){
+	    out[pt_index] += weight*in[((x_index+i)*ny + (y_index+j))*nz+z_index];
+	  }
+	}
+      }
+      out[pt_index] /= total_weight;
+    }
+  }
+  ###CUDA### ###GLOBAL### void gaussian_smooth_kernel(int nx,int ny,int nz,double *in,bool is_x_periodic,bool is_y_periodic,int x_neightbour,int y_neightbour,double radius,double *out){
+    int pt_index=blockDim.x*blockIdx.x + threadIdx.x;
+    int z_index = pt_index%nz;
+    int y_index = (pt_index/nz)%ny;
+    int x_index = pt_index/nz/ny;
+
+    int i,j;
+    double weight, total_weight;
+    int srcx,srcy;
+    
+    if(x_index < nx){
+      total_weight = 0;
+      out[pt_index] = 0;
+      for(i=-x_neightbour;i<=x_neightbour;i++){
+	for(j=-y_neightbour;j<=y_neightbour;j++){
+	  weight = exp(-(i*i+j*j)/(4.*radius));
+	  total_weight += weight;
+
+	  if((is_x_periodic || (x_index+i >= 0 && x_index+i < nx)) && (is_y_periodic || (y_index+j >= 0 && y_index+j < ny))){
+	    srcx = x_index + i;
+	    if(srcx < 0){
+	      srcx += nx;
+	    }
+	    srcx = srcx%nx;
+	    srcy = y_index + j;
+	    if(srcy < 0){
+	      srcy += ny;
+	    }
+	    srcy = srcy%ny;
+	    out[pt_index] += weight*in[(srcx*ny + srcy)*nz+z_index];
+	  }
+	}
+      }
+      out[pt_index] /= total_weight;
+    }
+  }
+
+  ###CPP### ###CUDA### ###HOST### int grid_data_field::gaussian_smooth(const grid_data_field &in,int x_neightbour,int y_neightbour,double radius){
+    if(&in == this){
+      return _ERRORCODE_NOTIMPLEMENTED;
+    }
+    else if(grid_data_field_check_grid_inconsistence(this,&in)){
+      return _ERRORCODE_DATAINCONSISTENCE;
+    }
+
+    int i,j,k,ii,jj;
+    double total_weight, dist_sq;//, weight;
+    double **weight = new double *[x_neightbour*2+1];
+    weight += x_neightbour;
+    total_weight = 0.;
+    for(i=-x_neightbour;i<=x_neightbour;i++){
+      weight[i] = new double [y_neightbour*2+1];
+      weight[i] += y_neightbour;
+
+      for(j=-y_neightbour;j<=y_neightbour;j++){
+	dist_sq = i*i + j*j;
+	weight[i][j] = exp(-dist_sq/(4.*radius));
+	total_weight += weight[i][j];
+      }
+    }
+
+    for(i=0;i<this->get_nx();i++){
+      for(j=0;j<this->get_ny();j++){
+	for(k=0;k<this->get_nz();k++){
+	  *(this->get_data(i,j,k)) = 0.;
+	}
+
+	for(ii=-x_neightbour;ii<=x_neightbour;ii++){
+	  for(jj=-y_neightbour;jj<=y_neightbour;jj++){
+	    if(i+ii >= 0 && i+ii < this->get_nx() && j+jj >= 0 && j+jj < this->get_ny()){
+	      for(k=0;k<this->get_nz();k++){
+		*(this->get_data(i,j,k)) += weight[ii][jj]* *(in.get_data(i+ii,j+jj,k));
+	      }
+	    }
+	  }
+	}
+	for(k=0;k<this->get_nz();k++){
+	  *(this->get_data(i,j,k)) /= total_weight;
+	}
+      }
+    }
+
+    for(i=-x_neightbour;i<=x_neightbour;i++){
+      weight[i] -= y_neightbour;
+      delete [] weight[i];
+    }
+    weight -= x_neightbour;
+    delete [] weight;
+
+    return _ERRORCODE_NOERROR;
+  }
+  ###CUDA### ###HOST### int grid_data_field::gaussian_smooth(const grid_data_field &in,int x_neightbour,int y_neightbour,double radius,bool gpu_mode){
+    ###CPP### gpu_mode = false;
+    if(&in == this){
+      return _ERRORCODE_NOTIMPLEMENTED;
+    }
+    else if(grid_data_field_check_grid_inconsistence(this,&in)){
+      return _ERRORCODE_DATAINCONSISTENCE;
+    }
+
+    if(!gpu_mode){
+      return this->gaussian_smooth(in,x_neightbour,y_neightbour,radius);
+    }
+    else{
+      ###CUDA###{
+	double *data,*d_data,*out,*d_out;
+	data = new double [this->get_ngrid()];
+	
+	int numthreads = cuda_setting::get_numthreads();
+	dim3 grid;
+	grid.x = (int) ceil((double) this->get_ngrid()/numthreads);
+	
+	int i,j,k;
+	for(i=0;i<this->get_nx();i++){
+	  for(j=0;j<this->get_ny();j++){
+	    for(k=0;k<this->get_nz();k++){
+	      data[(i*this->get_ny()+j)*this->get_nz()+k] = *(in.get_data(i,j,k));
+	    }
+	  }
+	}
+	
+	cudaMalloc(&d_data,this->get_ngrid()*sizeof(double));
+	cudaMemcpy(d_data,data,this->get_ngrid()*sizeof(double),cudaMemcpyHostToDevice);
+	delete [] data;
+	cudaMalloc(&d_out,this->get_ngrid()*sizeof(double));
+	
+	gaussian_smooth_kernel<<<grid,numthreads>>>(this->get_nx(),this->get_ny(),this->get_nz(),d_data,this->is_x_periodic(),this->is_y_periodic(),x_neightbour,y_neightbour,radius,d_out);
+	
+	cudaFree(d_data);
+	
+	out = new double [this->get_ngrid()];
+	cudaMemcpy(out,d_out,this->get_ngrid()*sizeof(double),cudaMemcpyDeviceToHost);
+	cudaFree(d_out);
+	
+	for(i=0;i<this->get_nx();i++){
+	  for(j=0;j<this->get_ny();j++){
+	    for(k=0;k<this->get_nz();k++){
+	      *(this->get_data(i,j,k)) = out[(i*this->get_ny()+j)*this->get_nz()+k];
+	    }
+	  }
+	}
+
+	delete [] out;
+
+	return _ERRORCODE_NOERROR;
+      }
+    }
+  }
+
+  ###CUDA### ###HOST### double* grid_data_field::get_data(char *hostORdevice,double *output_buff) const{
+    if(strcmp(hostORdevice,"device")==0){
+      int numthreads = cuda_setting::get_numthreads();
+      dim3 grid;
+      grid.x = (int) ceil((double) this->get_d_ngrid()/numthreads);
+
+      cuda_extract_every_n_kernel<<<grid,numthreads>>>(this->get_d_ngrid(),this->to_map->get_ndim(),this->dim_index,this->to_map->get_d_data(),output_buff);
+      /*
+      double *out_temp = new double [this->get_d_ngrid()];
+      cudaMemcpy(out_temp,this->to_map->get_d_data(),this->get_d_ngrid()*sizeof(double),cudaMemcpyDeviceToHost);
+      int i;
+      for(i=0;i<this->get_d_ngrid();i++){
+	cout << i << " " << out_temp[i] << endl;
+      }
+      delete [] out_temp;
+      */
+    }
+    else{
+      int i;
+      for(i=0;i<get_ngrid();i++){
+	output_buff[i] = *(to_map->get_data()+i*to_map->get_ndim()+dim_index);
+      }
+    }
+
+    return output_buff;
+  }
+  ###CUDA### ###HOST### int grid_data_field::set_data(char *hostORdevice,double *input_buff){
+    if(strcmp(hostORdevice,"device")==0){
+      int numthreads = cuda_setting::get_numthreads();
+      dim3 grid;
+      grid.x = (int) ceil((double) this->get_d_ngrid()/numthreads);
+
+      cuda_put_every_n_kernel<<<grid,numthreads>>>(this->get_d_ngrid(),this->to_map->get_ndim(),this->dim_index,input_buff,this->to_map->get_d_data());
+    }
+    else if(strcmp(hostORdevice,"host")==0){
+      int i;
+      for(i=0;i<get_ngrid();i++){
+	*(to_map->get_data()+i*to_map->get_ndim()+dim_index) = input_buff[i];
+      }
+    }
+    else{
+      return _ERRORCODE_INPUTERROR;
+    }
+    return _ERRORCODE_NOERROR;
+}
+  ###CPP### ###CUDA### ###HOST### double grid_data_field::multiple_linear_interpolate(double x, double y, double z) const{
+    double *temp = new double [this->to_map->get_ndim()];
+
+    double result = this->to_map->multiple_linear_interpolate(x,y,z,temp)[this->dim_index];
+    delete [] temp;
+
+    return result;
+  }
+  ###CPP### ###CUDA### ###HOST### int grid_data_field::multiple_linear_interpolate_from(const grid_data_field *in) const{
+    int i,j,k;
+    double temp_loc[3];
+    for(i=0;i<to_map->get_nx();i++){
+      for(j=0;j<to_map->get_ny();j++){
+	for(k=0;k<to_map->get_nz();k++){
+	  this->get_coordinate(i,j,k,temp_loc);
+
+	  *(this->get_data(i,j,k)) = in->multiple_linear_interpolate(temp_loc[0],temp_loc[1],temp_loc[2]);
+	}
+      }
+    }
+
+    return 0;
+  }
+
+  ###CPP### ###CUDA### ###HOST### int grid_data_field::get_grid_code() const{
+    if(to_map == NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    else{
+      return to_map->get_grid_code();
+    }
+  }
+
+  ###CPP### ###CUDA### ###HOST### bool grid_data_field_check_grid_inconsistence(const grid_data_field* a,const grid_data_field* b){
+    if(a != NULL && b != NULL){
+      if((a->get_nx() != b->get_nx()) || (a->get_ny() != b->get_ny())){
+	return true;
+      }
+      else{
+	return false;
+      }
+    }
+    else{
+      return true;
+    }
+  }
+}

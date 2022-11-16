@@ -1,0 +1,92 @@
+#ifndef REGULARGRID
+#define REGULARGRID
+#include "grid_data.h"
+
+class regular_grid : public grid_data{
+  //assuming order of (from slowest varying) x -> y -> z -> dim
+ public:
+  ###CPP### ###CUDA### ###HOST### regular_grid();
+  ###CPP### ###CUDA### ###HOST### regular_grid(int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### virtual ~regular_grid();
+  
+  ###CPP### ###CUDA### ###HOST### virtual void create(int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### inline virtual void create(int nx,int ny,int nz,int ndim,double dummy1,double dummy2) {this->create(nx,ny,nz,ndim);}
+  ###CPP### ###CUDA### ###HOST### inline virtual void create(int nx,int ny,int nz,int ndim,int *idummy1,double* ddummy) {this->create(nx,ny,nz,ndim);}
+  ###CUDA### ###HOST### virtual void create_gpu(int nx,int ny,int nz,int ndim);
+  ###CUDA### ###HOST### virtual void host2device();
+  ###CUDA### ###HOST### virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim);
+  ###CUDA### ###HOST### inline virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work) {host2device(from_x,to_x,from_y,to_y,from_z,to_z,from_dim,to_dim,work,1);}
+  ###CUDA### ###HOST### virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work,int nstream); //if nstream > 1, work must be pinned memory allocated by cudaMallocHost
+  ###CUDA### ###HOST### virtual void device2host();
+  ###CUDA### ###HOST### virtual void device2host(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim);
+  
+  ###CPP### ###CUDA### ###HOST### virtual double get_z(int ix,int iy,int iz) const override;
+  ###CPP### ###CUDA### ###HOST### virtual double get_z(double ix,double iy,double iz) const override;
+  using grid_data::get_z;
+  ###CPP### ###CUDA### ###HOST### virtual double* get_z_address(int ix,int iy,int iz) const override;
+  ###CPP### ###CUDA### ###HOST### virtual double get_y(int ix,int iy,int iz) const override;
+  ###CPP### ###CUDA### ###HOST### virtual double get_y(double ix,double iy,double iz) const override;
+  using grid_data::get_y;
+  ###CPP### ###CUDA### ###HOST### virtual double* get_y_address(int ix,int iy,int iz) const override;
+  ###CPP### ###CUDA### ###HOST### virtual double get_x(int ix,int iy,int iz) const override;
+  ###CPP### ###CUDA### ###HOST### virtual double get_x(double ix,double iy,double iz) const override;
+  using grid_data::get_x;
+  ###CPP### ###CUDA### ###HOST### virtual double* get_x_address(int ix,int iy,int iz) const override;
+
+  ###CUDA### ###HOST### virtual double *get_expanded_d_x(double *out) const override;  //out is assumed to be correctly allocated
+  ###CUDA### ###HOST### virtual double *get_expanded_d_y(double *out) const override;  //out is assumed to be correctly allocated
+  ###CUDA### ###HOST### virtual double *get_expanded_d_z(double *out) const override;  //out is assumed to be correctly allocated
+  
+  ###CPP### ###CUDA### ###HOST### virtual double *get_data(int ix,int iy,int iz) const override; 
+  ###CPP### ###CUDA### ###HOST### virtual double *get_data4dim(int dim,double *work) const override;
+  ###CPP### ###CUDA### ###HOST### virtual float *get_data4dim(int dim,float *work) const override;
+  
+  ###CPP### ###CUDA### ###HOST### virtual double *get_coordinate(int index,double *work) const override;
+  ###CPP### ###CUDA### ###HOST### virtual double *get_coordinate(int ix,int iy,int iz,double *work) const override;
+  
+  ###CPP### ###CUDA### ###HOST### virtual void set_x_period(double in) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_y_period(double in) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_z_period(double in) override;
+  
+  ###CPP### ###CUDA### ###HOST### virtual void set_data4dim(int dim,double* indata) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_data4dim(int dim,float* indata) override;
+  
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(double *indata) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(float *indata) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(int ix,int iy,int iz,double x) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(int ix,int iy,int iz,float x) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(double *indata) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(float *indata) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(int ix,int iy,int iz,double y) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(int ix,int iy,int iz,float y) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(double *indata) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(float *indata) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(int ix,int iy,int iz,double z) override;
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(int ix,int iy,int iz,float z) override;
+  
+  ###CPP### ###CUDA### ###HOST### virtual grid_data& operator=(const grid_data& in) override;
+
+  //###CPP### ###CUDA### ###HOST### inline virtual grid_data* read_hrit_data(char *filename) {return NULL;} //Not implemented
+  //###CPP### ###CUDA### ###HOST### inline virtual grid_data* read_hs_data(char *filename) {return NULL;} //Not implemented
+  //###CPP### ###CUDA### ###HOST### virtual int read_NHM_fortrain_binarydata(char *name_format,int nelements,char **elements,int nlevels,char **level_names); //For regular lat-lon grid and mercator
+  //using grid_data::read_NHM_fortrain_binarydata;
+  
+  ###CPP### ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(double ptx, double pty, double *temp);
+  ###CPP### ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(double ptx, double pty, double ptz, double *temp) const override;
+  ###CPP### ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(double ptx, double pty, double ptz, double *missing_value,double *temp) const override;
+  ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(int npt,double *ptx, double *pty, double *ptz, double *temp) override; 
+
+  ###CPP### ###CUDA### ###HOST### virtual double* multiple_cubic_interpolate(double x, double y, double z, double *temp) const override;
+
+  ###CPP### ###CUDA### ###HOST### virtual double* nearest_to(double x,double y,double z,double (*metric)(double *a,double *b),double *temp) const override;
+
+  ###CPP### ###CUDA### ###HOST### virtual int find_enclose(double &ptx,double &pty,double &ptz,int *out) const override;
+
+  ###CPP### ###CUDA### ###HOST### virtual inline int get_grid_code() const override { return REGULAR_GRID_CODE; }
+  
+};
+###CUDA### ###GLOBAL### void regular_grid_set_date4multilinear_interpolate(int npt,int ndim,int grid_dim,double *ptx,double *pty,double *ptz,int nx_st,int nx_end,int ny_st,int ny_end,int nz_st,int nz_end,int ndim_st,int ndim_end,double *x,double *y,double *z,double *data,double *grid_loc,double *grid_data);
+###CUDA### ###GLOBAL### void regular_grid_multiple_linear_interpolate_kernel(int npt,int ndim,int grid_dim,double *grid_loc,double *grid_data,double *pts,double *result);
+###CUDA### ###GLOBAL### void regular_grid_multiple_linear_interpolate_kernel(int npt,int ndim,int grid_dim,double *grid_loc,double *grid_data,double *pts,double missing_value,double *result);
+###CPP### ###CUDA### ###HOST### void regular_grid_allocation(grid_data* &in);
+#endif

@@ -1,0 +1,437 @@
+###CUDA####include<cuda.h>
+#include<iostream>
+#include<ctime>
+#include<cstdlib>
+using namespace std;
+
+#include "mapTo2DGrid.h"
+#include "grid_data.h"
+//#include "math_special_function.h"
+###CUDA####include "cuda_setting.h"
+###CUDA####include "cuda_tools.h"
+//#include "tools.h"
+
+###CPP### ###CUDA### ###HOST### mapTo2DGrid::mapTo2DGrid():grid_data(){
+}
+###CPP### ###CUDA### ###HOST### mapTo2DGrid::mapTo2DGrid(int nx,int ny,int nz,int ndim):grid_data(){
+  this->create(nx,ny,nz,ndim);
+}
+###CPP### ###CUDA### ###HOST### mapTo2DGrid::~mapTo2DGrid(){
+}
+  
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::create(int nx,int ny,int nz,int ndim){
+  grid_data::create(nx,1,nz,ndim);
+  
+  if(nx > 0 && nz > 0 && ndim > 0){
+    x = new double [nx];
+    y = new double [nx];  // y dimension has been mapped to x dimension so it is not a separate dimension
+    z = new double [nz];
+  }
+}
+###CUDA### ###HOST### void mapTo2DGrid::create_gpu(int nx,int ny,int nz,int ndim){
+  grid_data::create_gpu(nx,1,nz,ndim);
+  
+  if(nx > 0 && nz > 0 && ndim > 0){
+    cudaMalloc(&d_x,d_nx*sizeof(double));
+    cudaMalloc(&d_y,d_nx*sizeof(double));
+    cudaMalloc(&d_z,d_nz*sizeof(double));
+  }
+}
+###CUDA### ###HOST### void mapTo2DGrid::host2device(){
+  cudaMemcpy(d_x,x,nx*sizeof(double),cudaMemcpyHostToDevice);
+  cudaMemcpy(d_y,y,nx*sizeof(double),cudaMemcpyHostToDevice);
+  cudaMemcpy(d_z,z,nz*sizeof(double),cudaMemcpyHostToDevice);
+  cudaMemcpy(d_grid1D,grid1D,nx*nz*ndim*sizeof(double),cudaMemcpyHostToDevice);
+}
+###CUDA### ###HOST### void mapTo2DGrid::host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim){
+  //double *temp_grid1D = new double [(to_x-from_x+1)*(to_y-from_y+1)*(to_z-from_z+1)*(to_dim-from_dim+1)];
+  this->host2device();
+  /*
+  double *temp_grid1D;
+  cudaMallocHost(&temp_grid1D,(to_x-from_x+1)*(to_y-from_y+1)*(to_z-from_z+1)*(to_dim-from_dim+1)*sizeof(double));
+  
+  this->host2device(from_x,to_x,from_y,to_y,from_z,to_z,from_dim,to_dim,temp_grid1D);
+  //delete [] temp_grid1D;
+  cudaFreeHost(temp_grid1D);
+  */
+}
+###CUDA### ###HOST### void mapTo2DGrid::host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work,int nstream){
+  this->host2device();
+/*
+  clock_t time21, time22, time23, time24, time25;
+  
+  int i,j,k,m,n;
+  int temp_nx, temp_ny,temp_nz, temp_ndim;
+  temp_nx = (to_x-from_x+1);
+  temp_ny = (to_y-from_y+1);
+  temp_nz = (to_z-from_z+1);
+  temp_ndim = (to_dim-from_dim+1);
+  
+  int temp_from_x, temp_to_x;
+  int temp_from_y, temp_to_y;
+  int temp_from_z, temp_to_z;
+  {
+    time21 = clock();
+    if(from_x >= 0){
+      temp_from_x = from_x;
+    }
+    else{
+      temp_from_x = 0;
+    }
+    if(to_x >= nx){
+      temp_to_x = nx-1;
+    }
+    else{
+      temp_to_x = to_x;
+    }
+    for(i=temp_from_x;i<=temp_to_x;i++){
+      work[i-from_x] = x[i];
+    }
+    if(temp_from_x != from_x){
+      work[0] = x[nx-1] - x_period;
+    }
+    if(temp_to_x != to_x){
+      work[temp_nx-1] = x[0] + x_period;
+    }
+    cudaMemcpy(d_x,work,temp_nx*sizeof(double),cudaMemcpyHostToDevice);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy1@host2device" <<endl;
+  }
+  
+  {
+    time22 = clock();
+    if(from_y >= 0){
+      temp_from_y = from_y;
+    }
+    else{
+      temp_from_y = 0;
+    }
+    if(to_y >= ny){
+      temp_to_y = ny-1;
+    }
+    else{
+      temp_to_y = to_y;
+    }
+    for(i=temp_from_y;i<=temp_to_y;i++){
+      work[i-from_y] = y[i];
+    }
+    if(temp_from_y != from_y){
+      work[0] = y[ny-1] - y_period;
+    }
+    if(temp_to_y != to_y){
+      work[temp_ny-1] = y[0] + y_period;
+    }
+    cudaMemcpy(d_y,work,temp_ny*sizeof(double),cudaMemcpyHostToDevice);	
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy2@host2device" << endl;
+    time23 = clock();
+  }
+  
+  {
+    if(from_z >= 0){
+      temp_from_z = from_z;
+    }
+    else{
+      temp_from_z = 0;
+    }
+    if(to_z >= nz){
+      temp_to_z = nz-1;
+    }
+    else{
+      temp_to_z = to_z;
+    }
+    for(i=temp_from_z;i<=temp_to_z;i++){
+      work[i-from_z] = z[i];
+    }
+    if(temp_from_z != from_z){
+      work[0] = z[nz-1] - z_period;
+    }
+    if(temp_to_z != to_z){
+      work[temp_nz-1] = z[0] + z_period;
+    }
+    cudaMemcpy(d_z,work,temp_nz*sizeof(double),cudaMemcpyHostToDevice);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy3@host2device" << endl;
+    time24 = clock();
+  }
+  
+  int temp_i,temp_j,temp_k;
+  if(nstream > 1){
+    cudaStream_t *stream = new cudaStream_t [nstream];
+    for(i=0;i<nstream;i++){
+      cudaStreamCreate(&stream[i]);
+    }
+    
+    for(i=(n*temp_nx)/nstream;i<((n+1)*temp_nx)/nstream;i++){
+      temp_i = i+from_x;
+      if(temp_i < 0){
+	temp_i = nx-1;
+      }
+      if(temp_i >= nx){
+	temp_i = 0;
+      }
+      for(j=0;j<temp_ny;j++){
+	temp_j = j+from_y;
+	if(temp_j < 0){
+	  temp_j = ny-1;
+	}
+	if(temp_j >= ny){
+	  temp_j = 0;
+	}
+	for(k=0;k<temp_nz;k++){
+	  temp_k = k+from_z;
+	  if(temp_k < 0){
+	    temp_k = nz-1;
+	  }
+	  if(temp_k >= nz){
+	    temp_k = 0;
+	  }
+	  for(m=0;m<temp_ndim;m++){
+	    work[(((i*temp_ny + j)*temp_nz + k)*temp_ndim+m)] = grid1D[(((temp_i*ny + temp_j)*nz + temp_k)*ndim + (m+from_dim))];
+	  }
+	}
+      }
+      cudaMemcpyAsync(d_grid1D+(n*temp_nx)/nstream*temp_ny*temp_nz*temp_ndim,work+(n*temp_nx)/nstream*temp_ny*temp_nz*temp_ndim,(((n+1)*temp_nx)/nstream - (n*temp_nx)/nstream)*temp_ny*temp_nz*temp_ndim*sizeof(double),cudaMemcpyHostToDevice,stream[n]);
+    }
+    
+      //cudaDeviceSynchronize();
+    
+    for(i=0;i<nstream;i++){
+      cudaStreamDestroy(stream[i]);
+    }
+    delete [] stream;
+  }
+  else{
+    for(i=0;i<temp_nx;i++){
+      temp_i = i+from_x;
+      if(temp_i < 0){
+	temp_i = nx-1;
+      }
+      if(temp_i >= nx){
+	temp_i = 0;
+      }
+      for(j=0;j<temp_ny;j++){
+	temp_j = j+from_y;
+	if(temp_j < 0){
+	  temp_j = ny-1;
+	}
+	if(temp_j >= ny){
+	  temp_j = 0;
+	}
+	for(k=0;k<temp_nz;k++){
+	  temp_k = k+from_z;
+	  if(temp_k < 0){
+	    temp_k = nz-1;
+	  }
+	  if(temp_k >= nz){
+	    temp_k = 0;
+	  }
+	  for(m=0;m<temp_ndim;m++){
+	    work[(((i*temp_ny + j)*temp_nz + k)*temp_ndim+m)] = grid1D[(((temp_i*ny + temp_j)*nz + temp_k)*ndim + (m+from_dim))];
+	  }
+	}
+      }
+    }
+    cudaMemcpy(d_grid1D,work,temp_nx*temp_ny*temp_nz*temp_ndim*sizeof(double),cudaMemcpyHostToDevice);
+  }
+  
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy4@host2device" << endl;
+  time25 = clock();
+  
+  //cout << "Performance profile: Grid points handling: x: " << cal_sec_between(time21,time22) << " y: " << cal_sec_between(time22,time23) << " z: " << cal_sec_between(time23,time24) << endl << "Data formating and memcpy in host2device: " << cal_sec_between(time24,time25) << endl;
+  */
+}
+###CUDA### ###HOST### void mapTo2DGrid::device2host(){
+  cudaMemcpy(grid1D,d_grid1D,nx*nz*ndim*sizeof(double),cudaMemcpyDeviceToHost);
+}
+###CUDA### ###HOST### void mapTo2DGrid::device2host(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim){
+/*
+  double *temp_grid1D = new double [(to_x-from_x+1)*(to_y-from_y+1)*(to_z-from_z+1)*(to_dim-from_dim+1)];
+  int i,j,k,m;
+  cudaMemcpy(temp_grid1D,d_grid1D,(to_x-from_x+1)*(to_y-from_y+1)*(to_z-from_z+1)*(to_dim-from_dim+1)*sizeof(double),cudaMemcpyHostToDevice);
+  for(i=0;i<(to_x-from_x+1);i++){
+    for(j=0;j<(to_y-from_y+1);j++){
+      for(k=0;k<(to_z-from_z+1);k++){
+	for(m=0;m<(to_dim-from_dim+1);m++){
+	  grid1D[((((i+from_x)*(ny) + (j+from_y))*nz + (k+from_z))*ndim + (m+from_dim))] = temp_grid1D[(((i*(to_y-from_y+1) + j)*(to_z-from_z+1) + k)*(to_dim-from_dim+1)+m)];
+	}
+      }
+    }
+  }
+  delete [] temp_grid1D;
+*/
+  this->device2host();
+}
+
+###CPP### ###CUDA### ###HOST### double mapTo2DGrid::get_z(double ix,double iy,double iz) const{
+  if(iz+1 >= nz){
+    return this->get_z(((int) ix),((int) ix),((int) iz)) + (iz - ((int) iz))*(this->get_z(((int) ix),((int) ix),((int) iz)) - this->get_z(((int) ix),((int) ix),((int) iz))-1);
+  }
+  else{
+    return this->get_z(((int) ix),((int) ix),((int) iz)) + (iz - ((int) iz))*(this->get_z(((int) ix),((int) ix),((int) iz)+1) - this->get_z(((int) ix),((int) ix),((int) iz)));
+  }
+}
+###CPP### ###CUDA### ###HOST### double* mapTo2DGrid::get_z_address(int ix,int iy,int iz) const{
+  return z+iz;
+}
+###CPP### ###CUDA### ###HOST### double mapTo2DGrid::get_y(double ix,double iy,double iz) const{
+  if(ix+1 >= nx){
+    return this->get_y(((int) ix),((int) ix),((int) iz)) + (ix - ((int) ix))*(this->get_y(((int) ix),((int) ix),((int) iz)) - this->get_y(((int) ix),((int) ix)-1,((int) iz)));
+  }
+  else{
+    return this->get_y(((int) ix),((int) ix),((int) iz)) + (ix - ((int) ix))*(this->get_y(((int) ix),((int) ix)+1,((int) iz)) - this->get_y(((int) ix),((int) ix),((int) iz)));
+  }
+}
+###CPP### ###CUDA### ###HOST### double* mapTo2DGrid::get_y_address(int ix,int iy,int iz) const{
+  return y+ix;
+}
+###CPP### ###CUDA### ###HOST### double mapTo2DGrid::get_x(double ix,double iy,double iz) const{
+  if(ix+1 >= nx){
+    return this->get_x(((int) ix),((int) ix),((int) iz)) + (ix - ((int) ix))*(this->get_x(((int) ix),((int) ix),((int) iz)) - this->get_x(((int) ix)-1,((int) ix),((int) iz)));
+  }
+  else{
+    return this->get_x(((int) ix),((int) ix),((int) iz)) + (ix - ((int) ix))*(this->get_x(((int) ix)+1,((int) ix),((int) iz)) - this->get_x(((int) ix),((int) ix),((int) iz)));
+  }
+}
+###CPP### ###CUDA### ###HOST### double* mapTo2DGrid::get_x_address(int ix,int iy,int iz) const{
+  return x+ix;
+}
+###CUDA### ###HOST### double* mapTo2DGrid::get_expanded_d_x(double *out) const{
+  cuda_expand(d_nx,d_nx*d_nz,d_x,out);
+  return out;
+}
+###CUDA### ###HOST### double* mapTo2DGrid::get_expanded_d_y(double *out) const{
+  cuda_expand(d_ny,d_nz,d_y,out);
+  cuda_repeat(d_nx*d_nz,d_nx,out,out);
+  return out;
+}
+###CUDA### ###HOST### double* mapTo2DGrid::get_expanded_d_z(double *out) const{
+  cuda_repeat(d_nz,d_nx*d_nx,d_z,out);
+  return out;
+}
+
+###CPP### ###CUDA### ###HOST### double *mapTo2DGrid::get_data4dim(int dim,double *work) const{
+  int i;
+for(i=0;i<nx*ny*nz;i++){
+    work[i] = grid1D[i*ndim + dim];
+  }
+  return work;
+}
+###CPP### ###CUDA### ###HOST### float *mapTo2DGrid::get_data4dim(int dim,float *work) const{
+  int i;
+  for(i=0;i<nx*ny*nz;i++){
+    work[i] = grid1D[i*ndim + dim];
+  }
+  return work;
+}
+
+###CPP### ###CUDA### ###HOST### double* mapTo2DGrid::get_coordinate(int index,double *work) const{
+  work[0] = this->get_x(index/(ny*nz),index/(ny*nz),index%nz);
+  work[1] = this->get_y(index/(ny*nz),index/(ny*nz),index%nz);
+  work[2] = this->get_z(index/(ny*nz),index/(ny*nz),index%nz);
+  return work;
+}
+###CPP### ###CUDA### ###HOST### double* mapTo2DGrid::get_coordinate(int ix,int iy,int iz,double *work) const{
+  work[0] = this->get_x(ix,ix,iz);
+  work[1] = this->get_y(ix,ix,iz);
+  work[2] = this->get_z(ix,ix,iz);
+  return work;
+}
+
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_x_period(double in){
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_y_period(double in){
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_z_period(double in){
+}
+
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_data4dim(int dim,double* indata){
+  int i;
+  for(i=0;i<nx*nz;i++){
+    this->grid1D[i*ndim+dim] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_data4dim(int dim,float* indata){
+  int i;
+  for(i=0;i<nx*nz;i++){
+    this->grid1D[i*ndim+dim] = indata[i];
+  }
+}
+
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_x(double *indata){
+  int i;
+  for(i=0;i<nx;i++){
+    this->x[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_x(float *indata){
+  int i;
+  for(i=0;i<nx;i++){
+    this->x[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_x(int ix,int iy,int iz,double x){
+  this->x[ix] = x;
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_x(int ix,int iy,int iz,float x){
+  this->x[ix] = x;
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_y(double *indata){
+  int i;
+  for(i=0;i<nx;i++){
+    this->y[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_y(float *indata){
+  int i;
+  for(i=0;i<nx;i++){
+    this->y[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_y(int ix,int iy,int iz,double y){
+  this->y[ix] = y;
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_y(int ix,int iy,int iz,float y){
+  this->y[ix] = y;
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_z(double *indata){
+  int i;
+  for(i=0;i<nz;i++){
+    this->z[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_z(float *indata){
+  int i;
+  for(i=0;i<nz;i++){
+    this->z[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_z(int ix,int iy,int iz,double z){
+  this->z[iz] = z;
+}
+###CPP### ###CUDA### ###HOST### void mapTo2DGrid::set_z(int ix,int iy,int iz,float z){
+  this->z[iz] = z;
+}
+
+###CPP### ###CUDA### ###HOST### grid_data& mapTo2DGrid::operator=(const grid_data& in){
+  if(this == &in){
+    return *this;
+  }
+  
+  this->create(in.get_nx(),in.get_ny(),in.get_nz(),in.get_ndim());
+  this->set_x(in.get_x());
+  this->set_y(in.get_y());
+  this->set_z(in.get_z());
+  this->set_data(in.get_data());
+/*  ###CUDA### if(in.get_d_nx()>0){
+    this->create_gpu(in.get_d_nx(),in.get_d_ny(),in.get_d_nz(),in.get_d_ndim());
+    
+    cudaMemcpy(d_x,in.get_d_x(),in.get_d_nx()*sizeof(double),cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_y,in.get_d_y(),in.get_d_ny()*sizeof(double),cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_z,in.get_d_z(),in.get_d_nz()*sizeof(double),cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_grid1D,in.get_d_data(),in.get_d_nx()*in.get_d_ny()*in.get_d_nz()*in.get_d_ndim()*sizeof(double),cudaMemcpyDeviceToDevice);
+  }
+*/
+  
+  return *this;
+}
+###CPP### ###CUDA### ###HOST### void mapTo2D_grid_allocation(grid_data* &in){
+  in = new mapTo2DGrid;
+}

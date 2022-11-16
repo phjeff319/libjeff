@@ -1,0 +1,322 @@
+#include<cstdlib>
+#include<cstring>
+#include<iostream>
+using namespace std;
+
+int get_digit(int number){
+  int digit;
+
+  if(number<0){
+    number = -number;
+  }
+
+  int test=1;     
+  digit = 0;
+  do{
+    digit++;
+    test*=10;
+  }while(number/test!=0);
+  
+  return digit; 
+}
+
+void itoa(int number, char* str_number){
+  int itemp = number;
+  int digit;
+  bool positive;
+  int i;
+
+  if(itemp==0){
+    str_number[0] = '0';
+    str_number[1] = '\0';
+  }
+  else{
+    int base;
+    if(itemp>0){
+      positive = 1;
+      base = 0;
+    }
+    else{
+      positive = 0;
+      itemp = -itemp;
+      base = 1;
+      str_number[0] = '-';
+    }
+
+    digit = get_digit(number);
+
+    for(i=digit-1;i>=0;i--){
+      str_number[base+i] = (char) (((int) '0') + itemp%10);
+      itemp-=itemp%10;
+      itemp/=10;
+     }
+
+    str_number[base+digit]='\0';
+  }
+}
+
+void itoa(int number, int length, char* str_number){
+  itoa(number,str_number);
+  int digit = get_digit(number);
+  int i, base=0;  
+
+  if(number<0){
+    length -= 1;
+    base = 1;
+  }
+
+  if(digit<length){
+    for(i=digit;i>=0;i--){
+      str_number[base+length-digit+i] = str_number[base+i];
+    }
+
+    for(i=0;i<length-digit;i++){
+      str_number[base+i] = '0';
+    }
+  }
+}
+
+bool string_throwaway(char *in,char *out,char *delim1,char *delim2){
+  char* temp;
+  char in2[2048];
+  strcpy(in2,in);
+  temp = in2;
+
+  temp = strstr(in2,delim1);
+  if(temp != NULL){
+    if(temp!=in2){
+      strncpy(out,in2,temp-in2);
+      out[temp-in2]='\0';
+    }
+    strcpy(in2,temp);
+    temp = strstr(in2,delim2);
+    if(temp != NULL){
+      temp++;
+      strcat(out,temp);
+      return 0;
+    }
+    else{
+      return 1;
+    }
+      
+  }
+
+  return 1;
+}
+
+bool string_get_between(char *in,char *out,char *delim1,char *delim2){
+  char *temp;
+  char *in2 = new char [strlen(in)+10];
+  char *temp_out = new char [strlen(in)+10];
+
+  int error;
+
+  strcpy(in2,in);
+  temp = strstr(in2,delim1);
+  if(temp != NULL){
+    strcpy(temp_out,temp+strlen(delim1));
+
+    temp = strstr(temp_out,delim2);
+    if(temp != NULL){
+      *temp = '\0';
+      strcpy(out,temp_out);
+      error = 0;
+    }
+    else{
+      error = 1;
+    }
+  }
+
+  delete [] in2;
+  delete [] temp_out;
+
+  return error;
+}
+
+bool string_get_before(char *in,char *out,char *delim1){
+  char *temp;
+  char in2[2048];
+
+  strcpy(in2,in);
+  temp = strstr(in2,delim1);
+  if(temp != NULL){
+    temp[0] = '\0';
+
+    strcpy(out,in2);
+
+    strcpy(in2,in);
+    temp = strstr(in2,delim1);
+    temp += strlen(delim1);
+    strcpy(in,temp);
+
+    return 0;
+  }
+
+  return 1;
+}
+
+bool string_check_pattern(char *toCheck, char *pattern){
+  char* temp = strstr(toCheck,pattern);
+  if(temp == NULL){
+    return 0;
+  }
+  else{
+    return 1;
+  }
+}
+int string_count_pattern(char *to_count,char *pattern){
+  int result = 0;
+
+  char *ctemp;
+  ctemp = to_count;
+  while(strstr(ctemp,pattern)!=NULL){
+    result++;
+    ctemp = strstr(ctemp,pattern) + strlen(pattern);
+  }
+  return result;
+}
+int string_count_continuous_pattern(char *to_count,char *pattern){
+  int result = 0;
+
+  char *ctemp;
+  ctemp = to_count;
+  if(strstr(ctemp,pattern)!=NULL){
+    result++;
+    ctemp = strstr(ctemp,pattern) + strlen(pattern);
+    while(strncmp(ctemp,pattern,strlen(pattern))==0){
+      result++;
+      ctemp = strstr(ctemp,pattern) + strlen(pattern);
+    }
+  }
+  return result;
+}
+void string_replace(char* toReplace, char *replaceFrom, char *replaceTo){
+  int i,j,count;
+  int ratio = strlen(replaceTo)/strlen(replaceFrom) + 1;
+  char *temp_string = new char [strlen(toReplace)*ratio + 1];
+  char *temp_string1 = new char [strlen(toReplace)*ratio + 1];
+
+  strcpy(temp_string,toReplace);
+  char *ctemp = strstr(temp_string,replaceFrom);
+  while(ctemp != NULL){
+    strcpy(temp_string1,ctemp);
+    strcpy(ctemp,replaceTo);
+    strcat(temp_string,temp_string1+strlen(replaceFrom));
+    ctemp = strstr(ctemp+strlen(replaceTo),replaceFrom);
+  }
+  strcpy(toReplace,temp_string);
+
+  delete [] temp_string;
+  delete [] temp_string1;
+}
+char *string_insert(char *insert_to,char *to_insert){
+  char *temp_string = new char [strlen(insert_to) + strlen(to_insert) + 10];
+
+  strcpy(temp_string,to_insert);
+  strcat(temp_string,insert_to);
+
+  strcpy(insert_to,temp_string);
+  delete [] temp_string;
+
+  return insert_to;
+}
+void string_reverse(char *input,char *output){
+  int i;
+  char *ctemp = new char [strlen(input)+10];
+  strcpy(ctemp,input);
+  for(i=0;i<strlen(ctemp);i++){
+    output[i] = ctemp[strlen(ctemp)-i-1];
+  }
+  output[strlen(ctemp)]='\0';
+  delete [] ctemp;
+}
+char *string_extract_field(char* buff,char *deliminator,int field_num,char* output){
+  int max_field = string_count_pattern(buff,deliminator);
+
+  if(field_num > max_field){
+    return NULL;
+  }
+  
+  char *ctemp;
+
+  int i;
+  ctemp = buff;
+  for(i=0;i<field_num;i++){
+    ctemp = strstr(ctemp,deliminator)+strlen(deliminator);
+  }
+  strcpy(output,ctemp);
+  if(field_num != max_field){
+    *(strstr(output,deliminator)) = '\0';
+  }
+
+  return output;
+}
+
+double *string_extract_lonlat(char *buff,double *out){
+  if(out != NULL){
+    char *ctemp = new char[strlen(buff)+1];
+    if(strstr(buff,"[")!=NULL){
+      strcpy(ctemp,strstr(buff,"[")+1);
+    }
+    else{
+      delete [] ctemp;
+      return NULL;
+    }
+
+    if(strstr(ctemp,",")!=NULL){
+      *strstr(ctemp,",") = '\0';
+    }
+    else{
+      delete [] ctemp;
+      return NULL;
+    }
+
+    out[0] = atof(ctemp);
+    strcpy(ctemp,strstr(buff,",")+1);
+    if(strstr(ctemp,"]")!=NULL){
+      *strstr(ctemp,"]") = '\0';
+    }
+    else{
+      delete [] ctemp;
+      return NULL;
+    }
+
+    out[1] = atof(ctemp);
+    delete [] ctemp;
+  }
+  return out;
+}
+int *string_extract_lonlat(char *buff,int *out){
+  if(out != NULL){
+    char *ctemp = new char[strlen(buff)+1];
+    if(strstr(buff,"[")!=NULL){
+      strcpy(ctemp,strstr(buff,"[")+1);
+    }
+    else{
+      delete [] ctemp;
+      return NULL;
+    }
+
+    if(strstr(ctemp,",")!=NULL){
+      *strstr(ctemp,",") = '\0';
+    }
+    else{
+      delete [] ctemp;
+      return NULL;
+    }
+
+    out[0] = atoi(ctemp);
+    strcpy(ctemp,strstr(buff,",")+1);
+    if(strstr(ctemp,"]")!=NULL){
+      *strstr(ctemp,"]") = '\0';
+    }
+    else{
+      delete [] ctemp;
+      return NULL;
+    }
+
+    out[1] = atoi(ctemp);
+    delete [] ctemp;
+  }
+  return out;
+}

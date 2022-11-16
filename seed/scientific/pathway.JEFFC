@@ -1,0 +1,207 @@
+#include "pathway.h"
+
+#include<iostream>
+#include<fstream>
+#include<cstring>
+
+#include "error_code.h"
+
+#include "file_check.h"
+#include "string_man.h"
+
+#define WAYPOINTS_NAME_BUFFSIZE 20
+#define BUFFSIZE 4096
+
+namespace libjeff{
+  pathway_waypoints::pathway_waypoints(){
+    this->set_ndim(2);
+  }
+  pathway_waypoints::pathway_waypoints(int ndim){
+    this->set_ndim(ndim);
+  }
+  pathway_waypoints::~pathway_waypoints(){
+    delete [] coord;
+    delete [] name;
+    ndim = 0;
+  }
+  int pathway_waypoints::set_ndim(int ndim){
+    if(ndim >= 2){
+      this->ndim = ndim;
+      coord = new double [this->ndim];
+      name = new char [WAYPOINTS_NAME_BUFFSIZE];
+
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+  }
+
+  int pathway_waypoints::get_ndim(){
+    return ndim;
+  }
+  double *pathway_waypoints::get_coord(){
+    return coord;
+  }
+  char *pathway_waypoints::get_name(){
+    return name;
+  }
+
+  pathway_waypoints_database::pathway_waypoints_database(){
+    num_waypoints = 0;
+    waypoints = NULL;
+  }
+  pathway_waypoints_database::pathway_waypoints_database(char* waypoints_file){
+    this->read_waypoints_csv_file(waypoints_file);
+  }
+  pathway_waypoints_database::~pathway_waypoints_database(){
+    if(num_waypoints > 0){
+      delete [] waypoints;
+    }
+    num_waypoints = 0;
+    waypoints = NULL;
+  }
+
+  int pathway_waypoints_database::read_waypoints_csv_file(char *waypoints_file){
+    int nline = file_check_length(waypoints_file);
+
+    if(nline > 0){
+      char **file_buff = new char *[nline];
+      char *ctemp = new char [BUFFSIZE];
+      int i,j;
+
+      std::ifstream fin;
+      fin.open(waypoints_file);
+      for(i=0;i<nline;i++){
+	file_buff[i] = new char [BUFFSIZE];
+	fin.getline(file_buff[i],BUFFSIZE);
+	//std::cout << file_buff[i] << std::endl;
+      }
+      fin.close();
+
+      int nfield = string_count_pattern(file_buff[0],",");
+
+      if(num_waypoints > 0){
+	delete [] waypoints;
+      }
+      num_waypoints = nline;
+      waypoints = new pathway_waypoints* [num_waypoints];
+      for(i=0;i<num_waypoints;i++){
+	waypoints[i] = new pathway_waypoints (nfield);
+
+	strcpy(ctemp,file_buff[i]);
+	*(strstr(ctemp,","))= '\0';
+	strcpy(waypoints[i]->get_name(),ctemp);
+	for(j=1;j<=nfield;j++){
+	  string_extract_field(file_buff[i],",",j,ctemp);
+	  waypoints[i]->get_coord()[j-1] = atof(ctemp);
+	}
+      }
+
+      for(i=0;i<nline;i++){
+	delete [] file_buff[i];
+      }
+      delete [] file_buff;
+      delete [] ctemp;
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+
+  pathway_waypoints* pathway_waypoints_database::get_waypoints(int index){
+    return waypoints[index];
+  }
+  pathway_waypoints* pathway_waypoints_database::get_waypoints(char *name){
+    int i;
+    for(i=0;i<this->get_num_waypoints();i++){
+      if(strcmp(this->get_waypoints(i)->get_name(),name)==0){
+	return this->get_waypoints(i);
+      }
+    }
+
+    return NULL;
+  }
+
+  flight_route::flight_route(){
+    num_waypoints = 0;
+    waypoints = NULL;
+    name = new char [WAYPOINTS_NAME_BUFFSIZE];
+  }
+  flight_route::~flight_route(){
+    this->destroy();
+    delete [] name;
+  }
+
+  void flight_route::destroy(){
+    if(num_waypoints > 0){
+      delete [] waypoints;
+    }
+    num_waypoints = 0;
+    waypoints = NULL;
+  }
+
+  int flight_route::set_waypoints(int num_waypoints,char **waypoints_names,pathway_waypoints_database *waypoints_db){
+    if(num_waypoints > 0){
+      this->destroy();
+
+      this->num_waypoints=num_waypoints;
+      waypoints = new pathway_waypoints* [this->num_waypoints];
+
+      int i;
+      for(i=0;i<this->num_waypoints;i++){
+	this->waypoints[i] = waypoints_db->get_waypoints(waypoints_names[i]);
+      }
+
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+  }
+  void flight_route::set_name(char *name){
+    strcpy(this->name,name);
+  }
+
+  int read_flight_routes_file(char *filename,pathway_waypoints_database *waypoints_db,flight_route *& routes,int &num_routes){
+    if(waypoints_db->get_num_waypoints() <= 0){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    
+    int nline = file_check_length(filename);
+
+    if(nline > 0){
+      if(routes != NULL){
+	delete [] routes;
+      }
+      
+      num_routes = nline;
+      routes = new flight_route [num_routes];
+
+      char **file_buff = new char *[nline];
+      char *ctemp = new char [BUFFSIZE];
+      int i,j;
+
+      std::ifstream fin;
+      fin.open(filename);
+      for(i=0;i<nline;i++){
+	file_buff[i] = new char [BUFFSIZE];
+	fin.getline(file_buff[i],BUFFSIZE);
+      }
+      fin.close();
+
+      int max_num_waypoint = string_count_pattern(file_buff[0],",");
+      
+
+      for(i=0;i<nline;i++){
+	delete [] file_buff[i];
+      }
+      delete [] file_buff;
+      delete [] ctemp;
+    
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_FILENOTFOUND;
+    }
+  }
+}

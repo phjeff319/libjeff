@@ -1,0 +1,190 @@
+#include"complex.h"
+#include<cmath>
+using namespace std;
+
+namespace libjeff{
+  ###HOST### ###DEVICE### complex::complex(){
+    re = 0;
+    im = 0;
+  }
+  
+  ###HOST### ###DEVICE### complex::complex(double a){
+    re = a;
+    im = 0;
+  }
+
+  ###HOST### ###DEVICE### complex::complex(double a, double b){
+    re = a;
+    im = b;
+  }
+
+  ###HOST### ###DEVICE### double &complex::real(){
+    return re;
+  }
+
+  ###HOST### ###DEVICE### double &complex::imag(){
+    return im;
+  }
+
+  ###HOST### ###DEVICE### double complex::abs2(){
+    return re*re + im*im;
+  }
+
+  ###HOST### ###DEVICE### double complex::abs(){
+  //return std::pow(this->abs2(),0.5);
+    return std::exp(0.5*log(this->abs2()));
+  }
+
+  ###HOST### ###DEVICE### double complex::arg(){
+    return atan2(this->im,this->re);
+  }
+
+  ###HOST### ###DEVICE### complex complex::pow(double exponent){
+    double r = this->abs();
+    double theta = this->arg();
+    
+  //r = std::pow(r,exponent);
+    r = std::exp(exponent*std::log(r));
+    theta *= exponent;
+
+    return complex(r*cos(theta),r*sin(theta));
+  }
+
+  ###HOST### ###DEVICE### complex &complex::operator=(const complex& in){
+    if(this == &in){
+      return *this;
+    }
+    
+    re = in.re;
+    im = in.im;
+    
+    return *this;
+  }
+
+  ###HOST### ###DEVICE### complex &complex::operator=(const double& in){
+    re = in;
+    im = 0.;
+
+    return *this;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator+(const complex& complex1){
+    complex _complex;
+    _complex.re = this->re + complex1.re;
+    _complex.im = this->im + complex1.im;
+    
+    return _complex;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator+(const double& in){
+    complex _complex;
+    _complex.re = this->re + in;
+    _complex.im = this->im;
+    
+    return _complex;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator+=(const complex& complex1){
+    complex _complex;
+    _complex = *this + complex1;
+    *this = _complex;
+    
+    return *this;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator+=(const double& in){
+    complex _complex;
+    _complex = *this + in;
+    *this = _complex;
+    
+    return *this;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator-(const complex& complex1){
+    complex _complex;
+    _complex.re = this->re - complex1.re;
+    _complex.im = this->im - complex1.im;
+    
+    return _complex;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator-(const double& in){
+    complex _complex;
+    _complex.re = this->re - in;
+    _complex.im = this->im;
+    
+    return _complex;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator-=(const complex& complex1){
+    complex _complex;
+    _complex = *this - complex1;
+    *this = _complex;
+    
+    return *this;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator-=(const double& in){
+    complex _complex;
+    _complex = *this - in;
+    *this = _complex;
+    
+    return *this;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator-(){
+    complex _complex;
+    _complex.re = -re;
+    _complex.im = -im;
+    
+    return _complex;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator*(const complex& complex1) {
+    complex _complex;
+    _complex.re = this->re * complex1.re - this->im * complex1.im;
+    _complex.im = this->re * complex1.im + this->im * complex1.re;
+    
+    return _complex;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator*=(const complex& complex1) {
+    complex _complex;
+    _complex.re = this->re * complex1.re - this->im * complex1.im;
+    _complex.im = this->re * complex1.im + this->im * complex1.re;
+    *this = _complex;
+    
+    return *this;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator*(const double& in){
+    complex _complex;
+    _complex.re = this->re * in;
+    _complex.im = this->im * in;
+    
+    return _complex;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator/(const double& a) {
+    complex _complex;
+    _complex.re = this->re /a;
+    _complex.im = this->im /a;
+    
+    return _complex;
+  }
+
+  ###HOST### ###DEVICE### complex complex::operator/(const complex& complex1) {
+    complex _complex;
+    double denominator = complex1.re*complex1.re + complex1.im*complex1.im;
+    _complex.re = this->re * complex1.re + this->im * complex1.im;
+    _complex.im = -this->re * complex1.im + this->im * complex1.re;
+    _complex = _complex/denominator;
+    
+    return _complex;
+  }
+};
+
+ostream &operator<<(ostream &output, libjeff::complex in){
+  output << "(" << in.real() << "," << in.imag() << ")";
+  return output;
+}

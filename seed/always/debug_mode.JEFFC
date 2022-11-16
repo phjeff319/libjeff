@@ -1,0 +1,258 @@
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+
+#include "debug_mode.h"
+
+#include "error_code.h"
+
+const int BUFFSIZE=4096;
+const int DEFAULT_LOG_SIZE=BUFFSIZE*1000;
+
+namespace libjeff{
+  unsigned int debug_setting::debug_flag = 0;
+  unsigned int debug_setting::subroutine_level = 0;
+
+  void debug_setting::set_debug_mode_warning(bool on){
+    if(on && !get_debug_mode_warning()){
+      debug_flag += 1;
+    }
+    else if(!on && get_debug_mode_warning()){
+      debug_flag -= 1;
+    }
+  }
+  void debug_setting::set_debug_mode_debug_log(bool on){
+    if(on && !get_debug_mode_debug_log()){
+      debug_flag += 2;
+    }
+    else if(!on && get_debug_mode_debug_log()){
+      debug_flag -= 2;
+    }
+  }
+  void debug_setting::set_debug_mode_subroutine_trace(bool on){
+    if(on && !get_debug_mode_subroutine_trace()){
+      debug_flag += 4;
+    }
+    else if(!on && get_debug_mode_subroutine_trace()){
+      debug_flag -= 4;
+    }
+  }
+  void debug_setting::set_debug_mode_debug_message(bool on){
+    if(on && !get_debug_mode_debug_message()){
+      debug_flag += 8;
+    }
+    else if(!on && get_debug_mode_debug_message()){
+      debug_flag -= 8;
+    }
+  }
+  void debug_setting::set_debug_mode_bound_check(bool on){
+    if(on && !get_debug_mode_bound_check()){
+      debug_flag += 16;
+    }
+    else if(!on && get_debug_mode_bound_check()){
+      debug_flag -= 16;
+    }
+  }
+  void debug_setting::set_debug_mode_timing(bool on){
+    if(on && !get_debug_mode_timing()){
+      debug_flag += 32;
+    }
+    else if(!on && get_debug_mode_timing()){
+      debug_flag -= 32;
+    }
+  }
+  void debug_setting::set_debug_mode_debug_check(bool on){
+     if(on && !get_debug_mode_debug_check()){
+      debug_flag += 64;
+    }
+    else if(!on && get_debug_mode_debug_check()){
+      debug_flag -= 64;
+    }
+  }
+  void debug_setting::set_debug_mode_GPU_monitor(bool on){
+     if(on && !get_debug_mode_debug_check()){
+      debug_flag += 128;
+    }
+    else if(!on && get_debug_mode_debug_check()){
+      debug_flag -= 128;
+    }
+  }
+  void debug_setting::debug_mode_raise_subroutine_level(){
+    subroutine_level++;
+  }
+  void debug_setting::debug_mode_lower_subroutine_level(){
+    subroutine_level--;
+  }
+  
+  bool debug_setting::get_debug_mode_warning(){
+    return debug_flag%2;
+  }
+  bool debug_setting::get_debug_mode_debug_log(){
+    return (debug_flag/2)%2;
+  }
+  bool debug_setting::get_debug_mode_subroutine_trace(){
+    return (debug_flag/4)%2;
+  }
+  bool debug_setting::get_debug_mode_debug_message(){
+    return (debug_flag/8)%2;
+  }
+  bool debug_setting::get_debug_mode_bound_check(){
+    return (debug_flag/16)%2;
+  }
+  bool debug_setting::get_debug_mode_timing(){
+    return (debug_flag/32)%2;
+  }
+  bool debug_setting::get_debug_mode_debug_check(){
+    return (debug_flag/64)%2;
+  }
+  bool debug_setting::get_debug_mode_GPU_monitor(){
+    return (debug_flag/128)%2;
+  }
+  int debug_setting::get_subroutine_level(){
+    return subroutine_level;
+  }
+
+  int debug_log::log_size = 0;
+  char *debug_log::log = NULL;
+
+  void debug_log::destroy(){
+    if(log_size > 0){
+      delete [] log;
+    }
+    log_size = 0;
+  } 
+   
+  void debug_log::clear(){
+    if(log_size > 0){
+      strcpy(log,"");
+    }
+  }
+
+  char *debug_log::get_log() const{
+    return log;
+  }
+
+  void debug_log::append(char in){
+    this->check_space(1);
+    int len = strlen(log);
+    log[len] = in;
+    log[len+1] = '\0';
+  }
+  void debug_log::append(char *in){
+    this->check_space(strlen(in));
+    strcat(log,in);
+  }
+  void debug_log::append(int in){
+    char *ctemp = new char [BUFFSIZE];
+
+    sprintf(ctemp,"%d",in);
+    this->check_space(strlen(ctemp));
+    
+    strcat(log,ctemp);
+
+    delete [] ctemp;
+  }
+  void debug_log::append(double in){
+    char *ctemp = new char [BUFFSIZE];
+
+    sprintf(ctemp,"%f",in);
+    this->check_space(strlen(ctemp));
+    
+    strcat(log,ctemp);
+
+    delete [] ctemp;
+  }
+
+  void debug_log::check_space(int len){
+    if(log_size == 0 || strlen(log) + len >= log_size){
+      int new_size;
+      if(log_size > 0){
+	new_size = log_size*2;
+      }
+      else{
+	new_size = DEFAULT_LOG_SIZE;
+      }
+
+      while((log_size==0?0:strlen(log)) + len >= new_size){
+	new_size *= 2;
+      }
+      char *temp_log = new char [new_size];
+      if(log_size > 0){
+	strcpy(temp_log,log);
+	delete [] log;
+      }
+      log = temp_log;
+      if(log_size==0){
+	strcpy(log,"");
+      }
+      log_size = new_size;
+    }
+  }
+
+  void print_trace(bool isenter,char *subroutine_name){
+    if(libjeff::debug_setting::get_debug_mode_subroutine_trace()){
+      int i;
+      for(i=0;i<libjeff::debug_setting::get_subroutine_level()-(isenter?0:1);i++){
+	std::cout << "  ";
+      }
+      if(isenter){
+	std::cout << "Entering ";
+	libjeff::debug_setting::debug_mode_raise_subroutine_level();
+      }
+      else{
+	std::cout << "Exiting ";
+	libjeff::debug_setting::debug_mode_lower_subroutine_level();
+      }
+      std::cout << subroutine_name << std::endl;
+    }
+  }
+
+  stop_watch::stop_watch(){
+    this->reset();
+  }
+  double stop_watch::click(){
+    if(isstart){
+      struct timeval now;
+      gettimeofday(&now,NULL);
+      return (now.tv_sec - record.tv_sec) + (now.tv_usec - record.tv_usec)/1.e6;
+    }
+    else{
+      gettimeofday(&record,NULL);
+      isstart = true;
+      return 0.;
+    }
+  }
+  void stop_watch::stop(){
+    if(isstart){
+      struct timeval now;
+      gettimeofday(&now,NULL);
+      acc += (now.tv_sec - record.tv_sec) + (now.tv_usec - record.tv_usec)/1.e6;
+      isstart = false;
+    }
+  }
+  void stop_watch::reset(){
+    acc = 0;
+    isstart = false;
+  }
+}
+libjeff::debug_log &operator<<(libjeff::debug_log &log,char in){
+  log.append(in);
+  return log;
+}
+libjeff::debug_log &operator<<(libjeff::debug_log &log,char *in){
+  log.append(in);
+  return log;
+}
+libjeff::debug_log &operator<<(libjeff::debug_log &log,int in){
+  log.append(in);
+  return log;
+}
+libjeff::debug_log &operator<<(libjeff::debug_log &log,double in){
+  log.append(in);
+  return log;
+}
+std::ostream &operator<<(std::ostream &cout,libjeff::debug_log& in){
+  cout << in.get_log();
+  in.clear();
+  return cout;
+}

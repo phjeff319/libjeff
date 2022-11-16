@@ -1,0 +1,52 @@
+#ifndef TCTRACKS
+#define TCTRACKS
+#include "date_time.h"
+
+class tc_track{
+ public:
+  tc_track();
+  tc_track(const tc_track &in);
+  ~tc_track();
+
+  int create(int num_track_pt);
+  void destroy();
+
+  inline int get_num_track_pt()const {return num_track_pt;}
+  inline date_time *get_valid_time()const {return valid_time;}
+  inline double **get_track_pts()const {return track_pts;}
+
+  int read_best_track_files(char *filename);
+
+  tc_track& operator=(const tc_track& in);
+  
+ protected:
+  int num_track_pt;
+  date_time *valid_time;
+  double **track_pts;
+};
+
+class model_tc_track : public tc_track{
+ public:
+  model_tc_track();
+  ~model_tc_track();
+  model_tc_track(const model_tc_track &in);
+  inline date_time get_model_init_time()const {return model_init_time;}
+  inline void set_model_init_time(date_time in) {this->model_init_time = in;}
+
+  int read_f3_track_files(char *filename);
+
+  model_tc_track& operator=(const model_tc_track& in);
+
+ private:
+  date_time model_init_time;
+};
+
+int tc_track_sort_model_init_time(int ntrack,model_tc_track *tracks);
+
+int tc_track_form_homogeneous_set(int nmodel,int *num_fcst,model_tc_track **original,int *output_num_fcst,model_tc_track **output);
+int tc_track_create_ensemble_by_simple_average(int nmodel,int num_fcst,model_tc_track **ensemble_from,model_tc_track *ensemble_track,int n_fcst_hr,date_time delta_hour); //assming homogeneous dataset
+int tc_track_create_ensemble_by_motion_vector(int nmodel,int num_fcst,model_tc_track **ensemble_from,model_tc_track *ensemble_track,int n_fcst_hr,date_time delta_hour); //assming homogeneous dataset
+
+ostream &operator<<(ostream &, tc_track);
+ostream &operator<<(ostream &, model_tc_track);
+#endif

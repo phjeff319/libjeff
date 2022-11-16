@@ -1,0 +1,8 @@
+#include "complex.h"
+#include "lineshape.h"
+
+namespace libjeff{
+  __host__ __device__ complex lineshape_van_vleck_weisskopf(double fre,double line_fre,double lorentz_width, double mixing_coeff){
+    return complex(fre/line_fre)*(complex(1.,-mixing_coeff)/complex(line_fre - fre,-lorentz_width) - complex(1.,mixing_coeff)/complex(line_fre + fre,lorentz_width));
+  }
+}

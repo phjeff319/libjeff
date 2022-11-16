@@ -1,0 +1,240 @@
+#include<fstream>
+#include<cstdlib>
+using namespace std;
+
+#include"vertical_profile.h"
+
+#include"error_code.h"
+#include"file_check.h"
+#include"physics_constants.h"
+#include"tools.h"
+
+#include"regular_grid.h"
+#include"grid_data_field.h"
+#include"meteorology.h"
+
+using namespace libjeff;
+
+namespace libjeff{
+  vertical_profile::vertical_profile(){
+    data_grid = NULL;
+    self_grid = false;
+    this->pressure = new grid_data_field;
+    this->temperature = new grid_data_field;
+    this->qvapor = new grid_data_field;
+    this->windu = new grid_data_field;
+    this->windv = new grid_data_field;
+    this->vertical_speed = new grid_data_field;
+    p_index = -1;
+    t_index = -1;
+    q_index = -1;
+    u_index = -1;
+    v_index = -1;
+    vs_index = -1;
+  }
+  vertical_profile::~vertical_profile(){
+    this->destroy();
+    delete pressure;
+    delete temperature;
+    delete qvapor;
+    delete windu;
+    delete windv;
+    delete vertical_speed;
+  }
+
+  int vertical_profile::create(int nlevel){
+    this->destroy();
+
+    if(nlevel > 0){
+      this->data_grid = new regular_grid;
+      this->data_grid->create(1,1,nlevel,5);
+
+      this->set_default_index();
+      this->self_grid = true;
+
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+  }
+  int vertical_profile::destroy(){
+    if(this->self_grid){
+      delete data_grid;
+      this->self_grid = false;
+    }
+    return _ERRORCODE_NOERROR;
+  }
+
+  int vertical_profile::set_p_index(int in){
+    if(data_grid==NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    p_index = in;
+    pressure->set(data_grid,p_index);
+    return _ERRORCODE_NOERROR;
+  }
+  int vertical_profile::set_t_index(int in){
+    if(data_grid==NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    t_index = in;
+    temperature->set(data_grid,t_index);
+    return _ERRORCODE_NOERROR;
+  }
+  int vertical_profile::set_q_index(int in){
+    if(data_grid==NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    q_index = in;
+    qvapor->set(data_grid,q_index);
+    return _ERRORCODE_NOERROR;
+  }
+  int vertical_profile::set_u_index(int in){
+    if(data_grid==NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    u_index = in;
+    windu->set(data_grid,u_index);
+    return _ERRORCODE_NOERROR;
+  }
+  int vertical_profile::set_v_index(int in){
+    if(data_grid==NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    v_index = in;
+    windv->set(data_grid,v_index);
+    return _ERRORCODE_NOERROR;
+  }
+  int vertical_profile::set_vs_index(int in){
+    if(data_grid==NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    vs_index = in;
+    vertical_speed->set(data_grid,vs_index);
+    return _ERRORCODE_NOERROR;
+  }
+  int vertical_profile::set_default_index(){
+    if(data_grid==NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    this->set_p_index(0);
+    this->set_t_index(1);
+    this->set_q_index(2);
+    this->set_u_index(3);
+    this->set_v_index(4);
+    this->set_vs_index(5);
+    return _ERRORCODE_NOERROR;
+  }
+  int vertical_profile::set_pressure(double *in){
+    if(this->p_index >= 0){
+      this->data_grid->set_data4dim(p_index,in);
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+  }
+  int vertical_profile::set_temperature(double *in){
+    if(this->t_index >= 0){
+      this->data_grid->set_data4dim(t_index,in);
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+  }
+  int vertical_profile::set_qvapor(double *in){
+    if(this->q_index >= 0){
+      this->data_grid->set_data4dim(q_index,in);
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+  }
+  int vertical_profile::set_windu(double *in){
+    if(this->u_index >= 0){
+      this->data_grid->set_data4dim(u_index,in);
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+  }
+  int vertical_profile::set_windv(double *in){
+    if(this->v_index >= 0){
+      this->data_grid->set_data4dim(v_index,in);
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+  }
+  int vertical_profile::set_vertical_speed(double *in){
+    if(this->vs_index >= 0){
+      this->data_grid->set_data4dim(vs_index,in);
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+  }
+
+  int vertical_profile::get_max_index() const{
+    return max(p_index,max(t_index,max(q_index,max(u_index,max(v_index,vs_index)))));
+  }
+
+  int vertical_profile::gen_ISA(int nlevel,double rh){
+    double *p = new double [nlevel];
+    double *t = new double [nlevel];
+    double *height = new double [nlevel];
+    double *qv = new double [nlevel];
+    
+    meteorology_gen_ISA(nlevel,rh,height,p,t,qv);
+
+    int max_index = max(p_index,max(t_index,q_index));
+    if(max_index < 0){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    if(data_grid->get_nz() != nlevel){
+      //define the data_grid mode
+      data_grid->create(1,1,nlevel,max_index+1);
+    }
+
+    data_grid->set_z(height);
+    data_grid->set_data4dim(p_index,p);
+    data_grid->set_data4dim(t_index,t);
+    data_grid->set_data4dim(q_index,qv);
+
+    delete [] p;
+    delete [] t;
+    delete [] height;
+    delete [] qv;
+    return _ERRORCODE_NOERROR;
+  }
+
+  vertical_profile& vertical_profile::operator=(const vertical_profile &in){
+    if(&in == this){
+      return *this;
+    }
+    this->destroy();
+
+    this->p_index = in.p_index;
+    this->t_index = in.t_index;
+    this->q_index = in.q_index;
+    this->u_index = in.u_index;
+    this->v_index = in.v_index;
+
+    *(this->pressure) = *(in.pressure);
+    *(this->temperature) = *(in.temperature);
+    *(this->qvapor) = *(in.qvapor);
+    *(this->windu) = *(in.windu);
+    *(this->windv) = *(in.windv);
+
+    this->data_grid = in.data_grid;
+    this->self_grid = false;
+
+    return *this;
+  }
+}

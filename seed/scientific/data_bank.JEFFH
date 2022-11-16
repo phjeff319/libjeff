@@ -1,0 +1,37 @@
+#include <vector>
+
+#ifndef DATABANK
+#define DATABANK
+namespace libjeff{
+  class data_bank_pts{
+  public:
+    virtual void set_data(char *name,double in) = 0;
+    virtual void* get_data(char *name) = 0;
+    virtual data_bank_pts& operator=(const data_bank_pts &) = 0;
+    virtual int get_variable_list_length() const = 0;
+    virtual char** get_variable_list() const = 0;
+
+  private:
+
+  };
+
+  class data_bank{
+  public:
+    data_bank();
+    ~data_bank();
+
+    //    int create(int size,void (*allocator)(int block_size,data_bank_pts* &inout));
+    int create(void (*allocator)(data_bank_pts* &inout));
+    void destroy();
+
+    data_bank_pts* get_data(int index);
+    int append(data_bank_pts* in);
+
+    inline int get_num_data_pts() const {return data_pts.size();}
+
+  private:
+    std::vector<data_bank_pts*> data_pts;
+    void (*allocator)(data_bank_pts* &inout);
+  };
+}
+#endif

@@ -1,0 +1,135 @@
+#ifndef meteorology
+#define meteorology
+//------------------------------------------
+//Temperature, dew point, wetbulb, WBGT in unit of K
+//Pressure in unit of hPa
+//RH in unit of %
+//mixing ratios (Qv, Qc, Qr, etc) in unit of kg/kg
+//Qvapour in unit of kg/ m-3
+//mass density in unit of kg/m^3
+//lambda in unit of m-1
+//All other, including wind, in SI unit
+//------------------------------------------
+
+#include "timed_grid_data.h"
+#include "vertical_profile.h"
+
+namespace libjeff{
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### int meteorology_plv2fl(double plv,double slp,int rounding);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_fl2plv(double fl,double slp);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_taylor_cal_es0(double);
+  
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_taylor_cal_es0liquid(double);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_taylor_cal_es0ice(double);
+  ###CUDA### ###GLOBAL### void meteorology_cal_mixing_ratio(int nstate,double *pressure,double *temperature,double *dew_point,double *mixing_ratio);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_mixing_ratio(double pressure,double temperature,double dew_point);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_saturated_mixing_ratio(double pressure,double temperature);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_saturated_mixing_ratio_ice(double pressure,double temperature);
+  ###CPP### ###CUDA### ###HOST### double meteorology_cal_dewpoint(double pressure,double temperature,double mixing_ratio);
+  ###CUDA### ###GLOBAL### void meteorology_cal_dewpoint(int nstate,double *pressure,double *temperature,double *mixing_ratio,double *dew_point);
+  ###CUDA### ###GLOBAL### void meteorology_cal_dry_density(int nstate,double *temperature,double *pressure,double *mixing_ratio,double *density);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_dry_density(double temperature,double pressure,double mixing_ratio);
+  ###CUDA### ###GLOBAL### void meteorology_cal_density(int nstate,double *temperature,double *pressure,double *mixing_ratio,double *density);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_density(double temperature,double pressure,double mixing_ratio);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_dry_density(double temperature,double pressure,double mixing_ratio);
+  ###CUDA### ###GLOBAL### void meteorology_cal_rh(int nstate,double *pressure,double *temperature,double *dew_point,double *rh);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_rh(double pressure,double temperature,double dew_point);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_theta(double pressure,double temperature);
+  ###CUDA### ###GLOBAL### void meteorology_cal_theta(int nstate,double *pressure,double *temperature,double* theta);
+  ###CUDA### ###GLOBAL### void meteorology_cal_theta_e(int nstate,double *pressure,double *temperature,double *dew_point,double* theta_e);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_theta_e(double pressure,double temperature,double dew_point);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_theta2temperature(double pressure,double theta);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_slp(double,double,double,double);
+  ###CUDA### ###GLOBAL### void  meteorology_cal_vapour_pressure(int nstate,double *pressure,double *temperature,double *rh,double *pressure_e);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_vapour_pressure(double pressure,double temperature,double rh);
+  ###CUDA### ###GLOBAL### void  meteorology_cal_vapour_pressure(int nstate,double *temperature,double *qvapour,double *pressure_e);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_vapour_pressure(double temperature,double qvapour);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_wetbulb(double pressure,double temperature,double dew_point);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_wetbulb(double pressure,double temperature,double dew_point,int max_iteration,double accuracy);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *meteorology_cal_gph(int nlevel,double *p,double *t,double *q,double sfc_gph,double *gph);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_radiance2bt(double radiance,double wavelength);
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_virtual_temperature(double pressure,double temperature,double dew_point);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_virtual_temperature(double *pressure,double *temperature,double *qvapor,double *dew_point,double *qcloud,double *qrain);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_virtual_potential_temperature(double pressure,double temperature,double mixing_ratio);
+  ###CPP### ###CUDA### ###HOST### double meteorology_cal_lift_condensation_level(double pressure,double temperature,double dew_point);
+  
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_uv_to_dir(double u,double v);
+  ###CUDA### ###GLOBAL### void meteorology_uv_to_dir_kernel(int nstate,double *u,double *v,double *dir);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_uv_to_speed(double u,double v);
+  ###CUDA### ###GLOBAL### void meteorology_uv_to_speed_kernel(int nstate,double *u,double *v,double *speed);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_sd_to_u(double speed,double dir);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_sd_to_v(double speed,double dir);
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_cal_ecmwf_model_level_pressure(double sfc_pressure,double coeff_a,double coeff_b);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### int meteorology_cal_saturation_adjustment(double pressure,double &t,double &q,double &condensate);
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_dbz2lambda(double dbz);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_dbz2lambda(double N0,double dbz);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_lambda2dbz(double lambda);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_lambda2dbz(double N0,double lambda);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_lambda2mass(double lambda);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_lambda2mass(double N0,double lambda);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_mass2lambda(double mass);
+  ###CUDA### ###GLOBAL### void meteorology_marshall_palmer_mass2lambda(int nstate,double *mass,double *lambda);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_mass2lambda(double N0,double mass);
+  ###CUDA### ###GLOBAL### void meteorology_marshall_palmer_mass2lambda(int nstate,double *N0,double *mass,double *lambda);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_dbz2mass(double dbz);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_dbz2mass(double N0,double dbz);
+  ###CUDA### ###GLOBAL### void meteorology_marshall_palmer_dbz2mass(int nstate,double *dbz,double *mass);
+  ###CUDA### ###GLOBAL### void meteorology_marshall_palmer_dbz2mass(int nstate,double *N0,double *dbz,double *mass);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_mass2dbz(double mass);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_mass2dbz(double N0,double mass);
+  ###CUDA### ###GLOBAL### void  meteorology_marshall_palmer_mass2dbz(int nstate,double *mass,double *dbz);
+  ###CUDA### ###GLOBAL### void  meteorology_marshall_palmer_mass2dbz(int nstate,double *N0,double *mass,double *dbz);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_snow_mass2dbz(double mass);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_marshall_palmer_snow_mass2dbz(double N0,double mass);
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* meteorology_radarbeam_zrnic_rk4(int nheight,double *height,double *pressure,double *temperature,double *mixingratio,double stepsize,double *inputy,double *outputy);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void meteorology_radarbeam_propagation_zrnic_rk4(int nheight,double *height,double *pressure,double *temperature,double *mixingratio,int nstep,double stepsize,double radar_altitude,double elevation,double *beam_path);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void meteorology_radarbeam_propagation_zrnic_rk4(int nheight,double *height,double *pressure,double *temperature,double *mixingratio,int nstep,double stepsize,double radar_altitude,double elevation,double **beam_path);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void meteorology_radarbeam_propagation_zrnic_rk4(vertical_profile* profile,int nstep,double stepsize,double radar_altitude,double elevation,double **beam_path);
+  ###CUDA### ###GLOBAL### void meteorology_radarbeam_propagation_zrnic_rk4_kernel(int nbeam,int nheight,int nprofile,double *height,double *pressure,double *temperature,double *mixingratio,int nstep,double stepsize,double *radar_altitude,double *elevation,double *beam_path);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* meteorology_radarbeam_find_elevation_zrnic_rk4(vertical_profile* profile,double max_stepsize,double radar_altitude,double gcdist,double target_height,double precision,double *result);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* meteorology_radarbeam_find_elevation_zrnic_rk4(int nheight,double *height,double *pressure,double *temperature,double *mixingratio,double max_stepsize,double radar_altitude,double gcdist,double target_height,double precision,double *result);
+  ###CUDA### ###GLOBAL### void  meteorology_radarbeam_find_elevation_zrnic_rk4_kernel(int npoint,int nheight,int nprofile,double *height,double *pressure,double *temperature,double *mixingratio,double max_stepsize,double *radar_altitude,double *gcdist,double *target_height,double precision,double *result);
+
+  ###CPP### ###CUDA### ###HOST### void meteorology_gen_ISA(int nlevel,double rh,double *height,double *p,double *t,double *mixing_ratio);
+  ###CUDA### ###GLOBAL### void meteorology_gen_ISA_kernel(int nlevel,double rh,double *height,double *p,double *t,double *mixing_ratio);
+
+  ###CUDA### ###GLOBAL### void meteorology_cal_vws_kernel(int nx,int ny,int nz,int xpad,int ypad,int zpad,double *z,double *u,double *v,double *vws);
+  ###CUDA### ###GLOBAL### void meteorology_cal_ti2_kernel(int nx,int ny,int nz,int xpad,int ypad,int zpad,double *dudx,double *dudy,double *dvdx,double *dvdy,double *dvws,double *ti);
+  ###CUDA### ###GLOBAL### void meteorology_cal_dti_kernel(int nx,int ny,int nz,int xpad,int ypad,int zpad,double *ti2,double *div,double *div_p3,double *dti);
+  ###CUDA### ###GLOBAL### void meteorology_cal_inri_kernel(int nx,int ny,int nz,int xpad,int ypad,int zpad,double *theta,double *z,double *vws,double *irni);
+  ###CUDA### ###GLOBAL### void meteorology_cal_colson_panofsky_kernel(int nx,int ny,int nz,int xpad,int ypad,int zpad,double *z,double *irni,double *vws,double *cp);
+  ###CUDA### ###GLOBAL### void meteorology_cal_tke_kernel(int nx,int ny,int nz,int xpad,int ypad,int zpad,double *z,double *irni,double *vws,double *tke,double *tke_dtf); //tke: Laikhtman and Al'ter-Zalik(1966) and Vinnichenko et al. (1980). adjustable constant C is taken to 1 (overall scaling factor); tke-dtf:
+  ###CPP### ###CUDA### ###HOST### int meteorology_cal_TI2(const grid_data_field* z,const grid_data_field* u,const grid_data_field* v,const grid_data_field* map_factor_x,const grid_data_field* map_factor_y,grid_data_field *ti2,bool gpu_mode);// if map_factor are NULL, they will be set to 1. gpu_mode is forced to be false without CUDA
+  ###CPP### ###CUDA### ###HOST### int meteorology_cal_TI3(const grid_data_field* z,const grid_data_field *p,const grid_data_field *t,const grid_data_field *q,const grid_data_field *ti2,const grid_data_field *vws,grid_data_field *ti3,bool gpu_mode);
+  ###CPP### ###CUDA### ###HOST### int meteorology_cal_turb(const grid_data_field* z,const grid_data_field* u,const grid_data_field* v,const grid_data_field* u_p3,const grid_data_field* v_p3,const grid_data_field *t,const grid_data_field* map_factor_x,const grid_data_field* map_factor_y,grid_data_field *ti2,grid_data_field *dti,grid_data_field *vws,grid_data_field *inri,grid_data_field *conv,bool gpu_mode,double **work_space);// if map_factor are NULL, they will be set to 1. gpu_mode is forced to be false without CUDA. work_space is only used for GPU mode and contain the pinned memory for faster data transfer. conv can be set to NULL (optional output)
+  ###CPP### ###CUDA### ###HOST### inline int meteorology_cal_turb(const grid_data_field* z,const grid_data_field* u,const grid_data_field* v,const grid_data_field* u_p3,const grid_data_field* v_p3,const grid_data_field *t,const grid_data_field* map_factor_x,const grid_data_field* map_factor_y,grid_data_field *ti2,grid_data_field *dti,grid_data_field *vws,grid_data_field *inri,bool gpu_mode,double **work_space){ // if map_factor are NULL, they will be set to 1. gpu_mode is forced to be false without CUDA. work_space is only used for GPU mode and contain the pinned memory for faster data transfer.
+    return meteorology_cal_turb(z,u,v,u_p3,v_p3,t,map_factor_x,map_factor_y,ti2,dti,vws,inri,NULL,gpu_mode,work_space);
+  }
+  ###CPP### ###CUDA### ###HOST### inline int meteorology_cal_turb(const grid_data_field* z,const grid_data_field* u,const grid_data_field* v,const grid_data_field* u_p3,const grid_data_field* v_p3,const grid_data_field *t,const grid_data_field* map_factor_x,const grid_data_field* map_factor_y,grid_data_field *ti2,grid_data_field *dti,grid_data_field *vws,grid_data_field *inri,bool gpu_mode) {return  meteorology_cal_turb(z,u,v,u_p3,v_p3,t,map_factor_x,map_factor_y,ti2,dti,vws,inri,gpu_mode,NULL);} // if map_factor are NULL, they will be set to 1. gpu_mode is forced to be false without CUDA
+  ###CPP### ###CUDA### ###HOST### int meteorology_cal_gtg_suite(const grid_data_field* z,const grid_data_field* p,const grid_data_field* u,const grid_data_field* v,const grid_data_field* u_p3,const grid_data_field* v_p3,const grid_data_field *t,const grid_data_field *q,const grid_data_field* map_factor_x,const grid_data_field* map_factor_y,grid_data_field *ti2,grid_data_field *ti3,grid_data_field *ti4,grid_data_field *dti,grid_data_field *vws,grid_data_field *inri,grid_data_field *div,grid_data_field *tke,grid_data_field *tke_dtf,
+    grid_data_field *tke_adj1,grid_data_field *tke_adj2,grid_data_field *tke_adj3,grid_data_field *tke_adj4,grid_data_field *tke_adj5,grid_data_field *tke_adj6,
+    grid_data_field *colson_panofsky,grid_data_field *browns_index,grid_data_field *pv,grid_data_field *grad_pv,
+								//grid_data_field *clark_cat,
+    grid_data_field *curvature,grid_data_field *grad_t,grid_data_field *wind_index,grid_data_field *dutton_index,grid_data_field *mos_cat,double *work_space,bool gpu_mode,bool to_smooth,int x_neightbour,int y_neightbour,double radius);// if map_factor are NULL, they will be set to 1. gpu_mode is forced to be false without CUDA. work_space is for pinned memory workspace, only meaningful for speed up GPU transfer, set to NULL to disable.
+
+  ###CPP### ###CUDA### ###HOST### int meteorology_cal_gtg_suite(const grid_data_field* z,const grid_data_field* p,const grid_data_field* u,const grid_data_field* v,const grid_data_field* u_p3,const grid_data_field* v_p3,const grid_data_field *t,const grid_data_field *q,const grid_data_field* map_factor_x,const grid_data_field* map_factor_y,grid_data_field *ti2,grid_data_field *ti3,grid_data_field *ti4,grid_data_field *dti,grid_data_field *vws,grid_data_field *inri,grid_data_field *div,grid_data_field *tke,grid_data_field *tke_dtf,
+    grid_data_field *colson_panofsky,grid_data_field *browns_index,grid_data_field *pv,grid_data_field *grad_pv,
+  //grid_data_field *clark_cat,
+    grid_data_field *curvature,grid_data_field *grad_t,grid_data_field *wind_index,grid_data_field *dutton_index,grid_data_field *mos_cat,bool *use_in_edr,int nmap,double *threshold,double *scale,double *weighting,grid_data_field *edr,double *work_space,bool gpu_mode,bool index_to_smooth,bool edr_to_smooth,int x_neightbour,int y_neightbour,double radius);// if map_factor are NULL, they will be set to 1. gpu_mode is forced to be false without CUDA. work_space is for pinned memory workspace, only meaningful for speed up GPU transfer, set to NULL to disable.
+  ###CPP### ###CUDA### ###HOST### int meteorology_cal_icing_rh_tt(const grid_data_field* t,const grid_data_field* q,const grid_data_field* ice); //check -5 <= t <= 0 && RH>= 95%
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double meteorology_convective_cal_ice_ratio(double t);
+
+  ###CPP### ###CUDA### ###HOST### int meteorology_convective_scheme_ec_cal_cloudcontent(const grid_data_field* p,const grid_data_field* sshf,const grid_data_field* slhf,const grid_data_field* blh,const grid_data_field* t,const grid_data_field* q,const grid_data_field* z,const grid_data_field* qc,const grid_data_field* qr,const grid_data_field* up_t,const grid_data_field* up_q,const grid_data_field* up_qc,const grid_data_field* up_qr,const grid_data_field* dn_t,const grid_data_field* dn_q,const grid_data_field* rainflux,const grid_data_field* snowflux,const grid_data_field* cloud_base,const grid_data_field* cloud_top,bool gpu);
+  ###CPP### ###CUDA### ###HOST### inline int meteorology_convective_scheme_ec_cal_cloudcontent(const grid_data_field* p,const grid_data_field* sshf,const grid_data_field* slhf,const grid_data_field* blh,const grid_data_field* t,const grid_data_field* q,const grid_data_field* z,const grid_data_field* qc,const grid_data_field* qr,const grid_data_field* up_t,const grid_data_field* up_q,const grid_data_field* up_qc,const grid_data_field* up_qr,const grid_data_field* dn_t,const grid_data_field* dn_q,const grid_data_field* rainflux,const grid_data_field* snowflux,const grid_data_field* cloud_base,const grid_data_field* cloud_top){
+    return meteorology_convective_scheme_ec_cal_cloudcontent(p,sshf,slhf,blh,t,q,z,qc,qr,up_t,up_q,up_qc,up_qr,dn_t,dn_q,rainflux,snowflux,cloud_base,cloud_top,false);
+  }
+
+  ###CPP### ###CUDA### ###HOST### int meteorology_convert_ec_mdl2plv(timed_grid_data *mdl_data,const grid_data_field* p,timed_grid_data *plv_data,int nplv,double *plv,double missing_value); //assuming the level with high pressure is at z=0
+
+}
+#endif

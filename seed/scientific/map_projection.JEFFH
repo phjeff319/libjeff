@@ -1,0 +1,44 @@
+#ifndef MAPPROJECTION
+#define MAPPROJECTION
+#include "earth.h"
+
+namespace libjeff{
+  //Mercator subroutines
+  ###CPP### ###CUDA### ###HOST### void gen_mercator(double *lat,double *lon,double baselat,double baselon,double truelat,double lat_res,double lon_res,int latgrid,int longrid,double latloc,double lonloc);
+  ###CPP### ###CUDA### ###HOST### int gen_mercator(double *lat,double *lon,double centlat,double centlon,double truelat,double lat_res,double lon_res,int latgrid,int longrid);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_mercator_xyindex(double *latlon,double baselat,double baselon,double truelat,double lat_res,double lon_res,int latloc,int lonloc,double *xyindex);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_mercator_xyindex(double lat,double lon,double baselat,double baselon,double truelat,double lat_res,double lon_res,int latloc,int lonloc,double *xyindex);
+  ###CUDA### ###HOST### double *cal_mercator_xyindex(int npt,double *latlon,double baselat,double baselon,double truelat,double lat_res,double lon_res,int latloc,int lonloc,double *xyindex);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_mercator_res(double min_lat,double max_lat,double min_lon,double max_lon,double truelat,int nlat,int nlon,double *res);  //find res such that grid 0 corresponds to minlat/minlon while nlat/nlon corresponds to maxlat/maxlon. res[0] = lat_res, res[1] = lon_res
+
+  ###CUDA### ###GLOBAL### void gen_mercator_lat_kernel(int latgrid,double latres,double baselat,double truelat,double latloc,double *lat);
+  ###CUDA### ###GLOBAL### void gen_mercator_lon_kernel(int longrid,double lonres,double baselon,double truelat,double lonloc,double *lon);
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_mercator_lat(double index,double baselat,double truelat,double lat_res,int latloc);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_mercator_lon(double index,double baselon,double truelat,double lon_res,int lonloc);
+
+  ###CUDA### ###GLOBAL### void cal_mercator_xyindex_kernel(int npt,double *latlon,double baselat,double baselon,double truelat,double lat_res,double lon_res,int latloc,int lonloc,double *xyindex);
+
+  //Lambert Conformal N subroutines
+  ###CPP### ###CUDA### ###HOST### void gen_lambertConN(double *lat,double *lon,double ref_lat,double ref_lon,double true_lat1,double true_lat2,double lat_res,double lon_res,int latgrid,int longrid,int latloc,int lonloc);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void cal_lambertConN_parameter_rad(const double &true_lat1_rad,const double &true_lat2_rad,const double &ref_lat_rad,double &nn,double &ff, double &rho0);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_parameter_rad_nn(const double &true_lat1_rad,const double &true_lat2_rad);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_parameter_rad_ff(const double &true_lat1_rad,const double &true_lat2_rad,const double &nn);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_parameter_rad_rho(const double &ref_lat_rad,const double &nn,const double &ff);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_x_scale(double ref_lat,double ref_lon,double true_lat1,double true_lat2,double lon_res);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_x_scale(double ref_lat,double ref_lon,double true_lat1,double true_lat2,double lon_res,double nn,double ff);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_y_scale(double ref_lat,double ref_lon,double true_lat1,double true_lat2,double lat_res);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_y_scale(double ref_lat,double ref_lon,double true_lat1,double true_lat2,double lat_res,double nn,double ff);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_lambertConN_xyindex(double *latlon,double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,double *xyindex);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_lambertConN_xyindex(double *latlon,double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,int latloc,int lonloc,double *xyindex);
+  ###CUDA### ###HOST### double *cal_lambertConN_xyindex(int npt,double *latlon,double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,int latloc,int lonloc,double *xyindex);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_lambertConN_xyindex(double lat,double lon,double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,double *xyindex);
+  
+  ###CUDA### ###GLOBAL### void gen_lambertConN_kernel(int latgrid,int longrid,double xres,double yres,double nn,double ff,double rho,double ref_lon,int latloc,int lonloc,double *lat,double *lon);
+  ###CUDA### ###GLOBAL### void cal_lambertConN_xyindex_kernel(int npt,double *latlon,double nn,double ff,double rho0,double ref_lat,double ref_lon,double x_scale,double y_scale,int latloc,int lonloc,double *xyindex);
+
+  //GEOS subroutine
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_geos_xyindex(double lat,double lon,double satellite_lon,double satellite_height,double *xyindex);
+}
+
+#endif

@@ -1,0 +1,1497 @@
+###CUDA####include<cuda.h>
+#include<iostream>
+#include<ctime>
+#include<cstdlib>
+using namespace std;
+
+###CUDA####include "cuda_setting.h"
+###CUDA####include "cuda_tools.h"
+#include "error_code.h"
+#include "grid_data.h"
+#include "math_special_function.h"
+#include "regular_grid.h"
+#include "tools.h"
+
+using namespace libjeff;
+###CPP### ###CUDA### ###HOST### regular_grid::regular_grid():grid_data(){
+}
+###CPP### ###CUDA### ###HOST### regular_grid::regular_grid(int nx,int ny,int nz,int ndim):grid_data(){
+  this->create(nx,ny,nz,ndim);
+}
+###CPP### ###CUDA### ###HOST### regular_grid::~regular_grid(){
+  grid_data::destroy();
+}
+
+###CPP### ###CUDA### ###HOST### void regular_grid::create(int nx,int ny,int nz,int ndim){
+  grid_data::create(nx,ny,nz,ndim);
+  
+  if(nx > 0 && ny > 0 && nz > 0 && ndim > 0){
+    x = new double [nx];
+    y = new double [ny];
+    z = new double [nz];
+  }
+}
+###CUDA### ###HOST### void regular_grid::create_gpu(int nx,int ny,int nz,int ndim){
+  grid_data::create_gpu(nx,ny,nz,ndim);
+  
+  if(nx > 0 && ny > 0 && nz > 0 && ndim > 0){
+    cudaMalloc(&d_x,d_nx*sizeof(double));
+    cudaMalloc(&d_y,d_ny*sizeof(double));
+    cudaMalloc(&d_z,d_nz*sizeof(double));
+  }
+}
+
+###CPP### ###CUDA### ###HOST### double regular_grid::get_z(int ix,int iy,int iz) const{
+  if(is_z_periodic()){
+    if(iz < 0){
+      iz = iz+(-(iz/nz)+1)*nz;
+    }
+    iz = iz%nz; 
+  }
+  return z[iz];
+}
+###CPP### ###CUDA### ###HOST### double regular_grid::get_y(int ix,int iy,int iz) const{
+  if(is_y_periodic()){
+    if(iy < 0){
+      iy = iy+(-(iy/ny)+1)*ny;
+    }
+    iy = iy%ny; 
+  }
+  return y[iy];
+}
+###CPP### ###CUDA### ###HOST### double regular_grid::get_x(int ix,int iy,int iz) const{
+  if(is_x_periodic()){
+    if(ix < 0){
+      ix = ix+(-(ix/nx)+1)*nx;
+    }
+    ix = ix%nx; 
+  }
+  return x[ix];
+}
+
+###CUDA### ###HOST### void regular_grid::host2device(){
+  cudaMemcpy(d_x,x,nx*sizeof(double),cudaMemcpyHostToDevice);
+  cudaMemcpy(d_y,y,ny*sizeof(double),cudaMemcpyHostToDevice);
+  cudaMemcpy(d_z,z,nz*sizeof(double),cudaMemcpyHostToDevice);
+  cudaMemcpy(d_grid1D,grid1D,nx*ny*nz*ndim*sizeof(double),cudaMemcpyHostToDevice);
+}
+###CUDA### ###HOST### void regular_grid::host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim){
+  //double *temp_grid1D = new double [(to_x-from_x+1)*(to_y-from_y+1)*(to_z-from_z+1)*(to_dim-from_dim+1)];
+  double *temp_grid1D;
+  cudaMallocHost(&temp_grid1D,(to_x-from_x+1)*(to_y-from_y+1)*(to_z-from_z+1)*(to_dim-from_dim+1)*sizeof(double));
+  
+  this->host2device(from_x,to_x,from_y,to_y,from_z,to_z,from_dim,to_dim,temp_grid1D);
+  //delete [] temp_grid1D;
+  cudaFreeHost(temp_grid1D);
+}
+###CUDA### ###HOST### void regular_grid::host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work,int nstream){
+  clock_t time21, time22, time23, time24, time25;
+  
+  int i,j,k,m,n;
+  int temp_nx, temp_ny,temp_nz, temp_ndim;
+  temp_nx = (to_x-from_x+1);
+  temp_ny = (to_y-from_y+1);
+  temp_nz = (to_z-from_z+1);
+  temp_ndim = (to_dim-from_dim+1);
+  
+  int temp_from_x, temp_to_x;
+  int temp_from_y, temp_to_y;
+  int temp_from_z, temp_to_z;
+  {
+    time21 = clock();
+    if(from_x >= 0){
+      temp_from_x = from_x;
+    }
+    else{
+      temp_from_x = 0;
+    }
+    if(to_x >= nx){
+      temp_to_x = nx-1;
+    }
+    else{
+      temp_to_x = to_x;
+    }
+    for(i=temp_from_x;i<=temp_to_x;i++){
+      work[i-from_x] = x[i];
+    }
+    if(temp_from_x != from_x){
+      work[0] = x[nx-1] - x_period;
+    }
+    if(temp_to_x != to_x){
+      work[temp_nx-1] = x[0] + x_period;
+    }
+    cudaMemcpy(d_x,work,temp_nx*sizeof(double),cudaMemcpyHostToDevice);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy1@host2device" <<endl;
+  }
+  
+  {
+    time22 = clock();
+    if(from_y >= 0){
+      temp_from_y = from_y;
+    }
+    else{
+      temp_from_y = 0;
+    }
+    if(to_y >= ny){
+      temp_to_y = ny-1;
+    }
+    else{
+      temp_to_y = to_y;
+    }
+    for(i=temp_from_y;i<=temp_to_y;i++){
+      work[i-from_y] = y[i];
+    }
+    if(temp_from_y != from_y){
+      work[0] = y[ny-1] - y_period;
+    }
+    if(temp_to_y != to_y){
+      work[temp_ny-1] = y[0] + y_period;
+    }
+    cudaMemcpy(d_y,work,temp_ny*sizeof(double),cudaMemcpyHostToDevice);	
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy2@host2device" << endl;
+    time23 = clock();
+  }
+  
+  {
+    if(from_z >= 0){
+      temp_from_z = from_z;
+    }
+    else{
+      temp_from_z = 0;
+    }
+    if(to_z >= nz){
+      temp_to_z = nz-1;
+    }
+    else{
+      temp_to_z = to_z;
+    }
+    for(i=temp_from_z;i<=temp_to_z;i++){
+      work[i-from_z] = z[i];
+    }
+    if(temp_from_z != from_z){
+      work[0] = z[nz-1] - z_period;
+    }
+    if(temp_to_z != to_z){
+      work[temp_nz-1] = z[0] + z_period;
+    }
+    cudaMemcpy(d_z,work,temp_nz*sizeof(double),cudaMemcpyHostToDevice);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy3@host2device" << endl;
+    time24 = clock();
+  }
+  
+  int temp_i,temp_j,temp_k;
+  if(nstream > 1){
+    cudaStream_t *stream = new cudaStream_t [nstream];
+    for(i=0;i<nstream;i++){
+      cudaStreamCreate(&stream[i]);
+    }
+    
+    for(i=(n*temp_nx)/nstream;i<((n+1)*temp_nx)/nstream;i++){
+      temp_i = i+from_x;
+      if(temp_i < 0){
+	temp_i = nx-1;
+      }
+      if(temp_i >= nx){
+	temp_i = 0;
+      }
+      for(j=0;j<temp_ny;j++){
+	temp_j = j+from_y;
+	if(temp_j < 0){
+	  temp_j = ny-1;
+	}
+	if(temp_j >= ny){
+	  temp_j = 0;
+	}
+	for(k=0;k<temp_nz;k++){
+	  temp_k = k+from_z;
+	  if(temp_k < 0){
+	    temp_k = nz-1;
+	  }
+	  if(temp_k >= nz){
+	    temp_k = 0;
+	  }
+	  for(m=0;m<temp_ndim;m++){
+	    work[(((i*temp_ny + j)*temp_nz + k)*temp_ndim+m)] = grid1D[(((temp_i*ny + temp_j)*nz + temp_k)*ndim + (m+from_dim))];
+	  }
+	}
+      }
+      cudaMemcpyAsync(d_grid1D+(n*temp_nx)/nstream*temp_ny*temp_nz*temp_ndim,work+(n*temp_nx)/nstream*temp_ny*temp_nz*temp_ndim,(((n+1)*temp_nx)/nstream - (n*temp_nx)/nstream)*temp_ny*temp_nz*temp_ndim*sizeof(double),cudaMemcpyHostToDevice,stream[n]);
+    }
+    /*
+      cudaDeviceSynchronize();
+    */
+    for(i=0;i<nstream;i++){
+      cudaStreamDestroy(stream[i]);
+    }
+    delete [] stream;
+  }
+  else{
+    for(i=0;i<temp_nx;i++){
+      temp_i = i+from_x;
+      if(temp_i < 0){
+	temp_i = nx-1;
+      }
+      if(temp_i >= nx){
+	temp_i = 0;
+      }
+      for(j=0;j<temp_ny;j++){
+	temp_j = j+from_y;
+	if(temp_j < 0){
+	  temp_j = ny-1;
+	}
+	if(temp_j >= ny){
+	  temp_j = 0;
+	}
+	for(k=0;k<temp_nz;k++){
+	  temp_k = k+from_z;
+	  if(temp_k < 0){
+	    temp_k = nz-1;
+	  }
+	  if(temp_k >= nz){
+	    temp_k = 0;
+	  }
+	  for(m=0;m<temp_ndim;m++){
+	    work[(((i*temp_ny + j)*temp_nz + k)*temp_ndim+m)] = grid1D[(((temp_i*ny + temp_j)*nz + temp_k)*ndim + (m+from_dim))];
+	  }
+	}
+      }
+    }
+    cudaMemcpy(d_grid1D,work,temp_nx*temp_ny*temp_nz*temp_ndim*sizeof(double),cudaMemcpyHostToDevice);
+  }
+  
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy4@host2device" << endl;
+  time25 = clock();
+  
+  //cout << "Performance profile: Grid points handling: x: " << cal_sec_between(time21,time22) << " y: " << cal_sec_between(time22,time23) << " z: " << cal_sec_between(time23,time24) << endl << "Data formating and memcpy in host2device: " << cal_sec_between(time24,time25) << endl;
+}
+###CUDA### ###HOST### void regular_grid::device2host(){
+  cudaMemcpy(grid1D,d_grid1D,nx*ny*nz*ndim*sizeof(double),cudaMemcpyDeviceToHost);
+}
+###CUDA### ###HOST### void regular_grid::device2host(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim){
+  double *temp_grid1D = new double [(to_x-from_x+1)*(to_y-from_y+1)*(to_z-from_z+1)*(to_dim-from_dim+1)];
+  int i,j,k,m;
+  cudaMemcpy(temp_grid1D,d_grid1D,(to_x-from_x+1)*(to_y-from_y+1)*(to_z-from_z+1)*(to_dim-from_dim+1)*sizeof(double),cudaMemcpyHostToDevice);
+  for(i=0;i<(to_x-from_x+1);i++){
+    for(j=0;j<(to_y-from_y+1);j++){
+      for(k=0;k<(to_z-from_z+1);k++){
+	for(m=0;m<(to_dim-from_dim+1);m++){
+	  grid1D[((((i+from_x)*(ny) + (j+from_y))*nz + (k+from_z))*ndim + (m+from_dim))] = temp_grid1D[(((i*(to_y-from_y+1) + j)*(to_z-from_z+1) + k)*(to_dim-from_dim+1)+m)];
+	}
+      }
+    }
+  }
+  delete [] temp_grid1D;
+}
+
+###CPP### ###CUDA### ###HOST### double *regular_grid::get_data(int ix,int iy,int iz) const{
+  if(is_x_periodic()){
+    if(ix < 0){
+      ix = ix+(-(ix/nx)+1)*nx;
+    }
+    ix = ix%nx; 
+  }
+  if(is_y_periodic()){
+    if(iy < 0){
+      iy = iy+(-(iy/ny)+1)*ny;
+    }
+    iy = iy%ny; 
+  }
+  if(is_z_periodic()){
+    if(iz < 0){
+      iz = iz+(-(iz/nz)+1)*nz;
+    }
+    iz = iz%nz; 
+  }
+
+  return (this->grid1D + ((ix*ny + iy)*nz + iz)*ndim);
+}
+###CPP### ###CUDA### ###HOST### double *regular_grid::get_data4dim(int dim,double *work) const{
+  int i;
+  for(i=0;i<nx*ny*nz;i++){
+    work[i] = grid1D[i*ndim + dim];
+  }
+  return work;
+}
+###CPP### ###CUDA### ###HOST### float *regular_grid::get_data4dim(int dim,float *work) const{
+  int i;
+  for(i=0;i<nx*ny*nz;i++){
+    work[i] = grid1D[i*ndim + dim];
+  }
+  return work;
+}
+
+###CPP### ###CUDA### ###HOST### double regular_grid::get_z(double ix,double iy,double iz) const{
+  if(iz+1 >= nz){
+    return this->get_z(((int) ix),((int) iy),((int) iz)) + (iz - ((int) iz))*(this->get_z(((int) ix),((int) iy),((int) iz)) - this->get_z(((int) ix),((int) iy),((int) iz))-1);
+  }
+  else{
+    return this->get_z(((int) ix),((int) iy),((int) iz)) + (iz - ((int) iz))*(this->get_z(((int) ix),((int) iy),((int) iz)+1) - this->get_z(((int) ix),((int) iy),((int) iz)));
+  }
+}
+###CPP### ###CUDA### ###HOST### double* regular_grid::get_z_address(int ix,int iy,int iz) const{
+  return z+iz;
+}
+###CPP### ###CUDA### ###HOST### double regular_grid::get_y(double ix,double iy,double iz) const{
+  if(iy+1 >= ny){
+    return this->get_y(((int) ix),((int) iy),((int) iz)) + (iy - ((int) iy))*(this->get_y(((int) ix),((int) iy),((int) iz)) - this->get_y(((int) ix),((int) iy)-1,((int) iz)));
+  }
+  else{
+    return this->get_y(((int) ix),((int) iy),((int) iz)) + (iy - ((int) iy))*(this->get_y(((int) ix),((int) iy)+1,((int) iz)) - this->get_y(((int) ix),((int) iy),((int) iz)));
+  }
+}
+###CPP### ###CUDA### ###HOST### double* regular_grid::get_y_address(int ix,int iy,int iz) const{
+  return y+iy;
+}
+###CPP### ###CUDA### ###HOST### double regular_grid::get_x(double ix,double iy,double iz) const{
+  if(ix+1 >= nx){
+    return this->get_x(((int) ix),((int) iy),((int) iz)) + (ix - ((int) ix))*(this->get_x(((int) ix),((int) iy),((int) iz)) - this->get_x(((int) ix)-1,((int) iy),((int) iz)));
+  }
+  else{
+    return this->get_x(((int) ix),((int) iy),((int) iz)) + (ix - ((int) ix))*(this->get_x(((int) ix)+1,((int) iy),((int) iz)) - this->get_x(((int) ix),((int) iy),((int) iz)));
+  }
+}
+###CPP### ###CUDA### ###HOST### double* regular_grid::get_x_address(int ix,int iy,int iz) const{
+  return x+ix;
+}
+###CPP### ###CUDA### ###HOST### double* regular_grid::get_coordinate(int index,double *work) const{
+  work[0] = this->get_x(index/(ny*nz),(index/nz)%ny,index%nz);
+  work[1] = this->get_y(index/(ny*nz),(index/nz)%ny,index%nz);
+  work[2] = this->get_z(index/(ny*nz),(index/nz)%ny,index%nz);
+  return work;
+}
+###CPP### ###CUDA### ###HOST### double* regular_grid::get_coordinate(int ix,int iy,int iz,double *work) const{
+  work[0] = this->get_x(ix,iy,iz);
+  work[1] = this->get_y(ix,iy,iz);
+  work[2] = this->get_z(ix,iy,iz);
+  return work;
+}
+
+###CUDA### ###HOST### double* regular_grid::get_expanded_d_x(double *out) const{
+  cuda_expand(d_nx,d_ny*d_nz,d_x,out);
+  return out;
+}
+###CUDA### ###HOST### double* regular_grid::get_expanded_d_y(double *out) const{
+  cuda_expand(d_ny,d_nz,d_y,out);
+  cuda_repeat(d_ny*d_nz,d_nx,out,out);
+  return out;
+}
+###CUDA### ###HOST### double* regular_grid::get_expanded_d_z(double *out) const{
+  cuda_repeat(d_nz,d_nx*d_ny,d_z,out);
+  return out;
+}
+
+###CPP### ###CUDA### ###HOST### void regular_grid::set_x_period(double in){
+  grid_data::set_x_period(in);
+  if((x[nx-1] - x[0])*x_period < 0){
+    x_period *= -1;
+  }
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_y_period(double in){
+  grid_data::set_y_period(in);
+  if((y[ny-1] - y[0])*y_period < 0){
+    y_period *= -1;
+  }
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_z_period(double in){
+  grid_data::set_z_period(in);
+  if((z[nz-1] - z[0])*z_period < 0){
+    z_period *= -1;
+  }
+}
+
+###CPP### ###CUDA### ###HOST### void regular_grid::set_data4dim(int dim,double* indata){
+  int i;
+  for(i=0;i<nx*ny*nz;i++){
+    this->grid1D[i*ndim+dim] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_data4dim(int dim,float* indata){
+  int i;
+  for(i=0;i<nx*ny*nz;i++){
+    this->grid1D[i*ndim+dim] = indata[i];
+  }
+}
+
+###CPP### ###CUDA### ###HOST### void regular_grid::set_x(double *indata){
+  int i;
+  for(i=0;i<nx;i++){
+    this->x[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_x(float *indata){
+  int i;
+  for(i=0;i<nx;i++){
+    this->x[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_x(int ix,int iy,int iz,double x){
+  this->x[ix] = x;
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_x(int ix,int iy,int iz,float x){
+  this->x[ix] = x;
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_y(double *indata){
+  int i;
+  for(i=0;i<ny;i++){
+    this->y[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_y(float *indata){
+  int i;
+  for(i=0;i<ny;i++){
+    this->y[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_y(int ix,int iy,int iz,double y){
+  this->y[iy] = y;
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_y(int ix,int iy,int iz,float y){
+  this->y[iy] = y;
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_z(double *indata){
+  int i;
+  for(i=0;i<nz;i++){
+    this->z[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_z(float *indata){
+  int i;
+  for(i=0;i<nz;i++){
+    this->z[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_z(int ix,int iy,int iz,double z){
+  this->z[iz] = z;
+}
+###CPP### ###CUDA### ###HOST### void regular_grid::set_z(int ix,int iy,int iz,float z){
+  this->z[iz] = z;
+}
+###CPP### ###CUDA### ###HOST### grid_data& regular_grid::operator=(const grid_data& in){
+  if(this == &in){
+    return *this;
+  }
+  
+  this->create(in.get_nx(),in.get_ny(),in.get_nz(),in.get_ndim());
+  this->set_x(in.get_x());
+  this->set_y(in.get_y());
+  this->set_z(in.get_z());
+  this->set_data(in.get_data());
+  ###CUDA### if(in.get_d_nx()>0){
+    this->create_gpu(in.get_d_nx(),in.get_d_ny(),in.get_d_nz(),in.get_d_ndim());
+    
+    cudaMemcpy(d_x,in.get_d_x(),in.get_d_nx()*sizeof(double),cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_y,in.get_d_y(),in.get_d_ny()*sizeof(double),cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_z,in.get_d_z(),in.get_d_nz()*sizeof(double),cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_grid1D,in.get_d_data(),in.get_d_nx()*in.get_d_ny()*in.get_d_nz()*in.get_d_ndim()*sizeof(double),cudaMemcpyDeviceToDevice);
+  }
+  
+  return *this;
+}
+/*
+###CPP### ###CUDA### ###HOST### int regular_grid::read_NHM_fortrain_binarydata(char *name_format,int nelements,char **elements,int nlevels,char **level_names){
+  //TODO
+  cout << "Warning! Functions to be implemented!" << endl;
+  return -99;
+}
+*/
+###CPP### ###CUDA### ###HOST### double* regular_grid::multiple_linear_interpolate(double ptx, double pty, double *temp){
+  int i;
+  for(i=0;i<this->nz;i++){
+    if(i==0){
+      regular_grid::multiple_linear_interpolate(ptx,pty,this->z[i]+0.00001,temp+i*ndim);
+    }
+    else if(this->nz-1){
+      regular_grid::multiple_linear_interpolate(ptx,pty,this->z[i]-0.00001,temp+i*ndim);
+    }
+    else{
+      regular_grid::multiple_linear_interpolate(ptx,pty,this->z[i],temp+i*ndim);
+    }
+  }
+  return temp;
+}
+###CPP### ###CUDA### ###HOST### double* regular_grid::multiple_linear_interpolate(double ptx, double pty, double ptz, double *temp) const{
+  return this->multiple_linear_interpolate(ptx,pty,ptz,NULL,temp);
+}
+
+###CPP### ###CUDA### ###HOST### double* regular_grid::multiple_linear_interpolate(double ptx, double pty, double ptz, double *missing_value,double *temp) const{
+  int grid_dim = 0;
+  if(this->nx > 1){
+    grid_dim++;
+  }
+  if(this->ny > 1){
+    grid_dim++;
+  }
+  if(this->nz > 1){
+    grid_dim++;
+  }
+  
+  int i;
+  double **temp_grid;
+  temp_grid = new double *[grid_dim];
+  for(i=0;i<grid_dim;i++){
+    temp_grid[i] = new double [2];
+  }
+  
+  double *temp_data;
+  temp_data = new double [pow(2,grid_dim)];
+  
+  double *point = new double [grid_dim];
+  
+  int *loc = new int [grid_dim];
+  int *ngrid = new int [grid_dim];
+  int dim_index = 0;
+  int error = _ERRORCODE_NOERROR;
+  //check for the ordering of the grid_data and if the data enclose the point to be interpolated
+  if(this->nx > 1){
+    if(this->x[nx-1] > this->x[0]){
+      //periodic data will never get out of bound
+      if(!this->isxperiodic && (ptx < this->x[0] || ptx > this->x[nx-1])){
+	cout << "Error! Point " << ptx << " is outside the grid (in x dimension)." << endl;
+	cout << "Grid: " << this->x[0] << " - " << this->x[nx-1] << " Point: " << ptx << endl;
+	error = _ERRORCODE_INPUTOUTOFRANGE;
+      }
+      else{      
+	while(isxperiodic && ptx > this->x[nx-1]){
+	  ptx -= x_period;
+	}
+	while(isxperiodic && ptx < this->x[0]){
+	  ptx += x_period;
+	}
+	
+	if(isxperiodic && ptx > this->x[nx-1]){
+	  loc[dim_index] = nx;
+	  temp_grid[dim_index][0] = this->x[loc[dim_index]-1];
+	  temp_grid[dim_index][1] = this->x[0]+x_period;
+	}
+	else if(isxperiodic && ptx < this->x[0]){
+	  loc[dim_index] = 0;
+	  temp_grid[dim_index][0] = this->x[nx-1]-x_period;
+	  temp_grid[dim_index][1] = this->x[loc[dim_index]];
+	}
+	else{
+	  for(i=1;i<nx;i++){
+	    if(ptx <= this->x[i]){
+	      loc[dim_index] = i;
+	      temp_grid[dim_index][0] = this->x[i-1];
+	      temp_grid[dim_index][1] = this->x[i];
+	      break;
+	    }
+	  }
+	}
+      }
+    }
+    else{
+      if(!this->isxperiodic && (ptx > this->x[0] || ptx < this->x[nx-1])){
+	cout << "Error! Point " << ptx << " is outside the grid (in x dimension)." << endl;
+	error = _ERRORCODE_INPUTOUTOFRANGE;
+      }
+      else{      
+      //note that if x[nx-1] < x[0], periodi would be set to negative
+	while(isxperiodic && ptx < this->x[nx-1]){
+	  ptx -= x_period;
+	}
+	while(isxperiodic && ptx > this->x[0]){
+	  ptx += x_period;
+	}
+	
+	if(isxperiodic && ptx < this->x[nx-1]){
+	  loc[dim_index] = nx;
+	  temp_grid[dim_index][0] = this->x[loc[dim_index]-1];
+	  temp_grid[dim_index][1] = this->x[0]+x_period;
+	}
+	else if(isxperiodic && ptx > this->x[0]){
+	  loc[dim_index] = 0;
+	  temp_grid[dim_index][0] = this->x[nx-1]-x_period;
+	  temp_grid[dim_index][1] = this->x[loc[dim_index]];
+	}
+	else{
+	  for(i=1;i<nx;i++){
+	    if(ptx >= this->x[i]){
+	      loc[dim_index] = i;
+	      temp_grid[dim_index][0] = this->x[i-1];
+	      temp_grid[dim_index][1] = this->x[i];
+	      break;
+	    }
+	  }
+	}
+      }
+    }
+    point[dim_index] = ptx;
+    ngrid[dim_index] = nx;
+    dim_index++;
+  }
+    
+  //for y dimension
+  if(this->ny > 1){
+    if(this->y[ny-1] > this->y[0]){
+      if(!this->isyperiodic && (pty < this->y[0] || pty > this->y[ny-1])){
+	cout << "Error! Point " << pty << " is outside the grid (in y dimension)." << endl;
+	error = _ERRORCODE_INPUTOUTOFRANGE;
+      }
+      else{
+	while(isyperiodic && pty > this->y[ny-1]){
+	  pty -= y_period;
+	}
+	while(isyperiodic && pty < this->y[0]){
+	  pty += y_period;
+	}
+	
+	if(isyperiodic && pty > this->y[ny-1]){
+	  loc[dim_index] = ny;
+	  temp_grid[dim_index][0] = this->y[loc[dim_index]-1];
+	  temp_grid[dim_index][1] = this->y[0]+y_period;
+	}
+	else if(isyperiodic && pty < this->y[0]){
+	  loc[dim_index] = 0;
+	  temp_grid[dim_index][0] = this->y[ny-1]-y_period;
+	  temp_grid[dim_index][1] = this->y[loc[dim_index]];
+	}
+	else{
+	  for(i=1;i<ny;i++){
+	    if(pty <= this->y[i]){
+	      loc[dim_index] = i;
+	      temp_grid[dim_index][0] = this->y[i-1];
+	      temp_grid[dim_index][1] = this->y[i];
+	      break;
+	    }
+	  }
+	}
+      }
+    }
+    else{
+      if(!this->isyperiodic && (pty > this->y[0] || pty < this->y[ny-1])){
+	cout << "Error! Point " << pty << " is outside the grid (in y dimension)." << endl;
+	error = _ERRORCODE_INPUTOUTOFRANGE;
+      }
+      else{      
+	//note that if y[ny-1] < y[0], periodi would be set to negative
+	while(isyperiodic && pty < this->y[ny-1]){
+	  pty -= y_period;
+	}
+	while(isyperiodic && pty > this->y[0]){
+	  pty += y_period;
+	}
+	
+	if(isyperiodic && pty < this->y[ny-1]){
+	  loc[dim_index] = ny;
+	  temp_grid[dim_index][0] = this->y[loc[dim_index]-1];
+	  temp_grid[dim_index][1] = this->y[0]+y_period;
+	}
+	else if(isyperiodic && pty > this->y[0]){
+	  loc[dim_index] = 0;
+	  temp_grid[dim_index][0] = this->y[ny-1]-y_period;
+	  temp_grid[dim_index][1] = this->y[loc[dim_index]];
+	}
+	else{
+	  for(i=1;i<ny;i++){
+	    if(pty >= this->y[i]){
+	      loc[dim_index] = i;
+	      temp_grid[dim_index][0] = this->y[i-1];
+	      temp_grid[dim_index][1] = this->y[i];
+	      break;
+	    }
+	  }
+	}
+      }
+    }
+    point[dim_index] = pty;
+    ngrid[dim_index] = ny;
+    dim_index++;
+  }
+//std::cout << "Z dimension " << dim_index << " " << nz << endl;
+  //for z dimension
+  if(this->nz > 1){
+    if(this->z[nz-1] > this->z[0]){
+      if(!this->iszperiodic && (ptz < this->z[0] || ptz > this->z[nz-1])){
+	cout << "Error! Point " << ptz << " is outside the grid (in z dimension)." << endl;
+	error = _ERRORCODE_INPUTOUTOFRANGE;
+      }
+      else{      
+	while(iszperiodic && ptz > this->z[nz-1]){
+	  ptz -= z_period;
+	}
+	while(iszperiodic && ptz < this->z[0]){
+	  ptz += z_period;
+	}
+	
+	if(iszperiodic && ptz > this->z[nz-1]){
+	  loc[dim_index] = nz;
+	  temp_grid[dim_index][0] = this->z[loc[dim_index]-1];
+	  temp_grid[dim_index][1] = this->z[0]+z_period;
+	}
+	else if(iszperiodic && ptz < this->z[0]){
+	  loc[dim_index] = 0;
+	  temp_grid[dim_index][0] = this->z[nz-1]-z_period;
+	  temp_grid[dim_index][1] = this->z[loc[dim_index]];
+	}
+	else{
+	  for(i=1;i<nz;i++){
+	    if(ptz <= this->z[i]){
+	      loc[dim_index] = i;
+	      temp_grid[dim_index][0] = this->z[i-1];
+	      temp_grid[dim_index][1] = this->z[i];
+	      break;
+	    }
+	  }
+	}
+      }
+    }
+    else{
+      if(!this->iszperiodic && (ptz > this->z[0] || ptz < this->z[nz-1])){
+	cout << "Error! Point " << ptz << " is outside the grid (in z dimension)." << endl;
+	error = _ERRORCODE_INPUTOUTOFRANGE;
+      }
+      else{
+      //std::cout << "here " << ptz << endl;
+      
+      //note that if z[nz-1] < z[0], periodi would be set to negative
+	while(iszperiodic && ptz < this->z[nz-1]){
+	  ptz -= z_period;
+	}
+	while(iszperiodic && ptz > this->z[0]){
+	  ptz += z_period;
+	}
+	//std::cout << "here" << endl;
+	
+	if(iszperiodic && ptz < this->z[nz-1]){
+	  loc[dim_index] = nz;
+	  temp_grid[dim_index][0] = this->z[loc[dim_index]-1];
+	  temp_grid[dim_index][1] = this->z[0]+z_period;
+	}
+	else if(iszperiodic && ptz > this->z[0]){
+	  loc[dim_index] = 0;
+	  temp_grid[dim_index][0] = this->z[nz-1]-z_period;
+	  temp_grid[dim_index][1] = this->z[loc[dim_index]];
+	}
+	else{
+	  for(i=1;i<nz;i++){
+	    //std::cout << "Z level: " << i << endl;
+	    if(ptz >= this->z[i]){
+	      loc[dim_index] = i;
+	      temp_grid[dim_index][0] = this->z[i-1];
+	      temp_grid[dim_index][1] = this->z[i];
+	      break;
+	    }
+	  }
+	}
+      }
+    }
+    point[dim_index] = ptz;
+    ngrid[dim_index] = nz;
+    dim_index++;
+  }
+
+  int *workloc = new int [grid_dim];
+  int *workloc_1 = new int [grid_dim];
+  for(i=0;i<grid_dim;i++){
+    workloc[i] = loc[i]%ngrid[i];
+    workloc_1[i] = (loc[i]-1+ngrid[i])%ngrid[i];
+  }
+  bool ismissing;
+//std::cout << "Interpolation begins" << endl;
+  //for interpolation. Work on the dimensions one by one
+  if(!error){
+    for(i=0;i<ndim;i++){
+      ismissing = false;
+      switch(grid_dim){
+      case 1:
+	temp_data[0] = this->grid1D[(workloc_1[0])*ndim+i];
+	temp_data[1] = this->grid1D[(workloc[0])*ndim+i];
+	if(missing_value!=NULL && (temp_data[0]==*missing_value || temp_data[1]==*missing_value)){
+	  ismissing = true;
+	}
+	break;
+      case 2:
+	temp_data[0] = this->grid1D[(workloc_1[0])*ndim*ngrid[1]+(workloc_1[1])*ndim+i];
+	temp_data[1] = this->grid1D[(workloc[0])*ndim*ngrid[1]+(workloc_1[1])*ndim+i];
+	temp_data[2] = this->grid1D[(workloc_1[0])*ndim*ngrid[1]+(workloc[1])*ndim+i];
+	temp_data[3] = this->grid1D[(workloc[0])*ndim*ngrid[1]+(workloc[1])*ndim+i];
+	if(missing_value!=NULL && (temp_data[0]==*missing_value || temp_data[1]==*missing_value || temp_data[2]==*missing_value || temp_data[3]==*missing_value)){
+	  ismissing = true;
+	}
+	break;
+      case 3:
+	temp_data[0] = this->grid1D[(workloc_1[0])*ndim*ngrid[1]*ngrid[2]+(workloc_1[1])*ndim*ngrid[2]+(workloc_1[2])*ndim+i];
+	temp_data[1] = this->grid1D[(workloc[0])*ndim*ngrid[1]*ngrid[2]  +(workloc_1[1])*ndim*ngrid[2]+(workloc_1[2])*ndim+i];
+	temp_data[2] = this->grid1D[(workloc_1[0])*ndim*ngrid[1]*ngrid[2]+(workloc[1])*ndim*ngrid[2]  +(workloc_1[2])*ndim+i];
+	temp_data[3] = this->grid1D[(workloc[0])*ndim*ngrid[1]*ngrid[2]  +(workloc[1])*ndim*ngrid[2]  +(workloc_1[2])*ndim+i];	
+	temp_data[4] = this->grid1D[(workloc_1[0])*ndim*ngrid[1]*ngrid[2]+(workloc_1[1])*ndim*ngrid[2]+(workloc[2])*ndim  +i];
+	temp_data[5] = this->grid1D[(workloc[0])*ndim*ngrid[1]*ngrid[2]  +(workloc_1[1])*ndim*ngrid[2]+(workloc[2])*ndim  +i];
+	temp_data[6] = this->grid1D[(workloc_1[0])*ndim*ngrid[1]*ngrid[2]+(workloc[1])*ndim*ngrid[2]  +(workloc[2])*ndim  +i];
+	temp_data[7] = this->grid1D[(workloc[0])*ndim*ngrid[1]*ngrid[2]  +(workloc[1])*ndim*ngrid[2]  +(workloc[2])*ndim  +i]; 
+	if(missing_value!=NULL && (temp_data[0]==*missing_value || temp_data[1]==*missing_value || temp_data[2]==*missing_value || temp_data[3]==*missing_value || temp_data[4]==*missing_value || temp_data[5]==*missing_value || temp_data[6]==*missing_value || temp_data[7]==*missing_value)){
+	  ismissing = true;
+	}
+	break;
+      default:
+	break;
+      }
+    
+      if(!ismissing){
+	temp[i] = math_multilinear_interpolate(grid_dim,point,temp_grid,temp_data);
+      }
+      else{
+	if(missing_value != NULL){
+	  temp[i] = *missing_value;
+	}
+	else{
+	  temp[i] = -9999.;
+	}
+      }
+    }
+  }
+  else{
+    for(i=0;i<ndim;i++){
+      if(missing_value != NULL){
+	temp[i] = *missing_value;
+      }
+      else{
+	temp[i] = -9999.;
+      }
+    }
+  }
+  
+  for(i=0;i<grid_dim;i++){
+    delete [] temp_grid[i];
+  }
+  delete [] temp_grid;
+  delete [] temp_data;
+  delete [] point;
+  delete [] loc;
+  delete [] ngrid;
+  delete [] workloc;
+  delete [] workloc_1;
+  
+  return temp;
+}
+###CUDA### ###HOST### double* regular_grid::multiple_linear_interpolate(int npt,double *ptx, double *pty, double *ptz, double *temp){
+  int grid_dim = 0;
+  if(this->nx > 1){
+    grid_dim++;
+  }
+  if(this->ny > 1){
+    grid_dim++;
+  }
+  if(this->nz > 1){
+    grid_dim++;
+  }
+  
+  clock_t time1, time2, time3, time4, time5, time21, time22, time23;
+  time1 = clock();
+  
+  double *temp_grid;
+  cudaMalloc(&temp_grid,6*npt*sizeof(double)); //2*3*npt
+  cudaMemset(temp_grid,0,6*npt*sizeof(double));
+  
+  double *temp_data;
+  cudaMalloc(&temp_data,8*npt*ndim*sizeof(double)); //(2^3)*npt*ndim
+  
+  double *d_ptx,*d_pty,*d_ptz;
+  cudaMalloc(&d_ptx,npt*sizeof(double));
+  cudaMalloc(&d_pty,npt*sizeof(double));
+  cudaMalloc(&d_ptz,npt*sizeof(double));
+  
+  cudaMemcpy(d_ptx,ptx,npt*sizeof(double),cudaMemcpyHostToDevice);
+  cudaMemcpy(d_pty,pty,npt*sizeof(double),cudaMemcpyHostToDevice);
+  cudaMemcpy(d_ptz,ptz,npt*sizeof(double),cudaMemcpyHostToDevice);
+  
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+  grid.x = (int) ceil((double) npt/((double) numthreads));
+  int nbatch_x,nbatch_y;
+  int error;
+  
+  if(iszperiodic){
+    error = this->determine_nbatchxy(nbatch_x,nbatch_y,(nx+ny+(nz+2)+((double) nx)*ny*(nz+2)*ndim)*8.);
+  }
+  else{
+    error = this->determine_nbatchxy(nbatch_x,nbatch_y,(nx+ny+nz+((double) nx)*ny*nz*ndim)*8.);
+  }
+  if(error){
+    //exit(0);
+    return NULL;
+  }
+  time2 = clock();
+  
+  if(iszperiodic){
+    this->create_gpu(nx/nbatch_x+2,ny/nbatch_y+2,nz+1,ndim);
+  }
+  else{
+    this->create_gpu(nx/nbatch_x+2,ny/nbatch_y+2,nz,ndim);
+  }
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << endl;
+  int x_lowbound,x_upbound,y_lowbound,y_upbound;
+  
+  int i,j;
+  double *work;
+  cudaHostAlloc(&work,(nx/nbatch_x+2)*(ny/nbatch_y+2)*nz*ndim*sizeof(double),cudaHostAllocDefault+cudaHostAllocPortable+cudaHostAllocWriteCombined);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << " for allocating pinned memory" << endl;
+  for(i=0;i<nx;i+=nx/nbatch_x){
+    for(j=0;j<ny;j+=ny/nbatch_y){
+      if(isxperiodic){
+	x_lowbound = i-1;
+	x_upbound = i+nx/nbatch_x;
+      }
+      else{
+	x_lowbound = max(i-1,0);
+	x_upbound = min(i+nx/nbatch_x,nx-1);
+      }
+
+      if(isyperiodic){
+	y_lowbound = j-1;
+	y_upbound = j+ny/nbatch_y;
+      }
+      else{
+	y_lowbound = max(j-1,0);
+	y_upbound = min(j+ny/nbatch_y,ny-1);
+      }
+      time21 = clock();
+      if(iszperiodic){
+	this->host2device(x_lowbound,x_upbound,y_lowbound,y_upbound,-1,nz,0,ndim-1,work,8);
+      }
+      else{
+	this->host2device(x_lowbound,x_upbound,y_lowbound,y_upbound,0,nz-1,0,ndim-1,work,8);
+      }
+      cudaDeviceSynchronize();
+      time22 = clock();
+      regular_grid_set_date4multilinear_interpolate<<<grid,numthreads>>>(npt,ndim,grid_dim,d_ptx,d_pty,d_ptz,x_lowbound,x_upbound,y_lowbound,y_upbound,0,nz-1,0,ndim-1,d_x,d_y,d_z,d_grid1D,temp_grid,temp_data);
+      if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@regular_grid_set_date4multilinear_interpolate" << endl;
+      time23 = clock();
+      //	cout << "Performance profile:" << endl << "Memory copiying " << i << " , " << j << " : " << cal_sec_between(time21,time22) << " Data formating " << cal_sec_between(time22,time23) << endl;
+      
+    }
+  }
+  cudaFreeHost(work);
+  /*
+    double *h_temp_grid = new double [6*npt];
+    cudaMemcpy(h_temp_grid,temp_grid,6*npt*sizeof(double),cudaMemcpyDeviceToHost);
+    for(i=0;i<npt;i++){
+    cout << h_temp_grid[6*i] << " " << h_temp_grid[6*i+1] << endl;
+    }
+  */
+  this->destroy_gpu();
+  time3 = clock();
+  
+  cudaFree(d_ptx);
+  cudaFree(d_pty);
+  cudaFree(d_ptz);
+  
+  double *pts,*d_pts;
+  pts = new double [3*npt];
+  cudaMalloc(&d_pts,3*npt*sizeof(double));
+  for(i=0;i<npt;i++){
+    pts[3*i] = ptx[i];
+    pts[3*i+1] = pty[i];
+    pts[3*i+2] = ptz[i];
+  }
+  cudaMemcpy(d_pts,pts,3*npt*sizeof(double),cudaMemcpyHostToDevice);
+  
+  double *results;
+  cudaMalloc(&results,npt*ndim*sizeof(double));
+  cudaMemcpy(results,temp,npt*ndim*sizeof(double),cudaMemcpyHostToDevice);
+  grid.x = (int) ceil((double) npt*ndim/((double) numthreads));
+  regular_grid_multiple_linear_interpolate_kernel<<<grid,numthreads>>>(npt,ndim,grid_dim,temp_grid,temp_data,d_pts,results);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@regular_grid_multiple_linear_interpolate_kernel" <<endl;
+  time4 = clock();
+  
+  cudaMemcpy(temp,results,npt*ndim*sizeof(double),cudaMemcpyDeviceToHost);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << endl;
+  time5 = clock();
+  
+  //    cout << "Performance profile:" << endl << "Memoery allocation and copying: " << cal_sec_between(time1,time2) << endl << "Data formatting: " << cal_sec_between(time2,time3) << endl << "Interpolation: " << cal_sec_between(time3,time4) << endl << "Copying back to host: " << cal_sec_between(time4,time5) << endl;
+  
+  cudaFree(temp_grid);
+  cudaFree(temp_data);
+  cudaFree(d_pts);
+  cudaFree(results);
+  
+  delete [] pts;
+  
+  return temp;
+}
+###CPP### ###CUDA### ###HOST### double* regular_grid::multiple_cubic_interpolate(double x, double y, double z, double *temp) const{
+  //to be implemented
+  return temp;
+}
+
+###CPP### ###CUDA### ###HOST### double* regular_grid::nearest_to(double x,double y,double z,double (*metric)(double *a,double *b),double *temp) const{
+  double *temp_loc = new double [3];
+  double *temp_loc2 = new double [3];
+
+  temp_loc[0] = x;
+  temp_loc[1] = y;
+  temp_loc[2] = z;
+
+  int* min_loc = new int [3];
+  int *save_min_loc = new int [3];
+  bool vary[3];
+  int i,j;
+  for(i=0;i<3;i++){
+    min_loc[i] = 0;
+    vary[i] = false;
+  }
+  double save_min_metric,temp_metric,min_metric = (*metric)(temp_loc,this->get_coordinate(min_loc[0],min_loc[1],min_loc[2],temp_loc2));
+
+  if(this->get_nx() > 1){
+    vary[0] = true;
+  }
+  if(this->get_ny() > 1){
+    vary[1] = true;
+  }
+  if(this->get_nz() > 1){
+    vary[2] = true;
+  }
+
+  int delta_x,delta_y,delta_z;
+  int max_delta[3];
+  for(i=0;i<3;i++){
+    if(vary[i]){
+      max_delta[i] = 1;
+    }
+    else{
+      max_delta[i] = 0;
+    }
+  }
+
+  bool done =false;
+  int count;
+  while(!done){
+    count = 0;
+    for(delta_x = -max_delta[0]; delta_x <= max_delta[0];delta_x++){
+      if(min_loc[0] + delta_x < 0){
+	continue;
+      }
+      if(min_loc[0] + delta_x >= this->get_nx()){
+	continue;
+      }
+
+      for(delta_y = -max_delta[1]; delta_y <= max_delta[1];delta_y++){
+	if(min_loc[1] + delta_y < 0){
+	  continue;
+	}
+	if(min_loc[1] + delta_y >= this->get_ny()){
+	  continue;
+	}
+	
+	for(delta_z = -max_delta[2]; delta_z <= max_delta[2];delta_z++){
+	  if(min_loc[2] + delta_z < 0){
+	    continue;
+	  }
+	  if(min_loc[2] + delta_z >= this->get_nz()){
+	    continue;
+	  }
+	  if(delta_x == 0 && delta_y == 0 && delta_z == 0){
+	    continue;
+	  }
+
+	  temp_metric = (*metric)(temp_loc,this->get_coordinate(min_loc[0]+delta_x,min_loc[1]+delta_y,min_loc[2]+delta_z,temp_loc2));
+	  if(count == 0){
+	    save_min_loc[0] = min_loc[0]+delta_x;
+	    save_min_loc[1] = min_loc[1]+delta_y;
+	    save_min_loc[2] = min_loc[2]+delta_z;
+
+	    save_min_metric = temp_metric;
+	  }
+	  else if(temp_metric < save_min_metric){
+	    save_min_loc[0] = min_loc[0]+delta_x;
+	    save_min_loc[1] = min_loc[1]+delta_y;
+	    save_min_loc[2] = min_loc[2]+delta_z;
+
+	    save_min_metric = temp_metric;
+	  }
+	  count++;
+	}
+      }
+    }
+
+    if(save_min_metric < min_metric){
+      for(j=0;j<3;j++){
+	min_loc[j] = save_min_loc[j];
+      }
+      min_metric = save_min_metric;
+    }
+    else{
+      done = true;
+    }
+  }
+    
+  for(i=0;i<this->get_ndim();i++){
+    temp[i] = this->get_data(min_loc[0],min_loc[1],min_loc[2])[i];
+  }
+
+  delete [] temp_loc;
+  delete [] temp_loc2;
+  delete [] min_loc;
+  delete [] save_min_loc;
+
+  return temp;
+}
+
+###CPP### ###CUDA### ###HOST### int regular_grid::find_enclose(double &ptx,double &pty,double &ptz,int *out) const{
+  int grid_dim = 0;
+  if(this->nx > 1){
+    grid_dim++;
+  }
+  if(this->ny > 1){
+    grid_dim++;
+  }
+  if(this->nz > 1){
+    grid_dim++;
+  }
+
+  int i;
+  int xloc, yloc, zloc;
+  //check for the ordering of the grid_data and if the data enclose the point to be interpolated
+  if(this->x[nx-1] > this->x[0]){
+    //periodic data will never get out of bound
+    if(!this->isxperiodic && (ptx < this->x[0] || ptx > this->x[nx-1])){
+      cout << "Error! Point is outside the grid (in x dimension)." << endl;
+      cout << "Grid: " << this->x[0] << " - " << this->x[nx-1] << " Point: " << ptx << endl;
+      //exit(1);
+      return NULL;
+    }
+
+    while(isxperiodic && ptx > this->x[nx-1]){
+      ptx -= x_period;
+    }
+    while(isxperiodic && ptx < this->x[0]){
+      ptx += x_period;
+    }
+
+    if(isxperiodic && ptx > this->x[nx-1]){
+      xloc = nx;
+     }
+    else if(isxperiodic && ptx < this->x[0]){
+      xloc = 0;
+     }
+    else{
+      for(i=1;i<nx;i++){
+	if(ptx <= this->x[i]){
+	  xloc = i;
+	  break;
+	}
+      }
+    }
+  }
+  else{
+    if(!this->isxperiodic && (ptx > this->x[0] || ptx < this->x[nx-1])){
+      cout << "Error! Point is outside the grid (in x dimension)." << endl;
+      //exit(1);
+      return NULL;
+    }
+
+    //note that if x[nx-1] < x[0], periodi would be set to negative
+    while(isxperiodic && ptx < this->x[nx-1]){
+      ptx -= x_period;
+    }
+    while(isxperiodic && ptx > this->x[0]){
+      ptx += x_period;
+    }
+
+    if(isxperiodic && ptx < this->x[nx-1]){
+      xloc = nx;
+    }
+    else if(isxperiodic && ptx > this->x[0]){
+      xloc = 0;
+    }
+    else{
+      for(i=1;i<nx;i++){
+	if(ptx >= this->x[i]){
+	  xloc = i;
+	  break;
+	}
+      }
+    }
+  }
+
+  //for y dimension
+  if(grid_dim >= 2){
+    if(this->y[ny-1] > this->y[0]){
+      if(!this->isyperiodic && (pty < this->y[0] || pty > this->y[ny-1])){
+	cout << "Error! Point is outside the grid (in y dimension)." << endl;
+	//exit(1);
+	return NULL;
+      }
+      
+      while(isyperiodic && pty > this->y[ny-1]){
+	pty -= y_period;
+      }
+      while(isyperiodic && pty < this->y[0]){
+	pty += y_period;
+      }
+      
+      if(isyperiodic && pty > this->y[ny-1]){
+	yloc = ny;
+      }
+      else if(isyperiodic && pty < this->y[0]){
+	yloc = 0;
+      }
+      else{
+	for(i=1;i<ny;i++){
+	  if(pty <= this->y[i]){
+	    yloc = i;
+	    break;
+	  }
+	}
+      }
+    }
+    else{
+      if(!this->isyperiodic && (pty > this->y[0] || pty < this->y[ny-1])){
+	cout << "Error! Point is outside the grid (in y dimension)." << endl;
+	//exit(1);
+	return NULL;
+      }
+      
+      //note that if y[ny-1] < y[0], periodi would be set to negative
+      while(isyperiodic && pty < this->y[ny-1]){
+	pty -= y_period;
+      }
+      while(isyperiodic && pty > this->y[0]){
+	pty += y_period;
+      }
+      
+      if(isyperiodic && pty < this->y[ny-1]){
+	yloc = ny;
+      }
+      else if(isyperiodic && pty > this->y[0]){
+	yloc = 0;
+      }
+      else{
+	for(i=1;i<ny;i++){
+	  if(pty >= this->y[i]){
+	    yloc = i;
+	    break;
+	  }
+	}
+      }
+    }
+  }
+//std::cout << "here2" << endl;
+  //for z dimension
+  if(grid_dim == 3){
+    if(this->z[nz-1] > this->z[0]){
+      if(!this->iszperiodic && (ptz < this->z[0] || ptz > this->z[nz-1])){
+	cout << "Error! Point is outside the grid (in z dimension)." << endl;
+	//exit(1);
+	return NULL;
+      }
+      
+      while(iszperiodic && ptz > this->z[nz-1]){
+	ptz -= z_period;
+      }
+      while(iszperiodic && ptz < this->z[0]){
+	ptz += z_period;
+      }
+      
+      if(iszperiodic && ptz > this->z[nz-1]){
+	zloc = nz;
+      }
+      else if(iszperiodic && ptz < this->z[0]){
+	zloc = 0;
+      }
+      else{
+	for(i=1;i<nz;i++){
+	  if(ptz <= this->z[i]){
+	    zloc = i;
+	    break;
+	  }
+	}
+      }
+    }
+    else{
+      if(!this->iszperiodic && (ptz > this->z[0] || ptz < this->z[nz-1])){
+	cout << "Error! Point is outside the grid (in z dimension)." << endl;
+	//exit(1);
+	return NULL;
+      }
+      //std::cout << "here " << ptz << endl;
+      
+      //note that if z[nz-1] < z[0], periodi would be set to negative
+      while(iszperiodic && ptz < this->z[nz-1]){
+	ptz -= z_period;
+      }
+      while(iszperiodic && ptz > this->z[0]){
+	ptz += z_period;
+      }
+      //std::cout << "here" << endl;
+      
+      if(iszperiodic && ptz < this->z[nz-1]){
+	zloc = nz;
+      }
+      else if(iszperiodic && ptz > this->z[0]){
+	zloc = 0;
+      }
+      else{
+	for(i=1;i<nz;i++){
+	  //std::cout << "Z level: " << i << endl;
+	  if(ptz >= this->z[i]){
+	    zloc = i;
+	    break;
+	  }
+	}
+      }
+    }
+  }
+
+  out[0] = xloc;
+  out[1] = yloc;
+  out[2] = zloc;
+
+  return _ERRORCODE_NOERROR;
+}
+###CUDA### ###GLOBAL### void regular_grid_set_date4multilinear_interpolate(int npt,int outer_ndim,int grid_dim,double *ptx,double *pty,double *ptz,int nx_st,int nx_end,int ny_st,int ny_end,int nz_st,int nz_end,int ndim_st,int ndim_end,double *x,double *y,double *z,double *data,double *grid_loc,double *grid_data){
+  int i = blockDim.x*blockIdx.x + threadIdx.x;
+  
+  int nx = nx_end-nx_st+1;
+  int ny = ny_end-ny_st+1;
+  int nz = nz_end-nz_st+1;
+  int ndim = ndim_end-ndim_st+1;
+  
+  if(i < npt){
+    int xloc, yloc, zloc;
+    if(ptx[i] >= fmin(x[0],x[nx-1]) && ptx[i] <= fmax(x[0],x[nx-1]) && (grid_dim < 2 || ((pty[i] >= fmin(y[0],y[ny-1])) && pty[i] <= fmax(y[0],y[ny-1]))) && (grid_dim < 3 || (ptz[i] >= fmin(z[0],z[nz-1]) && ptz[i] <= fmax(z[0],z[nz-1]))) ){
+      if(x[nx-1] > x[0]){
+	if(ptx[i] >= x[0] && ptx[i] <= x[nx-1]){
+	  for(xloc=1;xloc<nx;xloc++){
+	    if(ptx[i]< x[xloc]){
+	      grid_loc[i*6] = x[xloc-1];
+	      grid_loc[i*6+1] = x[xloc];
+	      break;
+	    }
+	  }
+	}
+      }
+      else{
+	if(ptx[i] <= x[0] && ptx[i] >= x[nx-1]){
+	  for(xloc=1;xloc<nx;xloc++){
+	    if(ptx[i]> x[xloc]){
+	      grid_loc[i*6] = x[xloc-1];
+	      grid_loc[i*6+1] = x[xloc];
+	      break;
+	    }
+	  }
+	}
+      }
+      
+      if(grid_dim >= 2){
+	if(y[ny-1] > y[0]){
+	  if(pty[i] >= y[0] && pty[i] <= y[ny-1]){
+	    for(yloc=1;yloc<ny;yloc++){
+	      if(pty[i]< y[yloc]){
+		grid_loc[i*6+2] = y[yloc-1];
+		grid_loc[i*6+3] = y[yloc];
+		break;
+	      }
+	    }
+	  }
+	}
+	else{
+	  if(pty[i] <= y[0] && pty[i] >= y[ny-1]){
+	    for(yloc=1;yloc<ny;yloc++){
+	      if(pty[i]> y[yloc]){
+		grid_loc[i*6+2] = y[yloc-1];
+		grid_loc[i*6+3] = y[yloc];
+		break;
+	      }
+	    }
+	  }
+	}
+      }
+      else{
+	yloc = 0;
+      }
+      
+      if(grid_dim >= 3){
+	if(z[nz-1] > z[0]){
+	  if(ptz[i] >= z[0] && ptz[i] <= z[nz-1]){
+	    for(zloc=1;zloc<nz;zloc++){
+	      if(ptz[i]< z[zloc]){
+		grid_loc[i*6+4] = z[zloc-1];
+		grid_loc[i*6+5] = z[zloc];
+		break;
+	      }
+	    }
+	  }
+	}
+	else{
+	  if(ptz[i] <= z[0] && ptz[i] >= z[nz-1]){
+	    for(zloc=1;zloc<nz;zloc++){
+	      if(ptz[i]> z[zloc]){
+		grid_loc[i*6+4] = z[zloc-1];
+		grid_loc[i*6+5] = z[zloc];
+		break;
+	      }
+	    }
+	  }
+	}
+      }
+      else{
+	zloc = 0;
+      }
+      
+      
+      int j;
+      for(j=0;j<ndim;j++){
+	switch(grid_dim){
+	case 1:
+	  grid_data[i*outer_ndim*8+j*8+0] = data[(xloc-1)*ndim+j];
+	  grid_data[i*outer_ndim*8+j*8+1] = data[(xloc)*ndim+j];
+	  break;
+	case 2:
+	  grid_data[i*outer_ndim*8+j*8+0] = data[(xloc-1)*ndim*ny+(yloc-1)*ndim+j];
+	  grid_data[i*outer_ndim*8+j*8+1] = data[(xloc)*ndim*ny+(yloc-1)*ndim+j];
+	  grid_data[i*outer_ndim*8+j*8+2] = data[(xloc-1)*ndim*ny+(yloc)*ndim+j];
+	  grid_data[i*outer_ndim*8+j*8+3] = data[(xloc)*ndim*ny+(yloc)*ndim+j];
+	  break;
+	case 3:
+	  grid_data[i*outer_ndim*8+j*8+0] = data[(xloc-1)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc-1)*ndim+j];
+	  grid_data[i*outer_ndim*8+j*8+1] = data[(xloc)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc-1)*ndim+j];
+	  grid_data[i*outer_ndim*8+j*8+2] = data[(xloc-1)*ndim*ny*nz+(yloc)*ndim*nz+(zloc-1)*ndim+j];
+	  grid_data[i*outer_ndim*8+j*8+3] = data[(xloc)*ndim*ny*nz+(yloc)*ndim*nz+(zloc-1)*ndim+j];	
+	  grid_data[i*outer_ndim*8+j*8+4] = data[(xloc-1)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc)*ndim+j];
+	  grid_data[i*outer_ndim*8+j*8+5] = data[(xloc)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc)*ndim+j];
+	  grid_data[i*outer_ndim*8+j*8+6] = data[(xloc-1)*ndim*ny*nz+(yloc)*ndim*nz+(zloc)*ndim+j];
+	  grid_data[i*outer_ndim*8+j*8+7] = data[(xloc)*ndim*ny*nz+(yloc)*ndim*nz+(zloc)*ndim+j];	
+	  break;
+	default:
+	  break;
+	}
+      }
+    }
+  }
+}
+
+###CUDA### ###GLOBAL### void regular_grid_multiple_linear_interpolate_kernel(int npt,int ndim,int grid_dim,double *grid_loc,double *grid_data,double *pts,double *results){
+  int pt_index = (blockDim.x*blockIdx.x + threadIdx.x)/ndim;
+  int dim_index = (blockDim.x*blockIdx.x + threadIdx.x)%ndim;
+  
+  if(pt_index < npt){
+    if(grid_loc[6*pt_index]!=grid_loc[6*pt_index+1]){
+      if(grid_dim < 2 || (grid_loc[6*pt_index+2]!=grid_loc[6*pt_index+3])){
+	if(grid_dim < 3 || (grid_loc[6*pt_index+4]!=grid_loc[6*pt_index+5])){
+	  results[pt_index*ndim+dim_index] = math_multilinear_interpolate(grid_dim,pts+3*pt_index,grid_loc+6*pt_index,grid_data+8*dim_index+8*ndim*pt_index);
+	}
+      }
+    }
+  }
+}
+
+###CUDA### ###GLOBAL### void regular_grid_multiple_linear_interpolate_kernel(int npt,int ndim,int grid_dim,double *grid_loc,double *grid_data,double *pts,double missing_value,double *results){
+  int pt_index = (blockDim.x*blockIdx.x + threadIdx.x)/ndim;
+  int dim_index = (blockDim.x*blockIdx.x + threadIdx.x)%ndim;
+  
+  if(pt_index < npt){
+    if(grid_loc[6*pt_index]!=grid_loc[6*pt_index+1]){
+      if(grid_dim < 2 || (grid_loc[6*pt_index+2]!=grid_loc[6*pt_index+3])){
+	if(grid_dim < 3 || (grid_loc[6*pt_index+4]!=grid_loc[6*pt_index+5])){
+	  results[pt_index*ndim+dim_index] = math_multilinear_interpolate(grid_dim,missing_value,pts+3*pt_index,grid_loc+6*pt_index,grid_data+8*dim_index+8*ndim*pt_index);
+	}
+      }
+    }
+  }
+}
+###CPP### ###CUDA### ###HOST### void regular_grid_allocation(grid_data* &in){
+//cout << "Entering regular_grid_allocation" << endl;
+  in = new regular_grid;
+//cout << "Exiting regular_grid_allocation" << endl;
+}

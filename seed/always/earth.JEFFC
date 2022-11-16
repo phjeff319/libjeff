@@ -1,0 +1,336 @@
+#include<cstdlib>
+#include<cmath>
+
+#include"earth.h"
+#include"numerical_schemes.h"
+#include"vector.h"
+#include"physics_constants.h"
+
+using namespace libjeff;
+namespace libjeff{
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### bool earth_is_latlon_valid(double *latlon){
+    if(latlon[0]>90. || latlon[0]<-90.){
+      return false;
+    }
+    return true;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_latlon2dist(double *latlon1,double *latlon2){
+    return earth_latlon2dist(latlon1[0],latlon1[1],latlon2[0],latlon2[1]);
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_latlon2dist(double lat1,double lon1,double lat2,double lon2){
+    if((fabs(lon2 - lon1) + fabs(lat2 - lat1)) < 1e-5){
+      return 0.;
+    }
+    else{
+      double vec1[3], vec2[3];
+      earth_latlon_to_unit_cartesian(lat1,lon1,vec1);
+      earth_latlon_to_unit_cartesian(lat2,lon2,vec2);
+      
+      double angle = acos(vector_dot_pro(3,vec1,vec2));
+      
+      return Earth_radius*angle;
+    }
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_lonlat2dist(double *lonlat1,double *lonlat2){
+    return earth_latlon2dist(lonlat1[1],lonlat1[0],lonlat2[1],lonlat2[0]);
+  }
+  ###CUDA### ###GLOBAL### void earth_latlon2dist_kernel(int npair,double *latlon1,double *latlon2,double *dist){
+    int pair_index = (blockDim.x*blockIdx.x + threadIdx.x);
+
+    if(pair_index < npair){
+      dist[pair_index] = earth_latlon2dist(latlon1+2*pair_index,latlon2+2*pair_index);
+    }
+  }
+  ###CUDA### ###GLOBAL### void earth_latlon2dist_kernel(int npair,double *lat1,double *lon1,double *lat2,double *lon2,double *dist){
+    int pair_index = (blockDim.x*blockIdx.x + threadIdx.x);
+
+    if(pair_index < npair){
+      dist[pair_index] = earth_latlon2dist(lat1[pair_index],lon1[pair_index],lat2[pair_index],lon2[pair_index]);
+    }
+  }
+  ###CUDA### ###GLOBAL### void earth_latlon2dist_kernel(int npair,double lat1,double lon1,double *lat2,double *lon2,double *dist){
+    int pair_index = (blockDim.x*blockIdx.x + threadIdx.x);
+
+    if(pair_index < npair){
+      dist[pair_index] = earth_latlon2dist(lat1,lon1,lat2[pair_index],lon2[pair_index]);
+    }
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void earth_latlon_to_unit_cartesian(double *latlon, double *cart){
+    earth_latlon_to_unit_cartesian(latlon[0],latlon[1],cart);
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void earth_latlon_to_unit_cartesian(double lat,double lon, double *cart){
+    lat *= ang_to_rad;
+    lon *= ang_to_rad;
+    earth_latlon_rad_to_unit_cartesian(lat,lon,cart);
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void earth_lonlat_to_unit_cartesian(double *lonlat, double *cart){
+    earth_latlon_to_unit_cartesian(lonlat[1],lonlat[0],cart);
+  }
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void earth_latlon_rad_to_unit_cartesian(double *latlon, double *cart){
+    earth_latlon_rad_to_unit_cartesian(latlon[0],latlon[1],cart);
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void earth_latlon_rad_to_unit_cartesian(double lat,double lon,double *cart){
+    cart[0] = cos(lat)*cos(lon);
+    cart[1] = cos(lat)*sin(lon);
+    cart[2] = sin(lat);
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* earth_unit_cartesian_to_latlon_rad(double *cart,double *latlon){
+    latlon[0] = asin(cart[2]);
+    latlon[1] = atan2(cart[1],cart[0]);
+    return latlon;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* earth_unit_cartesian_to_latlon(double *cart,double *latlon){
+    earth_unit_cartesian_to_latlon_rad(cart,latlon);
+    latlon[0] /= ang_to_rad;
+    latlon[1] /= ang_to_rad;
+    return latlon;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* earth_unit_cartesian_to_lonlat(double *cart,double *lonlat){
+    lonlat[1] = asin(cart[2])/ang_to_rad;
+    lonlat[0] = atan2(cart[1],cart[0])/ang_to_rad;
+
+    return lonlat;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* earth_cal_latlon(double *pt1,double *pt2,double ratio,double *out){
+    double *pt13d = new double [3];
+    double *pt23d = new double [3];
+    double *out3d = new double [3];
+
+    earth_latlon_to_unit_cartesian(pt1,pt13d);
+    earth_latlon_to_unit_cartesian(pt2,pt23d);
+
+    int i;
+    for(i=0;i<3;i++){
+      out3d[i] = pt13d[i]*(1.-ratio) + ratio*pt23d[i];
+    }
+
+    delete [] pt13d;
+    delete [] pt23d;
+
+    double norm = pow(vector_dot_pro(3,out3d,out3d),0.5);
+    for(i=0;i<3;i++){
+      out3d[i] /= norm;
+    }
+    
+    earth_unit_cartesian_to_latlon_rad(out3d,out);
+    for(i=0;i<2;i++){
+      out[i] /= ang_to_rad;
+    }
+
+    return out;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_latlon_cal_bearing(double *pt1, double *pt2){//Calculate the bearing of pt2 using pt1 as reference point
+    return earth_latlon_cal_bearing(pt1[0],pt1[1],pt2[0],pt2[1]);
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_latlon_cal_bearing(double from_lat,double from_lon,double to_lat,double to_lon){
+    //Calculate the bearing of pt2 using pt1 as reference point
+    if(fabs(to_lon - from_lon) < 1e-10){
+      if(to_lat > from_lat){
+	return 0.;
+      }
+      else{
+	return 180.;
+      }
+    }
+    else{
+      double north[3], pt13d[3], pt23d[3];
+      double normal1[3], normal2[3];
+      
+      north[0] = 0.;
+      north[1] = 0.;
+      north[2] = 1.;
+      
+      earth_latlon_to_unit_cartesian(from_lat,from_lon,pt13d);
+      earth_latlon_to_unit_cartesian(to_lat,to_lon,pt23d);
+      
+      vector_cross_pro(pt13d,north,normal1);
+      vector_cross_pro(pt13d,pt23d,normal2);
+      
+      double norm = pow(vector_dot_pro(3,normal1,normal1),0.5);
+      int i;
+      for(i=0;i<3;i++){
+	normal1[i]/=norm;
+      }
+      
+      norm = pow(vector_dot_pro(3,normal2,normal2),0.5);
+      for(i=0;i<3;i++){
+	normal2[i]/=norm;
+      }
+      
+      double angle = acos(vector_dot_pro(3,normal1,normal2))/ang_to_rad;
+      
+      if(to_lon > from_lon || to_lon < from_lon - 180.){
+	return angle;
+      }
+      else{
+	return 360. - angle;
+      }
+    }
+    
+    //return 0.;
+  }
+  ###CUDA### ###GLOBAL### void earth_latlon_cal_bearing_kernel(int npair,double *from,double *to,double *bearing){
+    int pair_index = (blockDim.x*blockIdx.x + threadIdx.x);
+
+    if(pair_index < npair){
+      bearing[pair_index] = earth_latlon_cal_bearing(from+2*pair_index,to+2*pair_index);
+    }
+  }
+  ###CUDA### ###GLOBAL### void earth_latlon_cal_bearing_kernel(int npair,double *from_lat,double *from_lon,double *to_lat,double *to_lon,double *bearing){
+    int pair_index = (blockDim.x*blockIdx.x + threadIdx.x);
+
+    if(pair_index < npair){
+      bearing[pair_index] = earth_latlon_cal_bearing(from_lat[pair_index],from_lon[pair_index],to_lat[pair_index],to_lon[pair_index]);
+    }
+  }
+  ###CUDA### ###GLOBAL### void earth_latlon_cal_bearing_kernel(int npair,double from_lat,double from_lon,double *to_lat,double *to_lon,double *bearing){
+    int pair_index = (blockDim.x*blockIdx.x + threadIdx.x);
+
+    if(pair_index < npair){
+      bearing[pair_index] = earth_latlon_cal_bearing(from_lat,from_lon,to_lat[pair_index],to_lon[pair_index]);
+    }
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_lonlat_cal_bearing(double *from,double *to){
+    return earth_latlon_cal_bearing(from[1],from[0],to[1],to[0]);
+  }
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_cal_triangle_area(double *pt1, double *pt2,double *pt3){
+    double temp = fabs(earth_latlon_cal_bearing(pt1,pt2) - earth_latlon_cal_bearing(pt1,pt3));
+    if(temp>180.){
+      temp = 360. - temp;
+    }
+    double result = temp;
+    
+    temp = fabs(earth_latlon_cal_bearing(pt2,pt1) - earth_latlon_cal_bearing(pt2,pt3));
+    if(temp>180.){
+      temp = 360. - temp;
+    }
+    result += temp;
+    
+    temp = fabs(earth_latlon_cal_bearing(pt3,pt1) - earth_latlon_cal_bearing(pt3,pt2));
+    if(temp>180.){
+      temp = 360. - temp;
+    }
+    result += temp;
+    
+    result *= ang_to_rad;
+    result -= pi;
+    result *= Earth_radius*Earth_radius;
+    
+    return result;
+  }
+  
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void earth_cal_latlon_from_dist_bearing(double *from, double dist, double bearing, double *location){
+    double phi = dist/Earth_radius;
+    location[0] = asin(sin(from[0]*ang_to_rad) * cos(phi) + cos(from[0]*ang_to_rad)*sin(phi)*cos(bearing*ang_to_rad))/ang_to_rad;
+    location[1] = from[1] + atan2((sin(bearing*ang_to_rad) * sin(phi) * cos(from[0]*ang_to_rad)),(cos(phi) - sin(from[0]*ang_to_rad)*sin(location[0]*ang_to_rad)))/ang_to_rad;
+  }
+  ###CUDA### ###GLOBAL### void earth_cal_latlon_from_dist_bearing(int npair,double *from,double *dist,double *bearing,double *location){
+    int pair_index = (blockDim.x*blockIdx.x + threadIdx.x);
+
+    if(pair_index < npair){
+      earth_cal_latlon_from_dist_bearing(from+2*pair_index,dist[pair_index],bearing[pair_index],location+2*pair_index);
+    }
+  }
+  ###CUDA### ###GLOBAL### void earth_cal_coriolis_fre(int nlat,double *lat,double *coriolis_fre){
+    int lat_index = (blockDim.x*blockIdx.x + threadIdx.x);
+
+    if(lat_index < nlat){
+      coriolis_fre[lat_index] = Earth_coriolis_const*sin(lat[lat_index]*ang_to_rad);
+    }
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* earth_cal_latlon_from_ratio(double *latlon1,double* latlon2,double ratio,double *out){
+    double **latlon3d = new double* [2];
+    int i,j;
+
+    for(i=0;i<2;i++){
+      latlon3d[i] = new double [3];
+    }
+    earth_latlon_to_unit_cartesian(latlon1,latlon3d[0]);
+    earth_latlon_to_unit_cartesian(latlon2,latlon3d[1]);
+
+    double *out_latlon3d = new double [3];
+    for(i=0;i<3;i++){
+      out_latlon3d[i] = ratio*latlon3d[1][i] + (1. - ratio)*latlon3d[0][i];
+    }
+    double norm = pow(vector_dot_pro(3,out_latlon3d,out_latlon3d),0.5);
+    for(i=0;i<3;i++){
+      out_latlon3d[i] /= norm;
+    }
+
+    earth_unit_cartesian_to_lonlat(out_latlon3d,out);
+    
+    for(i=0;i<2;i++){
+      delete [] latlon3d[i];
+    }
+    delete [] out_latlon3d;
+    delete latlon3d;
+
+    return out;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* earth_cal_latlon_rad_from_ratio(double *latlon1,double* latlon2,double ratio,double *out){
+    double **latlon3d = new double* [2];
+    int i,j;
+
+    for(i=0;i<2;i++){
+      latlon3d[i] = new double [3];
+    }
+    earth_latlon_rad_to_unit_cartesian(latlon1,latlon3d[0]);
+    earth_latlon_rad_to_unit_cartesian(latlon2,latlon3d[1]);
+
+    double *out_latlon3d = new double [3];
+    for(i=0;i<3;i++){
+      out_latlon3d[i] = ratio*latlon3d[1][i] + (1. - ratio)*latlon3d[0][i];
+    }
+    double norm = pow(vector_dot_pro(3,out_latlon3d,out_latlon3d),0.5);
+    for(i=0;i<3;i++){
+      out_latlon3d[i] /= norm;
+    }
+
+    earth_unit_cartesian_to_latlon_rad(out_latlon3d,out);
+    
+    for(i=0;i<2;i++){
+      delete [] latlon3d[i];
+    }
+    delete [] out_latlon3d;
+    delete latlon3d;
+
+    return out;
+  }
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_HK80_cal_M(double phi){
+    double A0 = 1 - HK80E2*0.25 - 3*HK80E2*HK80E2/64.;
+    double A2 = 0.375*HK80E2*(1+HK80E2/4);
+    double A4 = 15./256*HK80E2*HK80E2;
+
+    return HK80a*(A0*phi - A2*sin(2.*phi) + A4*sin(4*phi));
+  }
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_HK80_cal_phip(double deltaN){
+    double Mp = (deltaN + HK80M0)/HK80m0;
+
+    double results = numerical_schemes_secant_method(5000,0.,30.*ang_to_rad,Mp,1e-13,earth_HK80_cal_M);
+    return results;
+  }
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *earth_HK80grid_to_HK80latlon(double *HK80NE, double *latlon){
+    double deltaN = HK80NE[0] - HK80N0;
+    double deltaE = HK80NE[1] - HK80E0;
+
+    double phiP = earth_HK80_cal_phip(deltaN);
+
+    double tP = tan(phiP);
+    double vP = HK80a/pow(1 - HK80E2*sin(phiP)*sin(phiP),0.5);
+    double rhoP = HK80a*(1-HK80E2)/pow(1 - HK80E2*sin(phiP)*sin(phiP),1.5);
+    double sinP = vP/rhoP;
+
+    latlon[0] = phiP - (tP*deltaE*deltaE)/(2*HK80m0*HK80m0*rhoP*vP);
+    latlon[1] = HK80LAMDA0*ang_to_rad + (deltaE/(HK80m0 * vP * cos(phiP)) - deltaE*deltaE*deltaE*(sinP + 2*tP*tP)/(6*HK80m0 * HK80m0 * HK80m0 * vP*vP*vP*cos(phiP)));
+  
+    latlon[0]/=ang_to_rad;
+    latlon[1]/=ang_to_rad;
+
+    return latlon;
+  }
+}

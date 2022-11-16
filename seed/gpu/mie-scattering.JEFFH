@@ -1,0 +1,22 @@
+#ifndef MieScattering
+#define MieScattering
+#include"complex.h"
+namespace libjeff{
+  __host__ void mie_cal_mie_coeff(int max_order,int num_ka_pair,double* ka,complex* ref_index,complex* mie_coeff_an, complex* mie_coeff_bn);
+  __host__ void mie_cal_extinction_cross_section(int max_order,int num_fre,int num_size,double* fre,complex* ref_index, double *size, double* sigma);
+  __host__ void mie_cal_extinction_and_backscattering_cross_section(int max_order,int num_fre,int num_size,double* fre,complex* ref_index, double *size, double* sigma_ext,double *sigma_b);
+  __host__ void mie_coeff_to_extinction_cross_section(int max_order,int num_fre,int num_size,double* fre,double *ka,complex* an,complex* bn,double* sigma);
+  __host__ void mie_coeff_to_backscattering_cross_section(int max_order,int num_fre,int num_size,double* fre,double *ka,complex* an,complex* bn,double* sigma);
+  __host__ __device__ int mie_wiscombe(double max_ka);
+  
+  __global__ void g_mie_bessel_to_mie_coeff(int max_order,int num_ka_pair,double* ka,complex* nka,complex* ref_index,double* besselj,double* besselk,double* ka_bessel_ratio,double* ka_neumann_ratio,complex* nka_bessel_ratio,complex* mie_coeff_an, complex* mie_coeff_bn);
+  __global__ void mie_coeff_sum_up_for_ext(int max_order,int num_ka_pair,complex* an,complex* bn);
+  __global__ void mie_coeff_sum_up_for_ext(int max_order,int num_ka_pair,double *ka,complex* an,complex* bn);
+  __global__ void mie_coeff_sum_up_for_ext(int max_order,int num_ka_pair,double *ka,complex* an,complex* bn,double *sum_an,double *sum_bn);
+  __global__ void mie_coeff_sum_up_for_sct(int max_order,int num_ka_pair,double *ka,complex* an,complex* bn,double *sum_an,double *sum_bn);
+  __global__ void mie_coeff_sum_up_for_abs(int max_order,int num_ka_pair,double *ka,complex* an,complex* bn,double *sum_an,double *sum_bn);
+  __global__ void mie_coeff_sum_to_extinction(int max_order,int num_fre,int num_size,double* fre,complex *an,complex *bn,double *sigma);
+  __global__ void mie_coeff_sum_up_for_back(int max_order,int num_ka_pair,complex* an,complex* bn);
+  __global__ void mie_coeff_sum_to_backscattering(int max_order,int num_fre,int num_size,double* fre,complex *an,complex *bn,double *sigma);
+}
+#endif

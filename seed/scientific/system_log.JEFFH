@@ -1,0 +1,8 @@
+#ifndef SYSTEMLOG
+#define SYSTEMLOG
+
+namespace libjeff{
+  char *system_log_timestamp(char *out);
+}
+
+#endif

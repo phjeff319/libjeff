@@ -1,0 +1,15 @@
+#ifndef NUMERICAL_SCHEME
+#define NUMERICAL_SCHEME
+namespace libjeff{
+  namespace numerical_schemes{
+    const double rk4_xstep[3]={0.5,0.5,1.0};
+    const double rk4_ystep[4]={1.,2.,2.,1.};
+  }
+
+  ###CPP### ###CUDA### ###HOST### double numerical_schemes_secant_method(int max_iter,double x0,double x1,double y0,double eps,double (*foo)(double));
+  ###CPP### ###CUDA### ###HOST### int numerical_schemes_secant_method(int max_iter,double x0,double x1,double y0,double eps,double *dparms,int *iparms,double (*foo)(double,double*,int*),double &out);
+
+  ###CPP### ###CUDA### ###HOST### int numerical_schemes_false_position_method(int max_iter,double x0,double x1,double y0,double eps,double *dparms,int *iparms,double (*foo)(double,double*,int*),double &out);
+  ###CPP### ###CUDA### ###HOST### int numerical_schemes_bisection_method(int max_iter,double x0,double x1,double y0,double eps,double *dparms,int *iparms,double (*foo)(double,double*,int*),double &out);
+}
+#endif

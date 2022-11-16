@@ -1,0 +1,103 @@
+#include<iostream>
+###CUDA####include<cuda.h>
+using namespace std;
+
+#include"advection_scheme.h"
+
+#include"error_code.h"
+
+advection_scheme::advection_scheme(){
+  ndim = 0;
+  time_step = 0.;
+  fields = NULL;
+  flow = NULL;
+  int i;
+  for(i=0;i<2;i++){
+    domain_xlimit[i]=-1;
+    domain_ylimit[i]=-1;
+    domain_zlimit[i]=-1;
+  }
+}
+
+advection_scheme::~advection_scheme(){
+  ndim = 0;
+  time_step = 0.;
+  fields = NULL;
+  flow = NULL;
+}
+
+int advection_scheme::set_field(timed_grid_data *field){
+  this->fields = fields;
+  return _ERRORCODE_NOERROR;
+}
+int advection_scheme::set_flow(timed_grid_data_field *flow){
+  this->flow = flow;
+  return _ERRORCODE_NOERROR;
+}
+int advection_scheme::set_time_step(double time_step){
+  this->time_step = time_step;
+  if(this->time_step > 0.){
+    return _ERRORCODE_NOERROR;
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+}
+
+int advection_scheme::set_domain_x(int low,int up){
+  if(low>=0){
+    domain_xlimit[0] = low;
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+
+  if(up<fields->get_nx()){
+    domain_xlimit[1] = up;
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+  return _ERRORCODE_NOERROR;
+}
+int advection_scheme::set_domain_y(int low,int up){
+  if(low>=0){
+    domain_ylimit[0] = low;
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+
+  if(up<fields->get_ny()){
+    domain_ylimit[1] = up;
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+  return _ERRORCODE_NOERROR;
+}
+int advection_scheme::set_domain_z(int low,int up){
+  if(low>=0){
+    domain_zlimit[0] = low;
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+
+  if(up<fields->get_nz()){
+    domain_zlimit[1] = up;
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+  return _ERRORCODE_NOERROR;
+}
+
+int advection_scheme::initialize(){
+	if(this->get_fields() == this->get_flow()->get_grid_data()){
+		advect_flow = true;
+	}
+	else{
+		advect_flow = false;
+	}	
+}

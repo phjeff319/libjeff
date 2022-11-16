@@ -1,0 +1,35 @@
+#ifndef EARTH
+#define EARTH
+namespace libjeff{
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### bool earth_is_latlon_valid(double *latlon);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_latlon2dist(double *latlon1,double *latlon2);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_latlon2dist(double lat1,double lon1,double lat2,double lon2);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_lonlat2dist(double *lonlat1,double *lonlat2);
+  ###CUDA### ###GLOBAL### void earth_latlon2dist_kernel(int npair,double *latlon1,double *latlon2,double *dist);
+  ###CUDA### ###GLOBAL### void earth_latlon2dist_kernel(int npair,double *lat1,double *lon1,double *lat2,double *lon2,double *dist);
+  ###CUDA### ###GLOBAL### void earth_latlon2dist_kernel(int npair,double lat1,double lon1,double *lat2,double *lon2,double *dist);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void earth_latlon_to_unit_cartesian(double *latlon, double *cart);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void earth_latlon_to_unit_cartesian(double lat,double lon,double *cart);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void earth_lonlat_to_unit_cartesian(double *lonlat, double *cart);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void earth_latlon_rad_to_unit_cartesian(double *latlon, double *cart);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void earth_latlon_rad_to_unit_cartesian(double lat,double lon,double *cart);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* earth_unit_cartesian_to_latlon_rad(double *cart,double *latlon);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* earth_unit_cartesian_to_latlon(double *cart,double *latlon);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* earth_unit_cartesian_to_lonlat(double *cart,double *lonlat);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* earth_cal_latlon(double *pt1,double *pt2,double ratio,double *out);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_latlon_cal_bearing(double *from,double *to);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_latlon_cal_bearing(double from_lat,double from_lon,double to_lat,double to_lon);
+  ###CUDA### ###GLOBAL### void earth_latlon_cal_bearing_kernel(int npair,double *from,double *to,double *bearing);
+  ###CUDA### ###GLOBAL### void earth_latlon_cal_bearing_kernel(int npair,double *from_lat,double *from_lon,double *to_lat,double *to_lon,double *bearing);
+  ###CUDA### ###GLOBAL### void earth_latlon_cal_bearing_kernel(int npair,double from_lat,double from_lon,double *to_lat,double *to_lon,double *bearing);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_lonlat_cal_bearing(double *from,double *to);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double earth_cal_triangle_area(double[],double[],double[]);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void earth_cal_latlon_from_dist_bearing(double *from,double dist,double bearing,double *location);
+  ###CUDA### ###GLOBAL### void earth_cal_latlon_from_dist_bearing_kernel(int npair,double *from,double *dist,double *bearing,double *location);
+  ###CUDA### ###GLOBAL### void earth_cal_coriolis_fre(int nlat,double *lat,double *coriolis_fre);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* earth_cal_latlon_from_ratio(double *latlon1,double* latlon2,double ratio,double *out);
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* earth_cal_latlon_rad_from_ratio(double *latlon1,double* latlon2,double ratio,double *out);
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *earth_HK80grid_to_HK80latlon(double *HK80, double *latlon); //both HK80 and latlon are double [2]
+}
+#endif

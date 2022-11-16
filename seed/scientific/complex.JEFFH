@@ -1,0 +1,39 @@
+#include<iostream>
+using namespace std;
+#ifndef COMPLEX
+#define COMPLEX
+namespace libjeff{
+  class complex{
+  public:
+    ###HOST### ###DEVICE### complex();
+    ###HOST### ###DEVICE### complex(double);
+    ###HOST### ###DEVICE### complex(double,double);
+    ###HOST### ###DEVICE### double &real();
+    ###HOST### ###DEVICE### double &imag();
+    ###HOST### ###DEVICE### double abs2();
+    ###HOST### ###DEVICE### double abs();
+    ###HOST### ###DEVICE### double arg();
+    ###HOST### ###DEVICE### complex pow(double);
+    ###HOST### ###DEVICE### complex &operator=(const complex&);
+    ###HOST### ###DEVICE### complex &operator=(const double&);
+    ###HOST### ###DEVICE### complex operator+(const complex&);
+    ###HOST### ###DEVICE### complex operator+(const double&);
+    ###HOST### ###DEVICE### complex operator+=(const complex&);
+    ###HOST### ###DEVICE### complex operator+=(const double&);
+    ###HOST### ###DEVICE### complex operator-(const complex&);
+    ###HOST### ###DEVICE### complex operator-(const double&);
+    ###HOST### ###DEVICE### complex operator-=(const complex&);
+    ###HOST### ###DEVICE### complex operator-=(const double&);
+    ###HOST### ###DEVICE### complex operator-();
+    ###HOST### ###DEVICE### complex operator*(const complex&);
+    ###HOST### ###DEVICE### complex operator*=(const complex&);
+    ###HOST### ###DEVICE### complex operator*(const double&);
+    ###HOST### ###DEVICE### complex operator/(const complex&);
+    ###HOST### ###DEVICE### complex operator/(const double&);
+    
+  private:
+    double re, im;
+  };
+}
+ostream &operator<<(ostream&, libjeff::complex);
+#endif

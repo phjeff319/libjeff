@@ -1,0 +1,27 @@
+#ifndef QPEDATA
+#define QPEDATA
+#include "date_time.h"
+#include "grid_data.h"
+#include "regular_grid.h"
+
+class qpe_data{
+ public:
+  ###CPP### ###CUDA### ###HOST### qpe_data();
+  ###CPP### ###CUDA### ###HOST### ~qpe_data();
+
+  ###CPP### ###CUDA### ###HOST### void destroy();
+
+  ###CPP### ###CUDA### ###HOST### int read_F3_cokriging_qpe(char *nameformat,char *dirtimeformat,char *timeformat,date_time file_time,int file_accumulate_min,int accumulate_min); // use ###dir time format### ###file time format### in nameformat
+
+  ###CPP### ###CUDA### ###HOST### inline date_time get_obs_time() const {return obs_time;}
+  ###CPP### ###CUDA### ###HOST### inline grid_data* get_data_grid() const {return data_grid;}
+
+  ###CPP### ###CUDA### ###HOST### double get_average_rf_in(double minlat,double maxlat,double minlon,double maxlon) const;
+
+ private:
+  date_time obs_time;
+  int accumulate_min;
+  grid_data *data_grid;
+};
+
+#endif

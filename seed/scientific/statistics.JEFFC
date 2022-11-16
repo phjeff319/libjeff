@@ -1,0 +1,1505 @@
+#include<boost/math/distributions/students_t.hpp>
+#include<cmath>
+###CUDA####include<cuda.h>
+#include<netcdf>
+#include<string>
+
+###CUDA####include"cuda_setting.h"
+###CUDA####include"cuda_tools.h"
+#include"debug_mode.h"
+#include"error_code.h"
+#include"math_special_function.h"
+#include"physics_constants.h"
+#include"random.h"
+#include"sorting.h"
+#include"statistics.h"
+
+namespace libjeff{
+  ###CUDA###t_digest::t_digest(){
+    multipler_per_level = 2;
+    max_space = 0;
+    threshold = 0.;
+    num_point = 0;
+    max_recursive_depth = 0;
+    points = NULL;
+  }
+  ###CUDA###t_digest::t_digest(int max_space,int max_recursive_depth,unsigned long long threshold):t_digest(){
+    this->threshold = threshold;
+    this->max_recursive_depth = max_recursive_depth;
+    this->create(max_space);
+  }
+  ###CUDA###t_digest::t_digest(const t_digest &in):t_digest(){
+    *this = in;
+  }
+  ###CUDA###t_digest::~t_digest(){
+    this->destroy();
+  }
+
+  ###CUDA###namespace t_digest_util{
+    void freeCUDA(t_digest* &in){
+      t_digest* temp = new t_digest;
+      
+      cudaMemcpy(temp,in,sizeof(t_digest),cudaMemcpyDeviceToHost);
+      temp->freegpu();
+      cudaFree(in);
+      in = NULL;
+      
+      delete temp;
+    }
+
+    void setequal(char *a,char *b){
+      *((t_digest_points*) b) = *((t_digest_points*) a);
+    }
+    bool isless(char *a,char *b){
+      if(((t_digest_points*) a)->count != ((t_digest_points*) b)->count){
+	return ((t_digest_points*) a)->count < ((t_digest_points*) b)->count;
+      }
+      else{
+	return ((t_digest_points*) a)->value < ((t_digest_points*) b)->value;
+      }
+    }
+
+    void sort(int max_space,int num_point,t_digest_points *points){
+      general_sort(num_point,sizeof(t_digest_points),(char*) points,setequal,isless);
+    }
+
+    ###CUDA### ###GLOBAL### void t_digest_get_count(int npt,double *dataset,double value,unsigned long long *count){
+      int index = blockDim.x*blockIdx.x + threadIdx.x;
+
+      if(index < npt){
+	if(dataset[index] < value){
+	  atomicAdd(count,1);
+	}
+      }
+    }
+
+    ###CUDA### ###GLOBAL### void t_digest_find(int npt,t_digest_points *in,int num_threshold,double* threshold,unsigned long long *work){
+      int i = blockDim.x*blockIdx.x + threadIdx.x;
+      int value_index = i%num_threshold;
+      int data_index = i/num_threshold;
+
+      if(data_index < npt){
+	//printf("Data check in t_digest_find %d %f %f",index,in[index].value,threshold);
+	if(in[data_index].value >= threshold[value_index]){
+	  //printf("Data check in t_digest_find %d",index);
+	  atomicMin(work+value_index,(unsigned long long) data_index);
+	}
+      }
+    }
+
+    ###CUDA### ###GLOBAL### void t_digest_recursive(int npt,int current_depth,int numthreads,int max_recursive_depth,int max_space,double *dataset,double *min_work,double *max_work,unsigned long long *min_count,unsigned long long *max_count,int threshold,int* work_loc,int* work_count,unsigned long long *work,t_digest_points *out,int *error){
+      int index = blockDim.x*blockIdx.x + threadIdx.x;
+
+      //printf("max and min data %f %f\n",*min_work,*max_work);
+
+      if(index < 1 && current_depth <= max_recursive_depth){
+	if(current_depth != 0){
+	  int loc = atomicAdd(work_loc,1);
+	  if(loc < max_space){
+	    int count = atomicAdd(work_count,1);
+	    double value = 0.5*(*min_work + *max_work);
+	    
+	    dim3 grid_npt;
+	    grid_npt.x = (int) ceil((double) npt/numthreads);
+	    work[loc] = 0;
+	    t_digest_get_count<<<grid_npt,numthreads>>>(npt,dataset,value,work+loc);
+	    out[count].value = value;
+	    cudaError_t temp_error = cudaDeviceSynchronize();
+	    if(temp_error){
+	      *error = temp_error;
+	      printf("Error in recursion for construct %d %d\n",current_depth,*error);
+	    }
+	    
+	    out[count].count = work[loc];
+
+	    if(out[count].count - *min_count > threshold){
+	      t_digest_recursive<<<1,1>>>(npt,current_depth+1,numthreads,max_recursive_depth,max_space,dataset,min_work,&out[count].value,min_count,&out[count].count,threshold,work_loc,work_count,work,out,error);
+	    }
+	    if(*max_count - out[count].count > threshold){
+	      t_digest_recursive<<<1,1>>>(npt,current_depth+1,numthreads,max_recursive_depth,max_space,dataset,&out[count].value,max_work,&out[count].count,max_count,threshold,work_loc,work_count,work,out,error);
+	    }
+	  }
+	}
+	else{
+	  int loc = atomicAdd(work_loc,2);
+
+	  if(loc + 1 < max_space){
+	    atomicAdd(work_count,2);
+	    out[0].count = 0;
+	    out[1].count = npt;
+	    out[0].value = *min_work;
+	    out[1].value = *max_work;
+
+	    t_digest_recursive<<<1,1>>>(npt,current_depth+1,numthreads,max_recursive_depth,max_space,dataset,min_work,max_work,&out[0].count,&out[1].count,threshold,work_loc,work_count,work,out,error);
+	  }
+	}
+      }
+    }
+
+    ###CUDA### ###DEVICE### unsigned long long t_digest_find_count(t_digest_points* min, t_digest_points* max,double value){
+      unsigned long long guess, guess_min = min->count, guess_max = max->count;
+      
+      double dtemp,dtemp2;
+      guess = (guess_min + guess_max)/2;
+
+      while(guess_min < guess){ 
+	unsigned long long guess_diff = guess - min->count;
+	unsigned long long max_diff = max->count - min->count;
+	dtemp = max->value*guess_diff+min->value*max_diff;
+	dtemp2 = min->value*guess_diff+value*max_diff;
+
+	if(dtemp < dtemp2){
+	  guess_min = guess;
+	}
+	else if(dtemp > dtemp2){
+	  guess_max = guess;
+	}
+	else{
+	  return guess;
+	}
+	guess = (guess_min + guess_max)/2;
+      }
+
+      return guess;
+    }
+
+    ###CUDA### ###GLOBAL### void t_digest_compute_count(int num_value,t_digest_points *in1,unsigned long long *in1_loc,t_digest_points *in2,unsigned long long *in2_loc,double *value,t_digest_points *out){
+      int index = blockDim.x*blockIdx.x + threadIdx.x;
+
+      if(index < num_value){
+	//printf("Data check: %d %llu %llu\n",index,in1_loc[index],in2_loc[index]);
+	out[index].value = value[index];
+	out[index].count = 0;
+	if(in1_loc[index] > 0){
+	  out[index].count += t_digest_find_count(in1+in1_loc[index]-1,in1+in1_loc[index],value[index]);
+	}
+	if(in2_loc[index] > 0){
+	  out[index].count += t_digest_find_count(in2+in2_loc[index]-1,in2+in2_loc[index],value[index]);
+	}
+      }
+    }
+
+    ###CUDA### ###GLOBAL### void t_digest_recursive(int in1_npt,int in2_npt,int current_depth,int numthreads,int max_recursive_depth,int max_space,int multipler_per_level,t_digest_points *in1,t_digest_points *in2,unsigned long long *min_count,unsigned long long *max_count,double *min_value,double *max_value,unsigned long long threshold,int* work_loc,int* work_count,unsigned long long *work,double *dwork,t_digest_points* out,int *error){
+      int index = blockDim.x*blockIdx.x + threadIdx.x;
+
+      if(index < 1 && current_depth <= max_recursive_depth){
+	if(current_depth != 0){
+	  int num_sub_grid = multipler_per_level-1;
+	  //printf("Data check: depth, max and min data %d %f %f %llu %llu\n",current_depth,*min_value,*max_value,*min_count,*max_count);
+
+	  int loc = atomicAdd(work_loc,num_sub_grid);
+	  if(loc + num_sub_grid - 1 < max_space){
+	    int count = atomicAdd(work_count,num_sub_grid);
+	    int i;
+	    for(i=0;i<num_sub_grid;i++){
+	      dwork[loc+i] = *min_value + (*max_value - *min_value)*(i+1)/multipler_per_level;
+	    }
+	    
+	    dim3 grid_npt;
+	    if(in1_npt > in2_npt){
+	      grid_npt.x = (int) ceil((double) num_sub_grid*in1_npt/numthreads);
+	    }
+	    else{
+	      grid_npt.x = (int) ceil((double) num_sub_grid*in2_npt/numthreads);
+	    }
+	    
+	    for(i=0;i<num_sub_grid;i++){
+	      work[2*loc+i] = in1_npt-1;
+	      work[2*loc+i+num_sub_grid] = in2_npt-1;
+	    }
+
+	    //printf("Data check: %d %d",grid_npt.x,numthreads);
+	    t_digest_find<<<grid_npt,numthreads>>>(in1_npt,in1,num_sub_grid,dwork+loc,work+2*loc);
+	    t_digest_find<<<grid_npt,numthreads>>>(in2_npt,in2,num_sub_grid,dwork+loc,work+2*loc+num_sub_grid);
+	    /*
+	    for(i=0;i<num_sub_grid;i++){
+	      out[count+i].value = dwork[loc+i];
+	    }
+	    
+	    cudaError_t temp_error = cudaDeviceSynchronize();
+	    if(temp_error){
+	      *error = temp_error;
+	      printf("Error in recursion for += %d %d\n",current_depth,*error);
+	    }
+	    */
+	    //unsigned long long results1, results2;
+	    dim3 grid_num_threshold;
+	    grid_num_threshold.x = (int) ceil((double) num_sub_grid/numthreads);
+	    t_digest_compute_count<<<grid_num_threshold,numthreads>>>(num_sub_grid,in1,work+2*loc,in2,work+2*loc+num_sub_grid,dwork+loc,out+count);
+	    //results1 = t_digest_find_count(in1+work[2*loc]-1,in1+work[2*loc],value);
+	    //results2 = t_digest_find_count(in2+work[2*loc+1]-1,in2+work[2*loc+1],value);
+	    //printf("Data check: depth, find result %d %d %d %d %f %llu %llu %f %f %f %f %llu %llu %llu %llu\n",current_depth,loc,in1_npt,in2_npt,value,work[2*loc],work[2*loc+1],in1[work[2*loc]-1].value,in1[work[2*loc]].value,in2[work[2*loc+1]-1].value,in2[work[2*loc+1]].value,in1[work[2*loc]-1].count,in2[work[2*loc+1]-1].count,results1,results2);
+
+	    //out[count].count = results1 + results2;
+
+	    cudaError_t temp_error = cudaDeviceSynchronize();
+	    if(temp_error){
+	      *error = temp_error;
+	      printf("Error in recursion for += %d %d\n",current_depth,*error);
+	    }
+
+	    /*
+	    int rounding = 1000;
+	    unsigned long long itemp = (value - in1[work[2*loc]-1].value)/(in1[work[2*loc]].value - in1[work[2*loc]-1].value)*rounding;
+	    unsigned long long itemp2 = (value - in2[work[2*loc+1]-1].value)/(in2[work[2*loc+1]].value - in2[work[2*loc+1]-1].value)*rounding;
+	    out[count].count = (in1[work[2*loc]].count - in1[work[2*loc]-1].count)*itemp/rounding + in1[work[2*loc]-1].count + (in2[work[2*loc+1]].count - in2[work[2*loc+1]-1].count)*itemp2/rounding + in2[work[2*loc+1]-1].count;
+	    if(out[count].count > in1[work[2*loc]].count + in2[work[2*loc+1]].count){
+	      out[count].count = in1[work[2*loc]].count + in2[work[2*loc+1]].count;
+	    }
+	    */
+	     if(out[count].count - *min_count > threshold){
+	       t_digest_recursive<<<1,1>>>(in1_npt,in2_npt,current_depth+1,numthreads,max_recursive_depth,max_space,multipler_per_level,in1,in2,min_count,&out[count].count,min_value,&out[count].value,threshold,work_loc,work_count,work,dwork,out,error);
+	     }
+	    for(i=1;i<num_sub_grid;i++){
+	      if(out[count+i].count -out[count+i-1].count  > threshold){
+		t_digest_recursive<<<1,1>>>(in1_npt,in2_npt,current_depth+1,numthreads,max_recursive_depth,max_space,multipler_per_level,in1,in2,&out[count+i-1].count,&out[count+i].count,&out[count+i-1].value,&out[count+i].value,threshold,work_loc,work_count,work,dwork,out,error);
+	      }
+	    }
+	    if(*max_count - out[count+num_sub_grid-1].count > threshold){
+	      t_digest_recursive<<<1,1>>>(in1_npt,in2_npt,current_depth+1,numthreads,max_recursive_depth,max_space,multipler_per_level,in1,in2,&out[count+num_sub_grid-1].count,max_count,&out[count+num_sub_grid-1].value,max_value,threshold,work_loc,work_count,work,dwork,out,error);
+	    }
+
+	    //printf("Data check: %d %f %ull\n",current_depth,out[0].value,out[0].count);
+	  }
+
+	}
+	else{
+	  int loc = atomicAdd(work_loc,2);
+
+	  if(loc + 1 < max_space){
+	    atomicAdd(work_count,2);
+	    out[0].count = 0;
+	    out[1].count = in1[in1_npt-1].count + in2[in2_npt-1].count;
+	    out[0].value = (in1[0].value<in2[0].value?in1[0].value:in2[0].value);
+	    out[1].value = (in1[in1_npt-1].value>in2[in2_npt-1].value?in1[in1_npt-1].value:in2[in2_npt-1].value);
+
+	    //printf("Data check: %f %ull %f %ull\n",out[0].value,out[0].count,out[1].value,out[1].count);
+	    
+	    t_digest_recursive<<<1,1>>>(in1_npt,in2_npt,current_depth+1,numthreads,max_recursive_depth,max_space,multipler_per_level,in1,in2,&out[0].count,&out[1].count,&out[0].value,&out[1].value,threshold,work_loc,work_count,work,dwork,out,error);
+	  }
+	}
+      }
+    }
+  };
+  
+  ###CUDA###int t_digest::construct(int npt,double *dataset){
+    if(npt < 0){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+
+    t_digest_points* d_points;
+    cudaMalloc(&d_points,this->max_space*sizeof(t_digest_points));
+
+    int numthreads = cuda_setting::get_numthreads();
+    int n2 = (int) pow(2,((int) ceil(log((double) npt)/log(2.))));
+    dim3 grid_n2;
+
+    grid_n2.x = (int) ceil((double) n2/numthreads);
+    int j;
+
+    double *d_data, *d_datan2, *work;
+    double *max_work, *min_work;
+    cudaMalloc(&max_work,sizeof(double));
+    cudaMalloc(&min_work,sizeof(double));
+    cudaMalloc(&d_data,npt*sizeof(double));
+    cudaMalloc(&d_datan2,n2*sizeof(double));
+    cudaMalloc(&work,n2*sizeof(double));
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMalloc@t_digest::construct for dataset" <<endl;
+
+    cudaMemcpy(d_data,dataset,npt*sizeof(double),cudaMemcpyHostToDevice);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy@t_digest::construct for dataset" <<endl;
+    cuda_expand_by_repeat_kernel<<<grid_n2,numthreads>>>(npt,n2,d_data,d_datan2);
+    cuda_set_value<<<grid_n2,numthreads>>>(n2,work,d_datan2);
+    j=n2;
+    while(j>1){
+      grid_n2.x = (int) ceil((double) j/2/numthreads);
+      cuda_min_kernel<<<grid_n2,numthreads>>>(j,d_datan2);
+      j/=2;
+    }
+    //cuda_extract_every_n_kernel<<<1,1>>>(1,n2,0,d_datan2,min_work);
+    cuda_set_value<<<1,1>>>(1,min_work,d_datan2);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cuda_min_kernel@t_digest::construct" <<endl;
+
+    j=n2;
+    while(j>1){
+      grid_n2.x = (int) ceil((double) j/2/numthreads);
+      cuda_max_kernel<<<grid_n2,numthreads>>>(j,work);
+      j/=2;
+    }
+    //cuda_extract_every_n_kernel<<<1,1>>>(1,n2,0,work,max_work);
+    cuda_set_value<<<1,1>>>(1,max_work,work);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cuda_max_kernel@t_digest::construct" <<endl;
+
+    cudaFree(d_datan2);
+    cudaFree(work);
+
+    int* loc, *error, *count;
+    cudaMalloc(&loc,sizeof(int));
+    cudaMemset(loc,0,sizeof(int));
+    cudaMalloc(&count,sizeof(int));
+    cudaMemset(count,0,sizeof(int));
+    cudaMalloc(&error,sizeof(int));
+    cudaMemset(error,0,sizeof(int));
+
+    unsigned long long* iwork;
+    cudaMalloc(&iwork,max_space*sizeof(unsigned long long));
+    
+    cudaDeviceSetLimit(cudaLimitDevRuntimeSyncDepth,max_recursive_depth+3);
+    t_digest_util::t_digest_recursive<<<1,1>>>(npt,0,numthreads,max_recursive_depth,max_space,d_data,min_work,max_work,NULL,NULL,threshold,loc,count,iwork,d_points,error);
+     if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@t_digest_recursive@t_digest::construct" <<endl;
+
+    cudaMemcpy(&num_point,count,sizeof(int),cudaMemcpyDeviceToHost);
+    if(num_point > 0){
+      cudaMemcpy(points,d_points,num_point*sizeof(t_digest_points),cudaMemcpyDeviceToHost);
+    /*
+    std::cout << "Num points: " << num_point << std::endl;
+    for(j=0;j<num_point;j++){
+    std:cout << points[j] << " " << points[j+max_space] << std::endl;
+    }
+    */
+      t_digest_util::sort(max_space,num_point,points);
+    
+      int i;
+      for(i=0;i<num_point-1;i++){
+	if(points[i].count == points[i+1].count && points[i].value == points[i+1].value){
+	  for(j=i+1;j<num_point-1;j++){
+	    points[j].count = points[j+1].count;
+	    points[j].value = points[j+1].value;
+	  }
+	  num_point--;
+	}
+      }
+    }
+    else{
+      std::cout << "Warning! T disgest failed to construct." << std::endl;
+    }
+    
+    /*
+    for(i=0;i<num_point;i++){
+      std::cout << i << " " <<  points[i] << " " << points[i+max_space] << std::endl;
+    }
+    */
+    
+    cudaFree(iwork);
+
+    cudaFree(d_data);
+    cudaFree(max_work);
+    cudaFree(min_work);
+    cudaFree(loc);
+    cudaFree(count);
+    cudaFree(error);
+
+    cudaFree(d_points);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaFree@t_digest::construct" <<endl;
+    
+    return _ERRORCODE_NOERROR;
+  }
+  
+  ###CUDA###int t_digest::create(int space_size){
+    this->destroy();
+
+    if(space_size > 0){
+      this->max_space = space_size;
+      this->points = new t_digest_points [this->max_space];
+      this->num_point = 0;
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+  
+  ###CUDA###void t_digest::destroy(){
+    if(max_space>0 && points!=NULL){
+      delete [] points;
+    }
+    max_space = 0;
+    num_point = 0;
+  }
+  
+  ###CUDA###t_digest& t_digest::operator=(const t_digest& in){
+    if(this == &in){
+      return *this;
+    }
+
+    this->create(in.max_space);
+
+    this->copy_attribute(in);
+
+    int i;
+    for(i=0;i<num_point;i++){
+      this->points[i].count = in.points[i].count;
+      this->points[i].value = in.points[i].value;
+    }
+
+    return *this;
+  }
+  ###CUDA###t_digest t_digest::operator+=(const t_digest& in){
+    if(this->num_point <= 0){
+      *this = in;
+    }
+    else{
+      t_digest temp = *this;
+      
+      if(in.max_space > this->max_space){
+	this->create(in.max_space);
+      }
+      if(in.threshold < temp.threshold){
+	this->threshold = in.threshold;
+      }
+      else{
+	this->threshold = temp.threshold;
+      }
+      if(in.max_recursive_depth > temp.max_recursive_depth){
+	this->max_recursive_depth = in.max_recursive_depth;
+      }
+      else{
+	this->max_recursive_depth = temp.max_recursive_depth;
+      }
+      if(in.multipler_per_level > temp.multipler_per_level){
+	this->multipler_per_level = in.multipler_per_level;
+      }
+      else{
+	this->multipler_per_level = temp.multipler_per_level;
+      }
+      
+      t_digest_points *d_temp_digest, *d_new_digest, *d_in_digest;
+      cudaMalloc(&d_temp_digest,temp.num_point*sizeof(t_digest_points));
+      cudaMalloc(&d_in_digest,in.num_point*sizeof(t_digest_points));
+      
+      int i;
+      
+      cudaMemcpy(d_temp_digest,temp.points,temp.num_point*sizeof(t_digest_points),cudaMemcpyHostToDevice);
+      cudaMemcpy(d_in_digest,in.points,in.num_point*sizeof(t_digest_points),cudaMemcpyHostToDevice);
+      
+      int *error, *loc, *count;
+      cudaMalloc(&error,sizeof(int));
+      cudaMalloc(&loc,sizeof(int));
+      cudaMalloc(&count,sizeof(int));
+      cudaMemset(loc,0,sizeof(int));
+      cudaMemset(count,0,sizeof(int));
+      
+      unsigned long long *work;
+      cudaMalloc(&work,2*max_space*sizeof(unsigned long long));
+
+      double *dwork;
+      cudaMalloc(&dwork,max_space*sizeof(double));
+      
+      cudaMalloc(&d_new_digest,this->max_space*sizeof(t_digest_points));
+      cudaDeviceSetLimit(cudaLimitDevRuntimeSyncDepth,max_recursive_depth+3);
+
+      t_digest_util::t_digest_recursive<<<1,1>>>(temp.num_point,in.num_point,0,cuda_setting::get_numthreads(),this->max_recursive_depth,this->max_space,this->multipler_per_level,d_temp_digest,d_in_digest,NULL,NULL,NULL,NULL,this->threshold,loc,count,work,dwork,d_new_digest,error);
+      if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@t_digest_recursive@t_digest::operator+=" <<endl;
+      cudaFree(d_temp_digest);
+      cudaFree(d_in_digest);
+      
+      cudaMemcpy(&this->num_point,count,sizeof(int),cudaMemcpyDeviceToHost);
+      if(this->num_point > 0){
+	cudaMemcpy(points,d_new_digest,this->num_point*sizeof(t_digest_points),cudaMemcpyDeviceToHost);
+
+	/*
+	double min = points[0].value;
+	std::cout << points[0].value << " " << std::endl;
+	*/
+      /*
+	std::cout << "Num points: " << num_point << std::endl;
+	for(j=0;j<num_point;j++){
+	std:cout << points[j] << " " << points[j+max_space] << std::endl;
+	}
+      */
+	t_digest_util::sort(max_space,num_point,points);
+	/*
+	if(points[0].value != min){
+	  for(i=0;i<num_point;i++){
+	  std:cout << points[i].value << " " << points[i].count << std::endl;
+	  }
+	}
+	*/
+
+      }
+      else{
+	std::cout << "Warning! T disgest failed to +=." << std::endl;
+      }
+      
+      cudaFree(loc);
+      cudaFree(error);
+      cudaFree(work);
+      cudaFree(dwork);
+      cudaFree(count);
+
+      cudaFree(d_new_digest);
+    }
+    
+    return *this;
+  }
+  ###CUDA###int t_digest::copy_attribute(const t_digest& in){
+    this->max_recursive_depth = in.max_recursive_depth;
+    this->threshold = in.threshold;
+    this->num_point = in.num_point;
+    this->multipler_per_level = in.multipler_per_level;
+    
+    return _ERRORCODE_NOERROR;
+  }
+
+  ###CUDA###int t_digest::write(char *filename) const{
+    if(num_point <= 0){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    netCDF::NcFile datafile(filename,netCDF::NcFile::replace);
+
+    netCDF::NcDim ptdim = datafile.addDim("Number of digest points",num_point);
+    netCDF::NcVar digestx = datafile.addVar("t-digest value points",netCDF::ncDouble,ptdim);
+    netCDF::NcVar digesty = datafile.addVar("t-digest counts",netCDF::ncUint64,ptdim);
+
+    double *dtemp = new double [num_point];
+    unsigned long long *itemp = new unsigned long long [num_point];
+
+    int i;
+    for(i=0;i<num_point;i++){
+      itemp[i] = this->points[i].count;
+      dtemp[i] = this->points[i].value;
+    }
+    
+    digestx.putVar(dtemp);
+    digesty.putVar(itemp);
+
+    datafile.putAtt(std::string("Max allocated space"),netCDF::ncInt,this->max_space);
+    datafile.putAtt(std::string("threshold"),netCDF::ncUint64,this->threshold);
+
+    delete [] dtemp;
+    delete [] itemp;
+
+    return _ERRORCODE_NOERROR;
+  }
+  ###CUDA###int t_digest::read(char *filename){
+    int error_flag = _ERRORCODE_NOERROR;
+
+    netCDF::NcFile datafile(filename,netCDF::NcFile::read);
+
+    int space;
+    datafile.getAtt(std::string("Max allocated space")).getValues(&space);
+    unsigned long long thre;
+    datafile.getAtt(std::string("threshold")).getValues(&thre);
+
+    this->create(space);
+    this->threshold = thre;
+
+    netCDF::NcDim ptdim = datafile.getDim("Number of digest points");
+    netCDF::NcVar digestx = datafile.getVar("t-digest value points");
+    netCDF::NcVar digesty = datafile.getVar("t-digest counts");
+
+    this->num_point = ptdim.getSize();
+
+    double *dtemp = new double [num_point];
+    unsigned long long *itemp = new unsigned long long [num_point];
+
+    digestx.getVar(dtemp);
+    digesty.getVar(itemp);
+
+    int i;
+    for(i=0;i<num_point;i++){
+      this->points[i].count = itemp[i];
+      this->points[i].value = dtemp[i];
+    }
+
+
+    return error_flag;
+  }
+  ###CUDA###unsigned long long t_digest::get_count() const{
+    if(this->num_point <= 0){
+      return 0;
+    }
+    else{
+      return this->points[this->num_point-1].count;
+    }
+  }
+  ###CUDA###double t_digest::get_min() const{
+    if(num_point <= 0){
+      return 0.;
+    }
+    else{
+      return this->points[0].value;
+    }
+  }
+  ###CUDA###double t_digest::get_max() const{
+    if(num_point <= 0){
+      return 0.;
+    }
+    else{
+      return this->points[this->num_point-1].value;
+    }
+  }
+
+  ###CUDA###int t_digest::set_multipler_per_level(int in){
+    this->multipler_per_level = in;
+    return _ERRORCODE_NOERROR;
+  }
+  ###CUDA###int t_digest::set_max_recursive_depth(int in){
+    this->max_recursive_depth = in;
+    return _ERRORCODE_NOERROR;
+  }
+  ###CUDA###double t_digest::get_percentile(double percentile) const{
+    if(num_point <= 0){
+      return 0;
+    }
+    
+    if(percentile <= 0.){
+      return points[0].value;
+    }
+    else if(percentile >= 1.){
+      return points[num_point].value;
+    }
+    else{
+      double cut = percentile*this->points[num_point-1].count;
+      
+      double result;
+      int i;
+      for(i=1;i<num_point;i++){
+	if(points[i].count > cut){
+	  result = (points[i].value - points[i-1].value)/(points[i].count - points[i-1].count)*(cut - points[i-1].count) + points[i-1].value;
+	  return result;
+	}
+      }
+    }
+    return 0;
+  }
+
+  ###CUDA### ###HOST### int t_digest::host2device(t_digest* &device_copy) const{
+    if(device_copy!=NULL){
+      return _ERRORCODE_MEMORYNOTFREE;
+    }
+    if(this->max_space == 0){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    cudaMalloc(&device_copy,sizeof(t_digest));
+    t_digest *temp = new t_digest;
+
+    *temp = *this;
+    delete [] temp->points;
+
+    cudaMalloc(&temp->points,max_space*sizeof(t_digest_points));
+    cudaMemcpy(temp->points,this->points,num_point*sizeof(t_digest_points),cudaMemcpyHostToDevice);
+    cudaMemcpy(device_copy,temp,sizeof(t_digest),cudaMemcpyHostToDevice);
+    temp->points = NULL;
+
+    delete temp;
+
+    return _ERRORCODE_NOERROR;
+  }
+  ###CUDA### ###HOST### int t_digest::device2host(t_digest* device_copy){
+    if(device_copy==NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    t_digest *temp = new t_digest;
+    cudaMemcpy(temp,device_copy,sizeof(t_digest),cudaMemcpyDeviceToHost);
+
+    if(temp->max_space > 0){
+      this->create(temp->max_space);
+      this->copy_attribute(*temp);
+      cudaMemcpy(this->points,temp->points,num_point*sizeof(t_digest_points),cudaMemcpyDeviceToHost);
+    }
+
+    delete temp;
+
+    return _ERRORCODE_NOERROR;
+  }
+  ###CUDA### ###HOST### void t_digest::freegpu(){
+    if(this->max_space > 0){
+      cudaFree(this->points);
+      this->points = NULL;
+    }
+  }
+  
+  template <class data_type> sample_dataset<data_type>::sample_dataset(){
+    ndata = 0;
+    ndim = 0;
+    data_pts = NULL;
+  }
+  template <class data_type> sample_dataset<data_type>::~sample_dataset(){
+    this->destroy();
+  }
+  template <class data_type> int sample_dataset<data_type>::create(int ndata,int ndim){
+    this->destroy();
+    if(ndata > 0 && ndim > 0){
+      this->data_pts = new data_type [ndata*ndim];
+      this->ndata = ndata;
+      this->ndim = ndim;
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+  template <class data_type> int sample_dataset<data_type>::destroy(){
+    if(ndata > 0 && ndim > 0){
+      delete [] data_pts;
+    }
+    ndata = 0;
+    ndim = 0;
+
+    return _ERRORCODE_NOERROR;
+  }
+  template <class data_type> data_type* sample_dataset<data_type>::get_data_pts(int data_pt_index) const{
+    if(data_pt_index >= 0 && data_pt_index < this->ndata){
+      return  data_pts+data_pt_index*ndim;
+    }
+    else{
+      return NULL;
+    }
+  }
+  template <class data_type> int sample_dataset<data_type>::set_data_pts(int data_index,int dim_index,data_type in){
+    if(data_index >= this->ndata || dim_index >= this->ndim){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+    else{
+      this->data_pts[data_index*ndim + dim_index] = in;
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+
+  template <class data_type> int sample_dataset<data_type>::get_mean(int dim_index,double &mean) const{
+    if(this->get_ndata() <= 0 || this->get_ndim() <= 0){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    else if(dim_index >= this->get_ndim()){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+
+    double *dataset = new double [this->get_ndata()];
+    int i;
+    for(i=0;i<this->get_ndata();i++){
+      dataset[i] = this->get_data_pts(i)[dim_index];
+    }
+
+    mean = statistics_cal_mean(this->get_ndata(),dataset);
+
+    delete [] dataset;
+	    
+    return _ERRORCODE_NOERROR;
+  }
+  template <class data_type> int sample_dataset<data_type>::get_sd(int dim_index,double &sd) const{
+    if(this->get_ndata() <= 0 || this->get_ndim() <= 0){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    else if(dim_index >= this->get_ndim()){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+
+    double *dataset = new double [this->get_ndata()];
+    int i;
+    for(i=0;i<this->get_ndata();i++){
+      dataset[i] = this->get_data_pts(i)[dim_index];
+    }
+
+    double mean = statistics_cal_mean(this->get_ndata(),dataset);
+    sd = statistics_cal_sd(this->get_ndata(),dataset,mean);
+
+    delete [] dataset;
+	    
+    return _ERRORCODE_NOERROR;
+  }
+
+  namespace kde{
+    template <class dataType> int gaussian(sample_dataset<dataType>* dataset,int dim_index,double bandwidth,int nx,dataType **x,dataType **out,bool gpu_mode){
+      libjeff::print_trace(1,"libjeff::kde::gaussian");
+      if(bandwidth <= 0. || nx <= 0 || dim_index >= dataset->get_ndim() || dim_index < 0){
+	libjeff::print_trace(0,"libjeff::kde::gaussian with error");
+	return _ERRORCODE_INPUTOUTOFRANGE;
+      }
+
+      ###CPP### gpu_mode = false;
+      if(!gpu_mode){
+	int i,j;
+	for(i=0;i<nx;i++){
+	  out[i][dim_index] = 0.;
+	}
+	
+	for(j=0;j<dataset->get_ndata();j++){
+	  for(i=0;i<nx;i++){
+	    out[i][dim_index] += math_gaussian_distribution(x[i][dim_index],dataset->get_data_pts(j)[dim_index],bandwidth);
+	  }
+	}
+	/*
+	for(i=0;i<nx;i++){
+	  out[i][dim_index] /= dataset->get_ndata();
+	}
+	*/
+      }
+      else{
+	###CUDA### {
+	  double *dx, *hx;
+	  double *datapt, *hdatapt = new double [dataset->get_ndata()];
+	  double *dbandwidth;
+	  double *gaussian;
+	  double *dout;
+	  double *hout;
+
+	  size_t free, total;
+	  cudaMemGetInfo(&free,&total);
+
+	  int nbatch;
+	  double memory_needed = nx*dataset->get_ndata()*sizeof(double);
+	  nbatch = ceil(memory_needed*1.1/free);
+
+	  int batch_no;
+	  size_t x_size = nx/nbatch;
+	  nbatch = ceil(((double) nx)/x_size);
+
+	  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	    std::cout << "Number of batch for calculation: " << nbatch << std::endl;
+	    std::cout << "nx: " << nx << " xsize: " << x_size << std::endl;
+	    std::cout << "Number of data points: " << dataset->get_ndata() << std::endl;
+	  }
+	  
+	  cudaMalloc((void**) &dx,x_size*sizeof(double));
+	  cudaMalloc((void**) &datapt,dataset->get_ndata()*sizeof(double));
+	  cudaMalloc((void**) &dbandwidth,sizeof(double));
+	  cudaMalloc((void**) &gaussian,x_size*dataset->get_ndata()*sizeof(double));
+	  cudaMalloc((void**) &dout,x_size*sizeof(double));
+	  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMalloc@libjeff::kde::gaussian" <<endl;
+	  hx = new double [x_size];
+	  hout = new double [x_size];
+	  int i,j;
+	  int numthreads = cuda_setting::get_numthreads();
+	  dim3 grid;
+
+	  for(j=0;j<dataset->get_ndata();j++){
+	    hdatapt[j] = dataset->get_data_pts(j)[dim_index];
+	  }
+	  cudaMemcpy(datapt,hdatapt,dataset->get_ndata()*sizeof(double),cudaMemcpyHostToDevice);
+	  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy@libjeff::kde::gaussian" <<endl;
+	  grid.x = 1;
+	  cuda_set_value<<<grid,numthreads>>>(1,dbandwidth,bandwidth);
+	  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cuda_set_value@libjeff::kde::gaussian" <<endl;
+
+	  for(batch_no = 0; batch_no < nbatch; batch_no++){
+	    for(i=0;i<x_size && i+batch_no*x_size<nx;i++){
+	      hx[i] = x[i+batch_no*x_size][dim_index];
+	    }
+	    
+	    cudaMemcpy(dx,hx,x_size*sizeof(double),cudaMemcpyHostToDevice);
+	    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy@libjeff::kde::gaussian" <<endl;
+	    	  
+	    grid.x = (int) ceil(((double) dataset->get_ndata())*x_size/numthreads);
+	  
+	    libjeff::math_gaussian_distribution<<<grid,numthreads>>>(x_size,dx,dataset->get_ndata(),datapt,1,dbandwidth,gaussian);
+	    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@math_gaussian_distribution@libjeff::kde::gaussian" <<endl;
+	    libjeff::device::cuda_reduce_every_n(x_size,dataset->get_ndata(),gaussian,dout);
+	    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@libjeff::device::cuda_reduce_every_n@libjeff::kde::gaussian" <<endl;
+	    cudaMemcpy(hout,dout,x_size*sizeof(double),cudaMemcpyDeviceToHost);
+	  
+	    for(i=0;i<x_size && i+batch_no*x_size<nx;i++){
+	      out[i+batch_no*x_size][dim_index] = hout[i];
+	    }
+	  }
+	  
+	  delete [] hout;
+	  delete [] hx;
+	  delete [] hdatapt;
+	  
+	  cudaFree(datapt);
+	  cudaFree(gaussian);
+	  cudaFree(dbandwidth);
+	  cudaFree(dx);
+	  cudaFree(dout);
+	  }
+      }
+
+      libjeff::print_trace(0,"libjeff::kde::gaussian");
+      return _ERRORCODE_NOERROR;
+    }
+    template <class dataType> int gaussian(sample_dataset<dataType>* dataset,int dim_index,int nx,dataType **x,dataType **out,dataType (*bandwidth_function)(sample_dataset<dataType>* dataset,int dim_index),bool gpu_mode){
+      libjeff::print_trace(1,"libjeff::kde::gaussian");
+      if(nx <= 0 || dim_index >= dataset->get_ndim() || dim_index < 0){
+	libjeff::print_trace(0,"libjeff::kde::gaussian with error");
+	return _ERRORCODE_INPUTOUTOFRANGE;
+      }
+      double bandwidth = (*bandwidth_function)(dataset,dim_index);
+      gaussian(dataset,dim_index,bandwidth,nx,x,out,gpu_mode);
+
+      libjeff::print_trace(0,"libjeff::kde::gaussian");
+      return _ERRORCODE_NOERROR;
+    }
+
+    namespace bandwidth_function{
+      template <class dataType> dataType silverman(sample_dataset<dataType>* dataset,int dim_index){
+	libjeff::print_trace(1,"libjeff::kde::bandwidth_function::silverman");
+	double sd;
+	dataset->get_sd(dim_index,sd);
+
+	libjeff::print_trace(0,"libjeff::kde::bandwidth_function::silverman");
+	return 1.06*sd/pow((double) dataset->get_ndata(),0.2);
+      }
+      template double silverman<double>(sample_dataset<double>* dataset,int dim_index);
+      template float silverman<float>(sample_dataset<float>* dataset,int dim_index);
+    }
+    template int gaussian<double>(sample_dataset<double>* dataset,int dim_index,double bandwidth,int nx,double **x,double **out,bool gpu_mode);
+    template int gaussian<double>(sample_dataset<double>* dataset,int dim_index,int nx,double **x,double **out,double (*bandwidth_function)(sample_dataset<double>* dataset,int dim_index),bool gpu_mode);
+    template int gaussian<float>(sample_dataset<float>* dataset,int dim_index,double bandwidth,int nx,float **x,float **out,bool gpu_mode);
+    template int gaussian<float>(sample_dataset<float>* dataset,int dim_index,int nx,float **x,float **out,float (*bandwidth_function)(sample_dataset<float>* dataset,int dim_index),bool gpu_mode);
+    /*
+    void not_used(double in){
+      sample_dataset<double>* dataset;
+      double **x, **out;
+      libjeff::kde::bandwidth_function::silverman(dataset,0);
+      gaussian(dataset,0,0,x,out,libjeff::kde::bandwidth_function::silverman<double>);
+    }
+    */
+  }
+
+  int statistics_extract_max_n(size_t nmax,size_t add_size,double *to_add,size_t &curr_size,double *inout){
+    size_t i,j,k;
+
+    if(curr_size == 0){
+      for(k=0;k<(nmax < add_size?nmax:add_size);k++){
+	inout[k] = to_add[k];
+      }
+    }
+    else{
+      if(curr_size < nmax ||  inout[nmax-1] < to_add[0]){
+	size_t new_index, old_index;
+	for(k=0;k<add_size;k++){
+	  if(inout[curr_size-1] > to_add[k]){
+	    new_index = k-1;
+	    break;
+	  }
+	}
+	old_index = 0;
+	for(k=0;k<curr_size;k++){
+	  if(inout[k] < to_add[0]){
+	    old_index = k;
+	    break;
+	  }
+	}
+	
+	for(k=0;k<=new_index;k++){
+	  for(j=old_index;j<curr_size;j++){
+	    if(inout[j]<to_add[k]){
+	      for(i=(curr_size>nmax?nmax-1:curr_size-1);i>j;i--){
+		inout[i] = inout[i-1];
+	      }
+	      inout[j] = to_add[k];
+	      curr_size++;
+	      if(curr_size > nmax){
+		curr_size = nmax;
+	      }
+	      old_index = j;
+	      break;
+	    }
+	  }
+	}
+      }
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+  int statistics_extract_min_n(size_t nmin,size_t add_size,double *to_add,size_t &curr_size,double *inout){
+    size_t i,j,k;
+
+    if(curr_size == 0){
+      for(k=0;k<(nmin < add_size?nmin:add_size);k++){
+	inout[k] = to_add[k];
+      }
+    }
+    else{
+      if(curr_size < nmin ||  inout[nmin-1] > to_add[0]){
+	size_t new_index, old_index;
+	for(k=0;k<add_size;k++){
+	  if(inout[curr_size-1] < to_add[k]){
+	    new_index = k-1;
+	    break;
+	  }
+	}
+	old_index = 0;
+	for(k=0;k<curr_size;k++){
+	  if(inout[k] > to_add[0]){
+	    old_index = k;
+	    break;
+	  }
+	}
+	
+	for(k=0;k<=new_index;k++){
+	  for(j=old_index;j<curr_size;j++){
+	    if(inout[j]>to_add[k]){
+	      for(i=(curr_size>nmin?nmin-1:curr_size-1);i>j;i--){
+		inout[i] = inout[i-1];
+	      }
+	      inout[j] = to_add[k];
+	      curr_size++;
+	      if(curr_size > nmin){
+		curr_size = nmin;
+	      }
+	      old_index = j;
+	      break;
+	    }
+	  }
+	}
+      }
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+  double statistics_cal_mean(int ndata,double *in){
+    double result = 0.;
+    int i;
+
+    for(i=0;i<ndata;i++){
+      result += in[i];
+    }
+    result /= ndata;
+    
+    return result;
+  }
+  double statistics_cal_sd(int ndata,double *in,double mean){
+    double result = 0.;
+    int i;
+
+    for(i=0;i<ndata;i++){
+      result += (in[i] - mean)*(in[i] - mean);
+    }
+    result /= ndata;
+
+    return pow(result,0.5);
+  }
+  void statistics_welch_t_test_diff_mean_cal_param(int sample_size1,double mean1,double sd1,int sample_size2,double mean2,double sd2,double &t_stat,int &df){
+    double se = sd1*sd1/sample_size1 + sd2*sd2/sample_size2;
+    t_stat = (mean1 - mean2)/pow(se,0.5);
+    df = se*se/(sd1*sd1*sd1*sd1/sample_size1/sample_size1/(sample_size1-1) + sd2*sd2*sd2*sd2/sample_size2/sample_size2/(sample_size2-1));
+    /*
+    if(df < 0){
+      std::cout << "df < 0 for " << se << " " << se*se/(sd1*sd1*sd1*sd1/(sample_size1*sample_size1*(sample_size1-1)) + sd2*sd2*sd2*sd2/(sample_size2*sample_size2*(sample_size2-1))) << std::endl;
+    }
+    */
+  }
+
+  int compute_k_mean_initialize(int num_data,double *in,int num_k,double* k_mean,char *method){
+    if(strcmp(method,"k mean++")==0){
+      libjeff::random_number* rand = new libjeff::random_uniform(0.,(double) num_data - 0.001);
+
+      double *dist = new double [num_data];
+      double *sum = new double [num_data];
+      k_mean[0] = in[(int) rand->rand()];
+
+      int i,j,k;
+      for(i=1;i<num_k;i++){
+	sum[0] = 0.;
+	for(j=0;j<num_data;j++){
+	  dist[j] = in[j] - k_mean[0];
+	  for(k=1;k<i;k++){
+	    if(dist[j] > in[j] - k_mean[k]){
+	      dist[j] = in[j] - k_mean[k];
+	    }
+	  }
+	  dist[j] *= dist[j];
+	  sum[j] += dist[j];
+	}
+	rand->set_param(0.,sum[num_data-1]);
+
+	double temp_rand = rand->rand();
+	for(j=1;j<num_data;j++){
+	  if(temp_rand < sum[j]){
+	    k_mean[i] = in[j-1];
+	    break;
+	  }
+	}
+      }
+
+      delete [] dist;
+      delete [] sum;
+      delete rand;
+    }
+    else{
+      return _ERRORCODE_UNKNOWNMETHOD;
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+  int compute_k_mean_iterator(int num_data,double *in,int num_k,double* k_mean,int* num_data_in_gp,double** groups,char *method){
+    int *grouping = new int [num_data];
+    bool converged = false;
+    int i,j;
+
+    for(i=0;i<num_data;i++){
+      grouping[i] = -1;
+    }
+
+    if(strcmp(method,"lloyd")==0){
+      do{
+	converged = true;
+	for(i=0;i<num_data;i++){
+	  int guess_group = 0;
+	  for(j=1;j<num_k;j++){
+	    if(fabs(in[i] - k_mean[j]) < fabs(in[i] - k_mean[guess_group])){
+	      guess_group = j;
+	    }
+	  }
+	  if(guess_group != grouping[i]){
+	    converged = false;
+	    grouping[i] = guess_group;
+	  }
+	}
+	
+	if(!converged){
+	  for(j=0;j<num_k;j++){
+	    k_mean[j] = 0.;
+	    int count = 0;
+	    for(i=0;i<num_data;i++){
+	      if(grouping[i] == j){
+		k_mean[j] += in[i];
+		count++;
+	      }
+	    }
+	    if(count > 0){
+	      k_mean[j] /= count;
+	    }
+	  }
+	}
+      }while(!converged);
+    }
+    else{
+      delete [] grouping;
+      return _ERRORCODE_UNKNOWNMETHOD;
+    }
+
+
+    for(j=0;j<num_k;j++){
+      int count = 0;
+      for(i=0;i<num_data;i++){
+	if(grouping[i] == j){
+	  count++;
+	}
+      }
+      num_data_in_gp[j] = count;
+      if(num_data_in_gp[j] > 0){
+	count = 0;
+	groups[j] = new double [num_data_in_gp[j]];
+	
+	for(i=0;i<num_data;i++){
+	  if(grouping[i] == j){
+	    groups[j][count] = in[i];
+	    count++;
+	  }
+	}
+      }
+      else{
+	groups[j] = NULL;
+      }
+    }
+	
+
+    delete [] grouping;
+
+    return _ERRORCODE_NOERROR;
+  }
+  int compute_k_mean(int num_data,double *in,int &num_k,double* &k_mean,double significance,int* &num_data_in_gp,double** &groups,char *method){
+    if(groups !=NULL){
+      return _ERRORCODE_MEMORYNOTFREE;
+    }
+    if(num_data <= 2){
+      num_k = 0;
+      return _ERRORCODE_DATANOTENOUGH;
+    }
+    double mean = statistics_cal_mean(num_data,in);
+    double sd = statistics_cal_sd(num_data,in,mean);
+    if(sd == 0.){
+      num_k = 0;
+      return _ERRORCODE_NOVARIATIONINDATA;
+    }
+    bool optimize = false;
+    bool done = false;
+
+    if(num_k <= 0){
+      optimize = true;
+      num_k = 1;
+    }
+
+    if(k_mean != NULL){
+      delete [] k_mean;
+    }
+    if(num_data_in_gp != NULL){
+      delete [] num_data_in_gp;
+    }
+
+    double *pre_k_mean = NULL;
+    int *pre_num_data = NULL;
+    double **pre_groups = NULL;
+    int i,j;
+
+    do{
+      if(optimize){
+	num_k++;
+      }
+      //std::cout << "Trying K = " << num_k << std::endl;
+      if(num_k <= num_data){
+	k_mean = new double [num_k];
+	num_data_in_gp = new int [num_k];
+	groups = new double *[num_k];
+
+	//initialization
+	if(num_k > 1){
+	  compute_k_mean_initialize(num_data,in,num_k,k_mean,"k mean++");
+	  compute_k_mean_iterator(num_data,in,num_k,k_mean,num_data_in_gp,groups,"lloyd");
+	}
+	else{
+	  k_mean[0] = mean;
+	  num_data_in_gp[0] = num_data;
+	  groups[0] = new double [num_data_in_gp[0]];
+	  for(i=0;i<num_data_in_gp[0];i++){
+	    groups[0][i] = in[i];
+	  }
+	}
+	
+	if(pre_k_mean == NULL){
+	  pre_k_mean = k_mean;
+	  pre_num_data = num_data_in_gp;
+	  pre_groups = groups;
+	}
+	else{
+	  double* sd = new double [num_k];
+
+	  for(i=0;i<num_k;i++){
+	    if(num_data_in_gp[i] > 0){
+	      sd[i] = statistics_cal_sd(num_data_in_gp[i],groups[i],k_mean[i]);
+	    }
+	    else{
+	      sd[i] = -1.;
+	    }
+	    //std::cout << k_mean[i] << " " << sd[i] << std::endl;
+	  }
+
+	  //statistical tests to determine if the two of the k means are different
+	  if(strcmp(method,"basic")==0){
+	    for(i=0;i<num_k;i++){
+	      for(j=i+1;j<num_k;j++){
+		if(fabs(k_mean[i] - k_mean[j]) < significance*sd[i] || fabs(k_mean[i] - k_mean[j]) < significance*sd[j]){
+		  done = true;
+		  break;
+		}
+	      }
+	      if(done){
+		break;
+	      }
+	    }
+	  }
+	  else if(strcmp(method,"welch's t-test")==0){
+	    int df;
+	    double t_stat;
+
+	    for(i=0;i<num_k;i++){
+	      for(j=i+1;j<num_k;j++){
+		statistics_welch_t_test_diff_mean_cal_param(num_data_in_gp[i],k_mean[i],sd[i],num_data_in_gp[j],k_mean[j],sd[j],t_stat,df);
+		if(df > 0){
+		  boost::math::students_t dist(df);
+		  double alpha = cdf(complement(dist,fabs(t_stat)));
+
+		  //std::cout << i << " " << j << " " << df << " " << t_stat << " " << alpha << std::endl;
+
+		  if(alpha > significance*0.5){
+		    done = true;
+		    break;
+		  }
+		}
+		else{
+		  std::cout << "Error! df < 0 for input " << " " << num_data_in_gp[i] << " " << k_mean[i] << " " << sd[i] << " " << num_data_in_gp[j] << " " << k_mean[j] << " " << sd[j] << std::endl;
+		}
+	      }
+	      if(done){
+		break;
+	      }
+	    }
+	  }
+	  else if(strcmp(method,"silhouette")==0){
+	    /*
+	    for(i=0;i<num_k;i++){
+	      if(num_data_in_gp[i] <= 1){
+		done = true;
+		break;
+	      }
+	    }
+	    */
+	    if(!done){
+	      double cur_sil = compute_k_mean_silhouette(num_k,num_data_in_gp,groups);
+	      double pre_sil = compute_k_mean_silhouette(num_k-1,pre_num_data,pre_groups);
+	      //std::cout << "Silhouette: " << pre_sil << " " << cur_sil << std::endl;
+	      if(cur_sil < pre_sil && cur_sil > 0){
+		done = true;
+	      }
+	    }
+	  }
+	  else{
+	    return _ERRORCODE_UNKNOWNMETHOD;
+	  }
+
+	  delete [] sd;
+	  if(done){
+	    for(i=0;i<num_k;i++){
+	      if(num_data_in_gp[i] > 0){
+		delete [] groups[i];
+	      }
+	    }
+	    delete [] num_data_in_gp;
+	    delete [] k_mean;
+	  }
+	  else{
+	    delete [] pre_k_mean;
+	    for(i=0;i<num_k-1;i++){
+	      if(pre_groups[i] != NULL){
+		delete [] pre_groups[i];
+	      }
+	    }
+	    delete [] pre_num_data;
+	    pre_k_mean = k_mean;
+	    pre_num_data = num_data_in_gp;
+	    pre_groups = groups;
+	  }
+	}
+      }
+    }while(optimize && !done && num_k <= num_data);
+
+    if(optimize){
+      num_k--;
+    }
+    k_mean = pre_k_mean;
+    num_data_in_gp = pre_num_data;
+    groups = pre_groups;
+
+    return _ERRORCODE_NOERROR;
+  }
+
+  double compute_k_mean_silhouette(int num_k,int *num_data,double **groups){
+    double mean_s = 0;
+    int count = 0;
+    int i,j,k,m;
+    double a,b,test_b;
+    for(k=0;k<num_k;k++){
+      if(num_data[k]>1){
+	for(i=0;i<num_data[k];i++){
+	  a = 0.;
+	  for(j=0;j<num_data[k];j++){
+	    if(j!=i){
+	      a+=fabs(groups[k][i] - groups[k][j]);
+	    }
+	  }
+	  a/=(num_data[k]-1);
+
+	  bool first_cluster = true;
+	  for(m=0;m<num_k;m++){
+	    if(m!=k && num_data[m] > 0){
+	      test_b = 0;
+	      for(j=0;j<num_data[m];j++){
+		test_b += fabs(groups[k][i] - groups[m][j]);
+	      }
+	      test_b /= num_data[m];
+
+	      if(first_cluster){
+		b = test_b; 
+		first_cluster = false;
+	      }
+	      else{
+		if(test_b < b){
+		  b = test_b;
+		}
+	      }
+	    }
+	  }
+
+	  mean_s += (b - a)/(b>a?b:a);
+	  count++;
+	}
+      }
+      else if(num_data[k]==1){
+	count++;
+      }
+    }
+    return mean_s/count;
+  }
+  double compute_k_max_silhouette(int num_k,int *num_data,double **groups){
+    double max_s = 0;
+    int i,j,k,m;
+    double a,b,test_b;
+    for(k=0;k<num_k;k++){
+      if(num_data[k]>1){
+	for(i=0;i<num_data[k];i++){
+	  a = 0.;
+	  for(j=0;j<num_data[k];j++){
+	    if(j!=i){
+	      a+=fabs(groups[k][i] - groups[k][j]);
+	    }
+	  }
+	  a/=(num_data[k]-1);
+
+	  bool first_cluster = true;
+	  for(m=0;m<num_k;m++){
+	    if(m!=k && num_data[m] > 0){
+	      test_b = 0;
+	      for(j=0;j<num_data[m];j++){
+		test_b += fabs(groups[k][i] - groups[m][j]);
+	      }
+	      test_b /= num_data[m];
+
+	      if(first_cluster){
+		b = test_b; 
+		first_cluster = false;
+	      }
+	      else{
+		if(test_b < b){
+		  b = test_b;
+		}
+	      }
+	    }
+	  }
+
+	  double test_s = (b - a)/(b>a?b:a);
+	  if(test_s > max_s){
+	    max_s = test_s;
+	  }
+	}
+      }
+    }
+    return max_s;
+  }
+
+  namespace k_mean{
+    struct k_mean_group{
+      int size;
+      double *gp_ptr;
+    };
+    void setequal(char *a,char *b){
+      *((k_mean_group*) b) = *((k_mean_group*) a);
+    }
+    bool isless(char *a,char *b){
+      return ((k_mean_group*) b)->size < ((k_mean_group*) a)->size;
+    }
+
+    int sort_group_by_size(int num_k,int *num_data_in_gp,double **group){
+      if(num_k >= 2){
+	k_mean_group* to_sort = new k_mean_group[num_k];
+	
+	int i;
+	for(i=0;i<num_k;i++){
+	  to_sort[i].size = num_data_in_gp[i];
+	  to_sort[i].gp_ptr = group[i];
+	}
+	
+	general_sort(num_k,sizeof(k_mean_group),(char *) to_sort,setequal,isless);
+	
+	for(i=0;i<num_k;i++){
+	  num_data_in_gp[i] = to_sort[i].size;
+	  group[i] = to_sort[i].gp_ptr;
+	}
+	
+	delete [] to_sort;
+
+	return _ERRORCODE_NOERROR;
+      }
+      else{
+	return _ERRORCODE_DATANOTENOUGH;
+      }
+    }
+  }
+}
+template class libjeff::sample_dataset<int>;
+template class libjeff::sample_dataset<double>;
+template class libjeff::sample_dataset<float>;
+
+

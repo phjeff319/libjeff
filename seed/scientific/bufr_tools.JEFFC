@@ -1,0 +1,287 @@
+#include "eccodes.h"
+#include <iostream>
+
+#include "bufr_tools.h"
+#include "date_time.h"
+#include "error_code.h"
+
+namespace libjeff{
+  int bufr_tools_get_rec_header(char *filename){
+
+    FILE* in = NULL;
+    
+    codes_handle *h = NULL;
+    int error;
+    long longVal;
+    
+    in = fopen(filename,"r");
+    
+    while ((h = codes_handle_new_from_file(NULL,in,PRODUCT_BUFR,&error)) != NULL || error != CODES_SUCCESS){
+      
+      CODES_CHECK(codes_get_long(h,"dataCategory",&longVal),0);
+      std::cout << "dataCategory: " << longVal << std::endl;
+      
+      CODES_CHECK(codes_get_long(h,"dataSubCategory",&longVal),0);
+      std::cout << "dataSubCategory " << longVal << std::endl;
+      
+      CODES_CHECK(codes_get_long(h,"typicalDate",&longVal),0);
+      std::cout << "typicalDate " << longVal << std::endl;
+      
+      CODES_CHECK(codes_get_long(h,"bufrHeaderCentre",&longVal),0);
+      std::cout << "bufrHeaderCentre " << longVal << std::endl;
+      
+      CODES_CHECK(codes_get_long(h,"bufrHeaderSubCentre",&longVal),0);
+      std::cout << "bufrHeaderSubCentre " << longVal << std::endl;
+      
+      CODES_CHECK(codes_get_long(h,"masterTablesVersionNumber",&longVal),0);
+      std::cout << "masterTablesVersionNumber " << longVal << std::endl;
+      
+      CODES_CHECK(codes_get_long(h,"localTablesVersionNumber",&longVal),0);
+      std::cout << "localTablesVersionNumber " << longVal << std::endl;
+      
+      CODES_CHECK(codes_get_long(h,"numberOfSubsets",&longVal),0);
+      std::cout << "numberOfSubsets " << longVal << std::endl;
+      
+      std::cout << "-----------------------------------------" << std::endl;
+      
+      codes_handle_delete(h);
+    }
+    fclose(in);
+    
+    return _ERRORCODE_NOERROR;
+  }
+
+  int bufr_tools_get_rec(char *filename,int message_num,size_t &num_dataset,char *datakey,double *&value){  
+    FILE* in = NULL;
+    
+    codes_handle *h = NULL;
+    int error;
+    long longVal;
+    
+    in = fopen(filename,"r");
+
+    int i=0;
+    while ((h = codes_handle_new_from_file(NULL,in,PRODUCT_BUFR,&error)) != NULL || error != CODES_SUCCESS){
+      if(i==message_num){
+	codes_set_long(h,"unpack",1);
+
+
+
+	codes_get_size(h,datakey,&num_dataset);
+	if(num_dataset > 0){
+	  if(value != NULL){
+	    delete [] value;
+	  }
+	  value = new double [num_dataset];
+
+	  codes_get_double_array(h,datakey,value,&num_dataset);
+	  error = _ERRORCODE_NOERROR;
+	}
+	else{
+	  error = _ERRORCODE_BUFRDATA_NOTFOUND;
+	}
+	//codes_set_long(h,"unpack",0);
+      }
+
+      codes_handle_delete(h);
+      i++;
+      if(i > message_num){
+	break;
+      }
+    }
+    fclose(in);
+
+    //delete in;
+
+    return error;
+  }
+  int bufr_tools_get_rec(char *filename,int message_num,size_t &num_dataset,char *datakey,long *&value){  
+    FILE* in = NULL;
+    
+    codes_handle *h = NULL;
+    int error;
+    long longVal;
+    
+    in = fopen(filename,"r");
+
+    int i=0;
+    while ((h = codes_handle_new_from_file(NULL,in,PRODUCT_BUFR,&error)) != NULL || error != CODES_SUCCESS){
+      if(i==message_num){
+	codes_set_long(h,"unpack",1);
+
+	codes_get_size(h,datakey,&num_dataset);
+	if(num_dataset > 0){
+	  if(value != NULL){
+	    delete [] value;
+	  }
+	  value = new long [num_dataset];
+
+	  codes_get_long_array(h,datakey,value,&num_dataset);
+	  error = _ERRORCODE_NOERROR;
+	}
+	else{
+	  error = _ERRORCODE_BUFRDATA_NOTFOUND;
+	}
+	//codes_set_long(h,"unpack",0);
+      }
+
+      codes_handle_delete(h);
+      i++;
+      if(i > message_num){
+	break;
+      }
+    }
+    fclose(in);
+
+    return error;
+  }
+
+  int bufr_tools_get_rec(char *filename,int message_num,size_t &num_dataset,char *datakey,char **&value){  
+    FILE* in = NULL;
+    
+    codes_handle *h = NULL;
+    int error;
+    long longVal;
+    
+    in = fopen(filename,"r");
+
+    int i = 0,j;
+    size_t temp_num_dataset;
+    while ((h = codes_handle_new_from_file(NULL,in,PRODUCT_BUFR,&error)) != NULL || error != CODES_SUCCESS){
+      if(i==message_num){
+	codes_set_long(h,"unpack",1);
+
+	codes_get_size(h,datakey,&temp_num_dataset);
+	//std::cout << temp_num_dataset;
+	if(temp_num_dataset > 0){
+	  size_t length;
+	  codes_get_length(h,datakey,&length);
+	  //std::cout << " " << length << std::endl;
+
+	  if(value != NULL){
+	    for(j=0;j<num_dataset;j++){
+	      delete [] value[j];
+	    }
+	    delete [] value;
+	    value = NULL;
+	  }
+	  num_dataset = temp_num_dataset;
+	  value = new char *[num_dataset];
+	  for(j=0;j<num_dataset;j++){
+	    value[j] = new char [length];
+	  }
+
+	  codes_get_string_array(h,datakey,value,&num_dataset);
+
+	  error = _ERRORCODE_NOERROR;
+	}
+	else{
+	  error = _ERRORCODE_BUFRDATA_NOTFOUND;
+	}
+	//codes_set_long(h,"unpack",0);
+      }
+
+      codes_handle_delete(h);
+      i++;
+      if(i > message_num){
+	//codes_set_long(h,"unpack",0);
+	break;
+      }
+    }
+    fclose(in);
+
+    return error;
+  }
+
+  int bufr_tools_get_rec(char *filename,int message_num,size_t &num_dataset,int num_keys,char **datakey,date_time *&value){
+    int error;
+    long longVal;
+    
+    int i = 0,j;
+
+    if(num_keys == 1){
+      char **timestr=NULL;
+      error = bufr_tools_get_rec(filename,message_num,num_dataset,datakey[0],timestr);
+      if(value != NULL){
+	delete [] value;
+      }
+      value = new date_time [num_dataset];
+
+      for(j=0;j<num_dataset;j++){
+	value[j].set_time(timestr[j]);
+	delete [] timestr[j];
+      }
+      delete [] timestr;      
+    }
+    else if(num_keys > 1 &&num_keys <= 6){
+      FILE* in = NULL;
+      codes_handle *h = NULL;
+      in = fopen(filename,"r");
+      long **tmp_value = new long *[num_keys];
+      while ((h = codes_handle_new_from_file(NULL,in,PRODUCT_BUFR,&error)) != NULL || error != CODES_SUCCESS){
+	if(i==message_num){
+	  codes_set_long(h,"unpack",1);
+	  
+	  codes_get_size(h,datakey[0],&num_dataset);
+	  if(num_dataset > 0){
+	    if(value != NULL){
+	      delete [] value;
+	    }
+	    value = new date_time [num_dataset];
+	    for(j=0;j<num_keys;j++){
+	      tmp_value[j] = new long [num_dataset];
+
+	      codes_get_long_array(h,datakey[j],tmp_value[j],&num_dataset);
+	    }
+	    
+	    for(j=0;j<num_dataset;j++){
+	      switch(num_keys){
+	      case 1:
+		value[j].set_time((int) tmp_value[0][j]);
+		break;
+	      case 2:
+		value[j].set_time((int) tmp_value[0][j],(int) tmp_value[1][j]);
+		break;
+	      case 3:
+		value[j].set_time((int) tmp_value[0][j],(int) tmp_value[1][j],(int) tmp_value[2][j]);
+		break;
+	      case 4:
+		value[j].set_time((int) tmp_value[0][j],(int) tmp_value[1][j],(int) tmp_value[2][j],(int) tmp_value[3][j]);
+		break;
+	      case 5:
+		value[j].set_time((int) tmp_value[0][j],(int) tmp_value[1][j],(int) tmp_value[2][j],(int) tmp_value[3][j],(int) tmp_value[4][j]);
+		break;
+	      case 6:
+		value[j].set_time((int) tmp_value[0][j],(int) tmp_value[1][j],(int) tmp_value[2][j],(int) tmp_value[3][j],(int) tmp_value[4][j],(int) tmp_value[5][j]);
+		break;
+	      }
+	    }
+
+	    for(j=0;j<num_keys;j++){
+	      delete [] tmp_value[j];
+	    }
+	    
+	    error = _ERRORCODE_NOERROR;
+	  }
+	  else{
+	    error = _ERRORCODE_BUFRDATA_NOTFOUND;
+	  }
+	  //codes_set_long(h,"unpack",0);
+	}
+
+	codes_handle_delete(h);
+	i++;
+	if(i > message_num){
+	  break;
+	}
+      }
+      delete [] tmp_value;
+      fclose(in);
+    }
+    else{
+      error = _ERRORCODE_INPUTOUTOFRANGE;
+    }
+
+    return error;
+  }
+}

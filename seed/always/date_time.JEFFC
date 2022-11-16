@@ -1,0 +1,1569 @@
+#include <cstring>
+#include <iostream>
+#include <cstdlib>
+#include <cstdio>
+#include <string>
+#include <ctime>
+#include <ctype.h>
+#include <cmath>
+
+#include "date_time.h"
+#include "debug_mode.h"
+#include "error_code.h"
+#include "sorting.h"
+#include "string_man.h"
+#include "tools.h"
+
+int read_character_month(char *in){
+  int out = 0;
+
+  if(strcmp(in,"january")==0 || strcmp(in,"jan")==0){
+    out = 1;
+  }
+  else if(strcmp(in,"february")==0 || strcmp(in,"feb")==0){
+    out = 2;
+  }
+  else if(strcmp(in,"march")==0 || strcmp(in,"mar")==0){
+    out = 3;
+  }
+  else if(strcmp(in,"april")==0 || strcmp(in,"apr")==0){
+    out = 4;
+  }
+  else if(strcmp(in,"may")==0){
+    out = 5;
+  }
+  else if(strcmp(in,"june")==0 || strcmp(in,"jun")==0){
+    out = 6;
+  }
+  else if(strcmp(in,"july")==0 || strcmp(in,"jul")==0){
+    out = 7;
+  }
+  else if(strcmp(in,"august")==0 || strcmp(in,"aug")==0){
+    out = 8;
+  }
+  else if(strcmp(in,"september")==0 || strcmp(in,"sept")==0 || strcmp(in,"sep")==0){
+    out = 9;
+  }
+  else if(strcmp(in,"october")==0 || strcmp(in,"oct")==0){
+    out = 10;
+  }
+  else if(strcmp(in,"november")==0 || strcmp(in,"nov")==0){
+    out = 11;
+  }
+  else if(strcmp(in,"december")==0 || strcmp(in,"dec")==0){
+    out = 12;
+  }
+
+  return out;
+}
+
+
+date_time::date_time(){
+  int i;
+
+  for(i=0;i<6;i++){
+    time[i] = 0;
+  }
+  sec_decimal = 0.;
+}
+date_time::date_time(int year,int mon,int day){
+  this->set_time(year,mon,day);
+}
+date_time::date_time(int year,int mon,int day,int hour){
+  this->set_time(year,mon,day,hour);
+}
+date_time::date_time(int year,int mon,int day,int hour,int min){
+  this->set_time(year,mon,day,hour,min);
+}
+date_time::date_time(int year,int mon,int day,int hour,int min,int second){
+  this->set_time(year,mon,day,hour,min,second);
+}
+date_time::date_time(char *timestr){
+  this->set_time(timestr);
+}
+
+void date_time::set_time(int year, int mon, int day, int hour, int min, int sec){
+  set_time(year,mon,day,hour,min);
+  time[5] = sec;
+}
+
+void date_time::set_time(int year, int mon, int day, int hour, int min){
+  set_time(year,mon,day,hour);
+  time[4] = min;
+}
+
+void date_time::set_time(int year, int mon, int day, int hour){
+  set_time(year,mon,day);
+  time[3] = hour;
+}
+void date_time::set_time(int year,int mon,int day,double decimal_hour){
+  set_time(year,mon,day);
+  time[3] = (int) decimal_hour;
+  time[4] = (int) ((decimal_hour - time[3])*60);
+  time[5] = (int) ((decimal_hour - time[3] - time[4]/60.)*3600);
+}
+void date_time::set_time(int year, int mon, int day){
+  set_time(year,mon);
+  time[2] = day;
+}
+
+void date_time::set_time(int year, int mon){
+  set_time(year);
+  time[1] = mon;
+}
+
+void date_time::set_time(int year){
+  time[0] = year;
+  int i;
+  for(i=1;i<6;i++){
+    time[i] = 0;
+  }
+  sec_decimal = 0.;
+}
+int date_time::set_time(char * intimestr){
+  int length = strlen(intimestr);
+  bool error_pattern=0;
+
+  char* timestr = new char [length+1];
+  if(intimestr[0] == '\"' && intimestr[length-1] == '\"'){
+    strcpy(timestr,intimestr+1);
+    *strstr(timestr,"\"") = '\0';
+    length -= 2;
+  }
+  else{
+    strcpy(timestr,intimestr);
+  }
+  /*
+  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+    std::cout << "Time string = " << timestr << std::endl;
+  }
+  */
+  int i;
+  for(i=0;i<6;i++){
+    this->time[i] = 0;
+  }
+  sec_decimal = 0.;
+
+  switch(length){
+  case(7):
+    if(is_all_digit(timestr,0,6) && timestr[6] == 'Z'){ //format DDHHMMZ
+      string temp(timestr);
+      this->time[2] = atoi(temp.substr(0,2).c_str());
+      this->time[3] = atoi(temp.substr(2,2).c_str());
+      this->time[4] = atoi(temp.substr(4,2).c_str());
+    }
+    else{
+      error_pattern = 1;
+    }
+    break;
+  case(8):
+    if(is_all_digit(timestr,0,8)){ //format yyyymmdd
+      string temp(timestr);
+      this->time[0] = atoi(temp.substr(0,4).c_str());
+      this->time[1] = atoi(temp.substr(4,2).c_str());
+      this->time[2] = atoi(temp.substr(6,2).c_str());
+    }
+    else if(timestr[2] == ':' && timestr[5] == ':'){ //format HH:MM:SS
+      string temp(timestr);
+      this->time[3] = atoi(temp.substr(0,2).c_str());
+      this->time[4] = atoi(temp.substr(3,2).c_str());
+      this->time[5] = atoi(temp.substr(6,2).c_str());
+    }
+    else{
+      error_pattern = 1;
+    }
+    break;
+  case(10):
+    if(is_all_digit(timestr)){ //format YYYYMMDDHH
+      this->set_time_YYYYMMDDHH(atoi(timestr));
+    }
+    else if(timestr[2] == '-' && timestr[5] == '-'){ //format dd-mm-yyyy
+      string temp(timestr);
+      this->time[0] = atoi(temp.substr(6,4).c_str());
+      this->time[1] = atoi(temp.substr(3,2).c_str());
+      this->time[2] = atoi(temp.substr(0,2).c_str());
+    }
+    else if(timestr[0] == '\"' && timestr[3] == ':' && timestr[6] == ':' && timestr[9] == '\"'){ //format "HH:MM:SS"
+      string temp(timestr);
+      this->time[3] = atoi(temp.substr(1,2).c_str());
+      this->time[4] = atoi(temp.substr(4,2).c_str());
+      this->time[5] = atoi(temp.substr(7,2).c_str());
+    }
+    else{
+      error_pattern=1;
+    }
+    break;
+  case(11):
+    if(is_all_digit(timestr,0,10) && timestr[10] == 'Z'){ //format YYYYMMDDHHZ
+      string temp(timestr);
+      this->time[0] = atoi(temp.substr(0,4).c_str());
+      this->time[1] = atoi(temp.substr(4,2).c_str());
+      this->time[2] = atoi(temp.substr(6,2).c_str());
+      this->time[3] = atoi(temp.substr(8,2).c_str());
+    }
+    else if(timestr[2] == '-' && timestr[6] == '-'){ //format dd-mmm-yyyy
+      string temp(timestr);
+      this->time[0] = atoi(temp.substr(7,4).c_str());
+      this->time[1] = get_month_from_string(temp.substr(3,3).c_str());
+      if(this->time[1] == 0){
+	error_pattern = 1;
+      }
+      this->time[2] = atoi(temp.substr(0,2).c_str());
+    }
+    else{
+      error_pattern = 1;
+    }
+    break;
+  case(12):
+    if(is_all_digit(timestr)){ //format YYYYMMDDHHMM
+      this->set_time_YYYYMMDDHHMM(timestr);
+    }
+    else{
+      error_pattern = 1;
+    }
+    break;
+  case(13):
+    if(is_all_digit(timestr)){ //format YYYY{DDD}HHMMSS
+      string temp(timestr);
+      this->time[0] = atoi(temp.substr(0,4).c_str());
+      this->time[1] = 1;
+      this->time[2] = atoi(temp.substr(4,3).c_str());
+      this->time[3] = atoi(temp.substr(7,2).c_str());
+      this->time[4] = atoi(temp.substr(9,2).c_str());
+      this->time[5] = atoi(temp.substr(11,2).c_str());
+      this->correct_format();
+    }
+    else if(timestr[8]=='_' || timestr[8]=='Z'){ //format YYYYMMDD_HHMM
+      string temp(timestr);
+      this->time[0] = atoi(temp.substr(0,4).c_str());
+      this->time[1] = atoi(temp.substr(4,2).c_str());
+      this->time[2] = atoi(temp.substr(6,2).c_str());
+      this->time[3] = atoi(temp.substr(9,2).c_str());
+      this->time[4] = atoi(temp.substr(11,2).c_str());
+      this->correct_format();
+    }
+    else if(is_all_digit(timestr,0,12) && timestr[12] == 'Z'){ //format YYYYMMDDHHMMZ
+      string temp(timestr);
+      this->time[0] = atoi(temp.substr(0,4).c_str());
+      this->time[1] = atoi(temp.substr(4,2).c_str());
+      this->time[2] = atoi(temp.substr(6,2).c_str());
+      this->time[3] = atoi(temp.substr(8,2).c_str());
+      this->time[4] = atoi(temp.substr(10,2).c_str());
+    }
+    else{
+      error_pattern=1;
+    }
+    break;
+  case(14): 
+    if(is_all_digit(timestr)){ //format YYYYMMDDHHMMSS
+      this->set_time_YYYYMMDDHHMMSS(timestr);
+    }
+    else{
+      error_pattern=1;
+    }
+    break;
+  case(15): 
+    if(timestr[8] == ' ' || timestr[8] == '-' || timestr[8] == 'Z' || timestr[8] == '_'){ 
+      //format YYYYMMDD HHMMSS
+      //format YYYYMMDD-HHMMSS
+      //format YYYYMMDD_HHMMSS
+      //format YYYYMMDDZHHMMSS
+      string temp(timestr);
+       this->set_time(atoi(temp.substr(0,4).c_str()),atoi(temp.substr(4,2).c_str()),atoi(temp.substr(6,2).c_str()),atoi(temp.substr(9,2).c_str()),atoi(temp.substr(11,2).c_str()),atoi(temp.substr(13,2).c_str()));
+    }
+    else{
+      error_pattern=1;
+    }
+    break;
+  case(16):
+    if(timestr[2] == '/' && timestr[5] == '/' && timestr[10] == ' ' && timestr[13] == '.' ){ //format DD/MM/YYYY HH.MM
+      string temp(timestr);
+      this->set_time(atoi(temp.substr(6,4).c_str()),atoi(temp.substr(3,2).c_str()),atoi(temp.substr(0,2).c_str()),atoi(temp.substr(11,2).c_str()),atoi(temp.substr(14,2).c_str()),0);
+    }
+    else{
+      error_pattern=1;
+    }
+    break;
+  case(17):
+    if(timestr[2] == '-' && timestr[5] == '-' && timestr[8] == '-' && timestr[11] == ':' && timestr[14] == ':'){ //format YY-MM-DD-HH:MM:SS
+      string temp(timestr);
+      this->set_time(atoi(temp.substr(0,2).c_str())+2000,atoi(temp.substr(3,2).c_str()),atoi(temp.substr(6,2).c_str()),atoi(temp.substr(9,2).c_str()),atoi(temp.substr(12,2).c_str()),atoi(temp.substr(15,2).c_str()));
+    }
+    break;
+  case(19):
+    if(timestr[4] == '-' && timestr[7] == '-' && (timestr[10] == '_' || timestr[10] == ' ' || timestr[10] == 'T') && timestr[13] == ':' && timestr[16] == ':'){ //format YYYY-MM-DD_HH:MM:SS and YYYY-MM-DD HH:MM:SS and YYYY-MM-DDTHH:MM:SS
+      string temp(timestr);
+      this->set_time(atoi(temp.substr(0,4).c_str()),atoi(temp.substr(5,2).c_str()),atoi(temp.substr(8,2).c_str()),atoi(temp.substr(11,2).c_str()),atoi(temp.substr(14,2).c_str()),atoi(temp.substr(17,2).c_str()));
+    }
+    else if(timestr[4] == '-' && timestr[7] == '-' && timestr[10] == ':' && timestr[13] == ':' && timestr[16] == ':'){ //format YYYY-MM-DD:HH:MM:SS
+      string temp(timestr);
+      this->set_time(atoi(temp.substr(0,4).c_str()),atoi(temp.substr(5,2).c_str()),atoi(temp.substr(8,2).c_str()),atoi(temp.substr(11,2).c_str()),atoi(temp.substr(14,2).c_str()),atoi(temp.substr(17,2).c_str()));
+    }
+    else if(timestr[4] == '/' && timestr[7] == '/' && timestr[10] == ' ' && timestr[13] == ':' && timestr[16] == ':'){ //format YYYY/MM/DD HH:MM:SS
+      string temp(timestr);
+      this->set_time(atoi(temp.substr(0,4).c_str()),atoi(temp.substr(5,2).c_str()),atoi(temp.substr(8,2).c_str()),atoi(temp.substr(11,2).c_str()),atoi(temp.substr(14,2).c_str()),atoi(temp.substr(17,2).c_str()));
+    }
+    else if(timestr[2] == '/' && timestr[5] == '/' && timestr[10] == ' ' && timestr[13] == ':' && timestr[16] == ':'){ //format MM/DD/YYYY HH:MM:SS
+      string temp(timestr);
+      this->set_time(atoi(temp.substr(6,4).c_str()),atoi(temp.substr(0,2).c_str()),atoi(temp.substr(3,2).c_str()),atoi(temp.substr(11,2).c_str()),atoi(temp.substr(14,2).c_str()),atoi(temp.substr(17,2).c_str()));
+    }
+    else if((timestr[8] == ' ' || timestr[8] == '-' || timestr[8] == 'Z' || timestr[8] == '_') && timestr[15] == '.'){ 
+      //format YYYYMMDD HHMMSS.SSS
+      //format YYYYMMDD-HHMMSS.SSS
+      //format YYYYMMDD_HHMMSS.SSS
+      //format YYYYMMDDZHHMMSS.SSS
+      string temp(timestr);
+      this->set_time(atoi(temp.substr(0,4).c_str()),atoi(temp.substr(4,2).c_str()),atoi(temp.substr(6,2).c_str()),atoi(temp.substr(9,2).c_str()),atoi(temp.substr(11,2).c_str()),atoi(temp.substr(13,2).c_str()));
+      this->sec_decimal = atof(temp.substr(16,3).c_str())/1000.;
+    }
+    else{
+      error_pattern=1;
+    }
+    break;
+  case(20):
+    if(timestr[4] == '-' && timestr[7] == '-' && (timestr[10] == 'T' || timestr[10] == ' ') && timestr[13] == ':' && timestr[16] == ':' && timestr[19] == 'Z'){ //format YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DD HH:MM:SSZ
+      string temp(timestr);
+      this->set_time(atoi(temp.substr(0,4).c_str()),atoi(temp.substr(5,2).c_str()),atoi(temp.substr(8,2).c_str()),atoi(temp.substr(11,2).c_str()),atoi(temp.substr(14,2).c_str()),atoi(temp.substr(17,2).c_str()));
+    }
+    else{
+      error_pattern=1;
+    }
+    break;
+  case(23):
+    if(timestr[4] == '-' && timestr[7] == '-' && (timestr[10] == 'T' || timestr[10] == ' ')&& timestr[13] == ':' && timestr[16] == ':' && timestr[19] == '.'){ //format YYYY-MM-DDTHH:MM:SS.SSS or YYYY-MM-DD HH:MM:SS.SSS
+      string temp(timestr);
+      this->set_time(atoi(temp.substr(0,4).c_str()),atoi(temp.substr(5,2).c_str()),atoi(temp.substr(8,2).c_str()),atoi(temp.substr(11,2).c_str()),atoi(temp.substr(14,2).c_str()),((int) round(atof(temp.substr(17,6).c_str()))));
+    }
+    else{
+      error_pattern=1;
+    }
+    break;
+  case(24):
+    if(timestr[4] == '-' && timestr[7] == '-' && timestr[10] == 'T' && timestr[13] == ':' && timestr[16] == ':' && timestr[19] == '.' && timestr[23] == 'Z'){ //format YYYY-MM-DDTHH:MM:SS.SSSZ
+      string temp(timestr);
+      this->set_time(atoi(temp.substr(0,4).c_str()),atoi(temp.substr(5,2).c_str()),atoi(temp.substr(8,2).c_str()),atoi(temp.substr(11,2).c_str()),atoi(temp.substr(14,2).c_str()),((int) round(atof(temp.substr(17,6).c_str()))));
+    }
+    else{
+      error_pattern=1;
+    }
+    break;
+  case(25):
+    if(timestr[4] == '-' && timestr[7] == '-' && timestr[10] == 'T' && timestr[13] == ':' && timestr[16] == ':' && timestr[19] == '+' && timestr[22] == ':'){ //format YYYY-MM-DDTHH:MM:SS+HH:MM (time zone)
+      string temp(timestr);
+      this->set_time(atoi(temp.substr(0,4).c_str()),atoi(temp.substr(5,2).c_str()),atoi(temp.substr(8,2).c_str()),atoi(temp.substr(11,2).c_str()),atoi(temp.substr(14,2).c_str()),atoi(temp.substr(17,2).c_str()));
+    }
+    else{
+      error_pattern=1;
+    }
+    break;
+  case(26):
+    if(timestr[0] == '\"' && timestr[5] == '-' && timestr[8] == '-' && timestr[11] == 'T' && timestr[14] == ':' && timestr[17] == ':' && timestr[20] == '.' && timestr[24] == 'Z' && timestr[25] == '\"'){ //format "YYYY-MM-DDTHH:MM:SS.SSSZ"
+      string temp(timestr);
+      this->set_time(atoi(temp.substr(1,4).c_str()),atoi(temp.substr(6,2).c_str()),atoi(temp.substr(9,2).c_str()),atoi(temp.substr(12,2).c_str()),atoi(temp.substr(15,2).c_str()),((int) round(atof(temp.substr(18,6).c_str()))));
+    }
+    else{
+      error_pattern=1;
+    }
+    break;
+  default:
+    error_pattern=1;
+    break;
+  }
+  /*
+  if(error_pattern){
+    char* check_pt;
+    check_pt = strstr(str_pt,"hour");
+    if(!match_pattern && check_pt != NULL){
+      *check_pt='\0';
+      addtime.set_time(0,0,0,atoi(str_pt));
+      error_pattern = 0;
+    }
+
+    check_pt = strstr(str_pt,"days");
+    if(!match_pattern && check_pt != NULL){
+      *check_pt='\0';
+      addtime.set_time(0,0,atoi(str_pt));
+      error_pattern = 0;
+    }
+  }
+  */
+
+  if(error_pattern){
+    error_pattern = 0;
+    if(string_count_pattern(timestr,"/")==2){
+      this->set_time(timestr,"mon/day/yr");
+    }
+    else if(string_count_pattern(timestr,"-")==2){
+      this->set_time(timestr,"day-mon-yr");
+    }
+    else if(strstr(timestr,"hour")!=NULL){
+      char *ctemp = new char [strlen(timestr)+10];
+      strcpy(ctemp,timestr);
+      *(strstr(ctemp,"hour")) = '\0';
+      if(is_number(ctemp)){
+	this->time[3] = atoi(ctemp);
+      }
+      else{
+	error_pattern = 1;
+      }
+      delete [] ctemp;
+    }
+    else if(strstr(timestr,"day")!=NULL){
+      char *ctemp = new char [strlen(timestr)+10];
+      strcpy(ctemp,timestr);
+      *(strstr(ctemp,"day")) = '\0';
+      if(is_number(ctemp)){
+	this->time[3] = atoi(ctemp);
+      }
+      else{
+	error_pattern = 1;
+      }
+      delete [] ctemp;
+    }
+    else{
+      error_pattern = 1;
+    }
+  }
+
+  delete [] timestr;
+
+  if(error_pattern){
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Pattern not recognized for set_time" << endl;
+      std::cout << intimestr << endl;
+    }
+    return _ERRORCODE_INVALIDTIMEFORMAT;
+  }
+  else{
+    return _ERRORCODE_NOERROR;
+  }
+}
+int date_time::set_time(char * intimestr,char *format){
+  //cout << timestr << endl;
+  int length = strlen(intimestr);
+  //cout << length << endl;
+  bool error_pattern=0;
+  char ctemp[4096], ctemp2[4096];
+
+  char* timestr = new char [length+1];
+  if(intimestr[0] == '\"' && intimestr[length-1] == '\"'){
+    strcpy(timestr,intimestr+1);
+    *strstr(timestr,"\"") = '\0';
+    length -= 2;
+  }
+  else{
+    strcpy(timestr,intimestr);
+  }
+
+  int i;
+  for(i=0;i<6;i++){
+    this->time[i] = 0;
+  }
+  if(strcmp(format,"mon/day/yr")==0){
+    strcpy(ctemp,timestr);
+    *strstr(ctemp,"/") = '\0';
+    int yyyy, mm, dd;
+    mm = atoi(ctemp);
+    //cout << mm << endl;
+    
+    strcpy(ctemp,timestr);
+    strcpy(ctemp2,(strstr(ctemp,"/")+1));
+    *strstr(ctemp2,"/") = '\0';
+    dd = atoi(ctemp2);
+    
+    strcpy(ctemp,timestr);
+    strcpy(ctemp2,(strstr(ctemp,"/")+1));
+    strcpy(ctemp,(strstr(ctemp2,"/")+1));
+    yyyy = atoi(ctemp);
+    if(strlen(ctemp) < 4){
+      yyyy+=2000;
+    }
+    
+    this->set_time(yyyy,mm,dd);
+  }
+  else if(strcmp(format,"day-mon-yr")==0){
+    strcpy(ctemp,timestr);
+    *strstr(ctemp,"-") = '\0';
+    int yyyy, mm, dd;
+    dd = atoi(ctemp);
+    
+    strcpy(ctemp,timestr);
+    strcpy(ctemp2,(strstr(ctemp,"-")+1));
+    *strstr(ctemp2,"-") = '\0';
+    for(i=0;i<strlen(ctemp2);i++){
+      ctemp2[i] = tolower(ctemp2[i]);
+    }
+    mm = read_character_month(ctemp2);
+    
+    strcpy(ctemp,timestr);
+    strcpy(ctemp2,(strstr(ctemp,"-")+1));
+    strcpy(ctemp,(strstr(ctemp2,"-")+1));
+    yyyy = atoi(ctemp);
+    if(strlen(ctemp) < 4){
+      yyyy+=2000;
+    }
+    
+    this->set_time(yyyy,mm,dd);
+  }
+  else if(strcmp(format,"dd/mm/yyyy hh:mm:ss")==0){
+    string temp(timestr);
+    this->set_time(atoi(temp.substr(6,4).c_str()),atoi(temp.substr(3,2).c_str()),atoi(temp.substr(0,2).c_str()),atoi(temp.substr(11,2).c_str()),atoi(temp.substr(14,2).c_str()),atoi(temp.substr(17,2).c_str()));
+  }
+  else if(strcmp(format,"yyyy-mm-dd hh:mm:ss")==0){
+    string temp(timestr);
+    this->set_time(atoi(temp.substr(0,4).c_str()),atoi(temp.substr(5,2).c_str()),atoi(temp.substr(8,2).c_str()),atoi(temp.substr(11,2).c_str()),atoi(temp.substr(14,2).c_str()),atoi(temp.substr(17,2).c_str()));
+  }
+  else{
+    error_pattern = 1;
+  }
+
+  delete [] timestr;
+
+  if(error_pattern){
+    std::cout << "Pattern not recognized for set_time" << endl;
+    std::cout << timestr << endl;
+    return 1;
+  }
+  else{
+    return 0;
+  }
+}
+void date_time::set_sec_decimal(double in){
+  sec_decimal = in;
+}
+void date_time::set_time_YYYYMMDD(int yyyymmdd){
+  this->set_time(yyyymmdd/10000, (yyyymmdd/100)%100, yyyymmdd%100);
+}
+void date_time::set_time_YYYYMMDDHH(int yyyymmddhh){
+  this->set_time(yyyymmddhh/1000000, (yyyymmddhh/10000)%100, (yyyymmddhh/100)%100,yyyymmddhh%100);
+}
+void date_time::set_time_YYYYMMDDHH(char *yyyymmddhh){
+  string temp(yyyymmddhh);
+  this->set_time(atoi(temp.substr(0,4).c_str()),atoi(temp.substr(4,2).c_str()),atoi(temp.substr(6,2).c_str()),atoi(temp.substr(8,2).c_str()));
+}
+void date_time::set_time_YYYYMMDDHHMM(char *yyyymmddhhmm){
+  string temp(yyyymmddhhmm);
+  this->set_time(atoi(temp.substr(0,4).c_str()),atoi(temp.substr(4,2).c_str()),atoi(temp.substr(6,2).c_str()),atoi(temp.substr(8,2).c_str()),atoi(temp.substr(10,2).c_str()));
+}
+void date_time::set_time_YYYYMMDDHHMMSS(char *yyyymmddhhmmss){
+  string temp(yyyymmddhhmmss);
+  this->set_time(atoi(temp.substr(0,4).c_str()),atoi(temp.substr(4,2).c_str()),atoi(temp.substr(6,2).c_str()),atoi(temp.substr(8,2).c_str()),atoi(temp.substr(10,2).c_str()),atoi(temp.substr(12,2).c_str()));
+}
+void date_time::set_time_YYMMDDHHMMSS(char *yymmddhhmmss){
+  string temp(yymmddhhmmss);
+  this->set_time(atoi(temp.substr(0,2).c_str())+2000,atoi(temp.substr(2,2).c_str()),atoi(temp.substr(4,2).c_str()),atoi(temp.substr(6,2).c_str()),atoi(temp.substr(8,2).c_str()),atoi(temp.substr(10,2).c_str()));
+}
+void date_time::set_time_HHMM(char *hhmm){
+  string temp(hhmm);
+  this->set_time(0,0,0,atoi(temp.substr(0,2).c_str()),atoi(temp.substr(2,2).c_str()));
+}
+void date_time::set_time_MJD(double mjd){
+  this->set_time(1858,11,17,0,0,0);
+  int temp = mjd;
+  this->time[2] += temp;
+  this->time[3] = (mjd - temp)*24.;
+  this->time[4] = ((int) ((mjd - temp)*24*60))%60;
+  this->time[5] = ((int) ((mjd - temp)*24*60*60))%60;
+  this->correct_format();
+}
+void date_time::set_now(){
+  this->set_time(1970,1,1);
+  date_time temp; 
+  time_t now;
+  now = std::time(NULL);
+  temp.set_time(0,0,0,0,0,(int) now);
+  *this += temp;
+}
+date_time& date_time::operator=(const date_time& in){
+  if(this == &in){
+    return *this;
+  }
+
+  int i;
+  for(i=0;i<6;i++){
+    this->time[i] = in.time[i];
+  }
+  this->sec_decimal = in.sec_decimal;
+
+  return *this;
+}
+
+date_time date_time::operator+(const date_time& in) const{
+  date_time result;
+
+  int i;
+  for(i=0;i<6;i++){
+    result.time[i] = this->time[i] + in.time[i];
+  }
+  result.sec_decimal = this->sec_decimal + in.sec_decimal;
+  if(!(this->time[1] == 0 || this->time[2] == 0) || !(in.time[1] == 0 || in.time[2] == 0)){
+    result.correct_format();
+  }
+
+  return result;
+}
+
+date_time date_time::operator+=(const date_time& in){
+  date_time result;
+
+  int i;
+  for(i=0;i<6;i++){
+    result.time[i] = this->time[i] + in.time[i];
+  }
+  result.sec_decimal = this->sec_decimal + in.sec_decimal;
+  if(!(this->time[1] == 0 || this->time[2] == 0) || !(in.time[1] == 0 || in.time[2] == 0)){
+    result.correct_format();
+  }
+
+  *this = result;
+
+  return *this;
+}
+
+date_time date_time::operator-(const date_time& in) const{
+  date_time result;
+
+  int i;
+  for(i=0;i<6;i++){
+    result.time[i] = this->time[i] - in.time[i];
+  }
+  result.sec_decimal = this->sec_decimal - in.sec_decimal;
+  if(!(this->time[1] == 0 || this->time[2] == 0) || !(in.time[1] == 0 || in.time[2] == 0)){
+    result.correct_format();
+  }
+
+  return result;
+}
+
+date_time date_time::operator-=(const date_time& in){
+  date_time result;
+
+  int i;
+  for(i=0;i<6;i++){
+    result.time[i] = this->time[i] - in.time[i];
+  }
+  result.sec_decimal = this->sec_decimal - in.sec_decimal;
+  if(!(this->time[1] == 0 || this->time[2] == 0) || !(in.time[1] == 0 || in.time[2] == 0)){
+    result.correct_format();
+  }
+
+  *this = result;
+
+  return *this;
+}
+
+date_time date_time::operator*(const int& in) const{
+  date_time result;
+
+  int i;
+  for(i=0;i<6;i++){
+    result.time[i] = this->time[i]*in;
+  }
+  result.sec_decimal = this->sec_decimal*in;
+  //result.correct_format();
+
+  return result;
+}
+
+bool date_time::isSameMonth(date_time in) const{
+  if(this->get_year() == in.get_year()){
+    if(this->get_month() == in.get_month()){
+      return 1;
+    }
+  }
+
+  return 0;
+}
+bool date_time::isSameDay(date_time in) const{
+  if(this->isSameMonth(in)){
+    if(this->get_day() == in.get_day()){
+      return 1;
+    }
+  }
+
+  return 0;
+}
+bool date_time::isSameMinute(date_time in) const{
+  if(this->isSameDay(in)){
+    if(this->get_hour() == in.get_hour()){
+      if(this->get_minute() == in.get_minute()){
+	return 1;
+      }
+    }
+  }
+
+  return 0;
+}
+
+  
+void date_time::correct_format(){
+  int i;
+  
+  //check the format of the date_time first
+  bool correct = check_format();
+  if(correct){
+    return;
+  }
+
+  if(sec_decimal < 0. || sec_decimal >= 1.){
+    int dec = std::floor(sec_decimal);
+    sec_decimal -= dec;
+    time[5] += dec;
+  }
+
+  //correcting the format of minute and second
+  int quot;
+  for(i=5;i>3;i--){
+    if(time[i]>=0){
+      quot = time[i]/60;
+      time[i] = time[i]%60;
+     }
+    else{
+      quot = time[i]/60 - 1;
+      time[i] = time[i]%60 + 60;
+      if(time[i]==60){
+	time[i] = 0;
+	quot ++;
+      }
+    }
+    time[i-1] += quot;
+  }
+
+  //correcting the format of hour
+  if(time[3]>=0){
+    quot = time[3]/24;
+    time[3] = time[3]%24;
+  }
+  else{
+    quot = time[3]/24 - 1;
+    time[3] = time[3]%24 + 24;
+
+    if(time[3]==24){
+      quot += 1;
+      time[3]=0;
+    }
+  }
+  time[2] += quot;
+
+  //correct the format of month
+  if(time[1]<1 || time[1] >12){
+    if(time[1]>0){
+      quot = time[1]/12;
+      time[1] = time[1]%12;
+    }
+    else{
+      quot = time[1]/12 - 1;
+      time[1] = time[1]%12 + 12;
+    }
+    time[0] += quot;
+  }
+
+  //correcting the format of day and month 
+  bool contin=1;
+  quot = 0;
+  do{
+    // month and day must be > 0, month must be <= 12
+    if(time[2]>0 && time[1]>0 && time[1] <= 12){
+      if(time[1]<8){
+	if(time[1]==2){
+	  if(((time[0]%400 == 0) || (time[0]%100 != 0 && time[0]%4 == 0)) && time[2] <= 29){
+	    contin = 0;
+	  }
+	  else if((time[0]%100 == 0 || time[0]%4 != 0) && time[2] <= 28){
+	    contin = 0;
+	  }
+	  else{
+	    contin = 1;
+	  }
+	}
+	else if(time[1]%2 != 0 && time[2] <= 31){
+	  contin = 0;
+	}
+	else if(time[1]%2 == 0 && time[2] <= 30){
+	  contin = 0;
+	}
+	else{
+	  contin = 1;
+	}
+      }
+      else{
+	if(time[1]%2 == 0 && time[2] <= 31){
+	  contin = 0;
+	}
+	else if(time[1]%2 != 0 && time[2] <= 30){
+	  contin = 0;
+	}
+	else{
+	  contin = 1;
+	}
+      }
+    }
+
+    if(contin){
+      if(time[2] > 0){
+	if(time[1] <8){
+	  if(time[1]==2){
+	    if(time[0]%400==0 || (time[0]%100 != 0 && time[0]%4==0)){
+	      time[2] -= 29;
+	    }
+	    else{
+	      time[2] -= 28;
+	    }
+	  }
+	  else if(time[1]%2 != 0){
+	    time[2] -= 31;
+	  }
+	  else{
+	    time[2] -= 30;
+	  }
+	}
+	else{
+	  if(time[1]%2 != 1){
+	    time[2] -= 31;
+	  }
+	  else{
+	    time[2] -= 30;
+	  }
+	}
+	time[1]++;
+      }
+      else{
+	if(time[1]>8){
+	  if(time[1]%2==0){
+	    time[2] += 30;
+	  }
+	  else{
+	    time[2] += 31;
+	  }
+	}
+	else{
+	  if(time[1]%2==0){
+	    time[2] += 31;
+	  }
+	  else if(time[1] == 3){
+	    if(time[0]%4==0){
+	      time[2] += 29;
+	    }
+	    else{
+	      time[2] += 28;
+	    }
+	  }
+	  else if(time[1] == 1){
+	    time[2] += 31;
+	  }
+	  else{
+	    time[2] += 30;
+	  }
+	}
+	time[1] --;
+      }
+
+      if(time[1] < 1 || time[1] > 12){
+	if(time[1]>0){
+	  quot = time[1]/12;
+	  time[1] = time[1]%12;
+	  if(time[1] == 0){
+	    time[1] = 12;
+	  }
+	}
+	else{
+	  quot = time[1]/12 - 1;
+	  time[1] = time[1]%12 + 12;
+	}
+	time[0] += quot;
+      }
+    }
+  }while(contin);
+}
+
+int date_time::numberOfDay() const{
+  libjeff::print_trace(1,"date_time::numberOfDay() const");
+  //first guess
+  int result = ((int) this->get_year()*365.25 + this->get_month()*30.5 + this->get_day());
+
+  //correction
+  if(result != 0){
+    date_time delta, one_day;
+    delta.set_time(0,0,result);
+    delta.correct_format();
+    one_day.set_time(0,0,1);
+
+    while(!(delta.isSameDay(*this))){
+      if(delta < *this){
+	result++;
+	delta.set_time(0,0,result);
+	//delta.correct_format();
+      }
+      else{
+	result--;
+	delta.set_time(0,0,result);
+	//delta.correct_format();
+      }
+    }
+  }
+  libjeff::print_trace(0,"date_time::numberOfDay() const");
+  return result;
+}
+int date_time::numberOfMonthFrom(const date_time& x) const{
+  libjeff::print_trace(1,"date_time::numberOfMonthFrom(const date_time&) const");
+  int result = 0;
+  if(x != NOTIME && *this != NOTIME){
+    result = ((int) (this->get_year() - x.get_year())*12 + (this->get_month() - x.get_month()));
+  }
+
+  libjeff::print_trace(0,"date_time::numberOfMonthFrom(const date_time&) const");
+  return result;
+}
+int date_time::numberOfDayFrom(const date_time& x) const{
+  libjeff::print_trace(1,"date_time::numberOfDayFrom(const date_time&) const");
+  int result = 0;
+  if(x != NOTIME && *this != NOTIME){
+    result = ((int) (this->get_year() - x.get_year())*365.25 + (this->get_month() - x.get_month())*30.5 + this->get_day() - x.get_day());
+    /*
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "x = " << x << " " << "this = " << *this << " " << result << std::endl;
+    }
+    */
+    //correction
+    date_time delta, one_day;
+    delta.set_time(0,0,result);
+    one_day.set_time(0,0,1);
+    
+    while(!(this->isSameDay(x + delta))){
+      if(x+delta < *this){
+	result++;
+	delta.set_time(0,0,result);
+      }
+      else{
+	result--;
+	delta.set_time(0,0,result);
+      }
+    }
+  }
+  else{
+    std::cout << "Error! Time is not defined." << std::endl;
+  }
+
+  libjeff::print_trace(0,"date_time::numberOfDayFrom(const date_time&) const");
+  return result;
+}
+int date_time::numberOfHourFrom(const date_time& x) const{
+  int result = this->numberOfDayFrom(x)*24 + this->get_hour() - x.get_hour();
+  //if(this->get_hour() < x.get_hour()){
+  //  result += 24;
+  //}
+  return result;
+}
+int date_time::numberOfMinuteFrom(const date_time& x) const{
+  int result = this->numberOfHourFrom(x)*60 + this->get_minute() - x.get_minute();
+  return result;
+}
+double date_time::numberOfSecondFrom(const date_time& x) const{
+  libjeff::print_trace(1,"date_time::numberOfSecondFrom(const date_time&) const");
+
+  double result = this->numberOfMinuteFrom(x)*60 + this->get_second() - x.get_second() + this->sec_decimal - x.sec_decimal;
+  libjeff::print_trace(0,"date_time::numberOfSecondFrom(const date_time&) const");
+  return result;
+}
+int date_time::numberOfIntervalFrom(const date_time &ref,const date_time &interval) const{
+  int results = 0;
+
+  date_time temp_time = ref;
+  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+    std::cout << temp_time << " " << *this << std::endl;
+  }
+  while(temp_time+interval <= *this){
+    results++;
+    temp_time += interval;
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << results << " " << temp_time << " " << temp_time+interval << " " << *this << std::endl;
+    }
+  }
+
+  return results;
+}
+char* date_time::get_time(char* format, char* buff) const{
+  if(!strcmp(format,"h")){
+    sprintf(buff,"%d",this->get_hour());
+  }
+  else if(!strcmp(format,"hh")){
+    sprintf(buff,"%2.2d",this->get_hour());
+  }
+  else if(!strcmp(format,"yyyymm/yyyymmdd")){
+    sprintf(buff,"%4.4d%2.2d/%4.4d%2.2d%2.2d",this->get_year(),this->get_month(),this->get_year(),this->get_month(),this->get_day());
+  }
+  else if(!strcmp(format,"yyyy/yyyymm/yyyymmdd")){
+    sprintf(buff,"%4.4d/%4.4d%2.2d/%4.4d%2.2d%2.2d",this->get_year(),this->get_year(),this->get_month(),this->get_year(),this->get_month(),this->get_day());
+  }
+  else if(!strcmp(format,"yyyy_mm/yyyy_mm_dd/")){
+    sprintf(buff,"%4.4d_%2.2d/%4.4d_%2.2d_%2.2d/",this->get_year(),this->get_month(),this->get_year(),this->get_month(),this->get_day());
+  }
+  else if(!strcmp(format,"yyyymmddhhmmss")){
+    sprintf(buff,"%4.4d%2.2d%2.2d%2.2d%2.2d%2.2d",this->get_year(),this->get_month(),this->get_day(),this->get_hour(),this->get_minute(),this->get_second());
+  }
+  else if(!strcmp(format,"yyyy-mm-ddThh:mm:ssZ")){
+    sprintf(buff,"%4.4d-%2.2d-%2.2dT%2.2d:%2.2d:%2.2dZ",this->get_year(),this->get_month(),this->get_day(),this->get_hour(),this->get_minute(),this->get_second());
+  }
+  else if(!strcmp(format,"yyyymm/yyyymmdd/hhmmss")){
+    sprintf(buff,"%4.4d%2.2d/%4.4d%2.2d%2.2d/%2.2d%2.2d%2.2d",this->get_year(),this->get_month(),this->get_year(),this->get_month(),this->get_day(),this->get_hour(),this->get_minute(),this->get_second());
+  }
+  else if(!strcmp(format,"ddmmyyyyThh:mm:ssZ")){
+    sprintf(buff,"%2.2d%2.2d%4.4dT%2.2d:%2.2d:%2.2dZ",this->get_day(),this->get_month(),this->get_year(),this->get_hour(),this->get_minute(),this->get_second());
+  }
+  else if(!strcmp(format,"yyyymmddhhmm")){
+    sprintf(buff,"%4.4d%2.2d%2.2d%2.2d%2.2d",this->get_year(),this->get_month(),this->get_day(),this->get_hour(),this->get_minute());
+  }
+  else if(!strcmp(format,"yymmddhhmm")){
+    sprintf(buff,"%2.2d%2.2d%2.2d%2.2d%2.2d",this->get_year()%100,this->get_month(),this->get_day(),this->get_hour(),this->get_minute());
+  }
+  else if(!strcmp(format,"yymmddhhmmss")){
+    sprintf(buff,"%2.2d%2.2d%2.2d%2.2d%2.2d%2.2d",this->get_year()%100,this->get_month(),this->get_day(),this->get_hour(),this->get_minute(),this->get_second());
+  }
+  else if(!strcmp(format,"yymmddhh")){
+    sprintf(buff,"%2.2d%2.2d%2.2d%2.2d",this->get_year()%100,this->get_month(),this->get_day(),this->get_hour());
+  }
+  else if(!strcmp(format,"yyyymmddhh")){
+    sprintf(buff,"%4.4d%2.2d%2.2d%2.2d",this->get_year(),this->get_month(),this->get_day(),this->get_hour());
+  }
+  else if(!strcmp(format,"yyyymmdd")){
+    sprintf(buff,"%4.4d%2.2d%2.2d",this->get_year(),this->get_month(),this->get_day());
+  }
+  else if(!strcmp(format,"yyyymm")){
+    sprintf(buff,"%4.4d%2.2d",this->get_year(),this->get_month());
+  }
+  else if(!strcmp(format,"yymmdd")){
+    sprintf(buff,"%2.2d%2.2d%2.2d",this->get_year()%100,this->get_month(),this->get_day());
+  }
+  else if(!strcmp(format,"yymm")){
+    sprintf(buff,"%2.2d%2.2d",this->get_year()%100,this->get_month());
+  }
+  else if(!strcmp(format,"yyyy")){
+    sprintf(buff,"%4.4d",this->get_year());
+  }
+  else if(!strcmp(format,"ddhhmm")){
+    sprintf(buff,"%2.2d%2.2d%2.2d",this->get_day(),this->get_hour(),this->get_minute());
+  }
+  else if(!strcmp(format,"mm-dd hh")){
+    sprintf(buff,"%2.2d-%2.2d %2.2d",this->get_month(),this->get_day(),this->get_hour());
+  }
+  else if(!strcmp(format,"mmddhhmm")){
+    sprintf(buff,"%2.2d%2.2d%2.2d%2.2d",this->get_month(),this->get_day(),this->get_hour(),this->get_minute());
+  }
+  else if(!strcmp(format,"hhmm")){
+    sprintf(buff,"%2.2d%2.2d",this->get_hour(),this->get_minute());
+  }
+  else if(!strcmp(format,"hhmmss")){
+    sprintf(buff,"%2.2d%2.2d%2.2d",this->get_hour(),this->get_minute(),this->get_second());
+  }
+  else if(!strcmp(format,"hh:mm:ss")){
+    sprintf(buff,"%2.2d:%2.2d:%2.2d",this->get_hour(),this->get_minute(),this->get_second());
+  }
+  else if(!strcmp(format,"yyyy-mm-dd hh")){
+    sprintf(buff,"%4.4d-%2.2d-%2.2d %2.2d",this->get_year(),this->get_month(),this->get_day(),this->get_hour());
+  }
+  else if(!strcmp(format,"yyyymmdd_hhmm")){
+    sprintf(buff,"%4.4d%2.2d%2.2d_%2.2d%2.2d",this->get_year(),this->get_month(),this->get_day(),this->get_hour(),this->get_minute());
+  }
+  else if(!strcmp(format,"yyyymmdd_hhmmss")){
+    sprintf(buff,"%4.4d%2.2d%2.2d_%2.2d%2.2d%2.2d",this->get_year(),this->get_month(),this->get_day(),this->get_hour(),this->get_minute(),this->get_second());
+  }
+  else if(!strcmp(format,"yyyy-mm-dd_hh:mm:ss")){
+    sprintf(buff,"%4.4d-%2.2d-%2.2d_%2.2d:%2.2d:%2.2d",this->get_year(),this->get_month(),this->get_day(),this->get_hour(),this->get_minute(),this->get_second());
+  }
+  else if(!strcmp(format,"yyyy-mm-dd:hh:mm:ss")){
+    sprintf(buff,"%4.4d-%2.2d-%2.2d:%2.2d:%2.2d:%2.2d",this->get_year(),this->get_month(),this->get_day(),this->get_hour(),this->get_minute(),this->get_second());
+  }
+  else if(!strcmp(format,"yyyy-mm-dd hh:mm:ss.sssZ")){
+    sprintf(buff,"%4.4d-%2.2d-%2.2d %2.2d:%2.2d:%2.2d.%3.3dZ",this->get_year(),this->get_month(),this->get_day(),this->get_hour(),this->get_minute(),this->get_second(),(int) round(this->sec_decimal*1000));
+  }
+  else if(!strcmp(format,"yyyy_mm")){
+    sprintf(buff,"%4.4d_%2.2d",this->get_year(),this->get_month());
+  }
+  else if(!strcmp(format,"yyyy-m")){
+    sprintf(buff,"%4.4d-%d",this->get_year(),this->get_month());
+  }
+  else if(!strcmp(format,"yyyy_mm_dd")){
+    sprintf(buff,"%4.4d_%2.2d_%2.2d",this->get_year(),this->get_month(),this->get_day());
+  }
+  else if(!strcmp(format,"Unix time")){
+    date_time basetime(1970,1,1);
+    sprintf(buff,"%d",this->numberOfSecondFrom(basetime));
+  }
+  else{
+    std::cout << "Format " << format << " not supported" << endl;
+    //exit(1);
+  }
+  return buff;
+}
+unsigned int date_time::itime(char* format){
+  unsigned int result;
+
+  result = 0;
+  int i;
+  /*
+  if(!strcmp(format,"yyyymmddhhmmss")){
+    result += time[0];
+    for(i=1;i<6;i++){
+      result *= 100;
+      result += time[i];
+    }
+  }
+  else if(!strcmp(format,"yyyymmddhhmm")){
+    result += time[0];
+    for(i=1;i<5;i++){
+      result *= 100;
+      result += time[i];
+    }
+  }
+  else*/ if(!strcmp(format,"yyyymmddhh")){
+    result += time[0];
+    for(i=1;i<4;i++){
+      result *= 100;
+      result += time[i];
+    }
+  }
+  else if(!strcmp(format,"yyyymmdd")){
+    result += time[0];
+    for(i=1;i<3;i++){
+      result *= 100;
+      result += time[i];
+    }
+  }
+  else if(!strcmp(format,"yyyymm")){
+    result += time[0];
+    for(i=1;i<2;i++){
+      result *= 100;
+      result += time[i];
+    }
+  }/*
+  else if(!strcmp(format,"yymmddhhmmss")){
+    result += time[0]%100;
+    for(i=1;i<6;i++){
+      result *= 100;
+      result += time[i];
+    }
+    }*/
+  else if(!strcmp(format,"yymmddhhmm")){
+    result += time[0]%100;
+    for(i=1;i<5;i++){
+      result *= 100;
+      result += time[i];
+    }
+  }
+  else if(!strcmp(format,"yymmddhh")){
+    result += time[0]%100;
+    for(i=1;i<4;i++){
+      result *= 100;
+      result += time[i];
+    }
+  }
+  else if(!strcmp(format,"yymmdd")){
+    result += time[0]%100;
+    for(i=1;i<3;i++){
+      result *= 100;
+      result += time[i];
+    }
+  }
+  else if(!strcmp(format,"hhmm")){
+    result += time[3];
+    for(i=4;i<5;i++){
+      result *= 100;
+      result += time[i];
+    }
+  }
+  else{
+    std::cout << "Format not supported" << endl;
+    //exit(1);
+  }
+
+  return result;
+}
+
+bool date_time::check_format(){
+  if(sec_decimal < 0. || sec_decimal >= 1.){
+    return 0;
+  }
+  if(time[5]<0){
+    return 0;
+  }
+  else if(time[5]>59){
+    return 0;
+  }
+
+  if(time[4]<0){
+    return 0;
+  }
+  else if(time[4]>59){
+    return 0;
+  }
+
+  if(time[3]<0){
+    return 0;
+  }
+  else if(time[3]>23){
+    return 0;
+  }
+
+  if(time[1]<1){
+    return 0;
+  }
+  else if(time[1]>12){
+    return 0;
+  }
+
+  if(time[2]<1){
+    return 0;
+  }
+  else{
+    if(time[1]<8){
+      if(time[1]%2!=0){
+	if(time[2]>31){
+	  return 0;
+	}
+      }
+      else if(time[1]==2){
+	if(time[0]%400==0 || (time[0]%100 != 0 && time[0]%4==0)){
+	  if(time[2]>29){
+	    return 0;
+	  }
+	}
+	else{
+	  if(time[2]>28){
+	    return 0;
+	  }
+	}
+      }
+      else{
+	if(time[2]>30){
+	  return 0;
+	}
+      }
+    }
+    else{
+      if(time[1]%2!=0){
+	if(time[2]>30){
+	  return 0;
+	}
+      }
+      else{
+	if(time[2]>31){
+	  return 0;
+	}
+      }
+    }
+  }
+
+  return 1;
+}
+
+int date_time::get_year() const{
+  return time[0];
+}
+
+int date_time::get_month() const{
+  return time[1];
+}
+
+int date_time::get_day() const{
+  return time[2];
+}
+
+int date_time::get_hour() const{
+  return time[3];
+}
+
+int date_time::get_minute() const{
+  return time[4];
+}
+
+int date_time::get_second() const{
+  return time[5];
+}
+double date_time::get_sec_decimal() const{
+  return sec_decimal;
+}
+
+date_time date_time::round2min(int round2){
+  double temp = this->time[4] + this->time[5]/60.;
+  temp /= round2;
+
+  date_time result(*this);
+  result.time[4] = ((int) temp)*round2;
+  result.time[5] = 0;
+
+  result.set_sec_decimal(0.);
+
+  date_time delta_time;
+  delta_time.set_time(0,0,0,0,round2,0);
+
+  if(temp - ((int) temp) >= 0.5){
+    result += delta_time;
+  }
+
+  return result;
+}
+date_time date_time::round2min(){
+  return this->round2min(1);
+}
+date_time date_time::round2startofquarter(){
+  date_time result = *this;
+  result.time[1] -= (result.time[1] - 1)%3;
+  result.time[2] = 1;
+  int i;
+  for(i=3;i<6;i++){
+    result.time[i] = 0;
+  }
+  return result;
+}
+date_time date_time::round2endofquarter(){
+  date_time result;
+  result = this->round2startofquarter();
+  int i;
+  for(i=0;i<3;i++){
+    result += ONE_MONTH;
+  }
+  result -= ONE_SECOND;
+  return result;
+}
+date_time date_time::floor(date_time floor2){
+  date_time result;
+  date_time test(*this);
+
+  int count = 0;
+  if(floor2 < ONE_DAY){
+    while(test.isSameDay(*this)){
+      test -= floor2;
+      count++;
+    }
+
+    result.set_time(this->get_year(),this->get_month(),this->get_day());
+    int i;
+    for(i=0;i<count-1;i++){
+      result += floor2;
+    }
+  }
+
+  return result;
+}
+date_time date_time::floor2min(int floor2){
+  int temp = this->time[4]/floor2;
+  temp *= floor2;
+
+  date_time result(*this);
+  result.time[4] = temp;
+  result.time[5] = 0;
+
+  return result;
+}
+date_time date_time::ceiling(date_time ceil2){
+  date_time result;
+  date_time test(*this);
+
+  int count = 0;
+  if(ceil2 < ONE_DAY){
+    while(test.isSameDay(*this)){
+      test -= ceil2;
+      count++;
+    }
+
+    result.set_time(this->get_year(),this->get_month(),this->get_day());
+    int i;
+    for(i=0;i<count;i++){
+      result += ceil2;
+    }
+  }
+
+  return result;
+}
+date_time date_time::ceiling2min(int floor2){
+  double temp = ceil(((double) this->time[4])/floor2);
+  temp *= floor2;
+
+  date_time result(*this);
+  result.time[4] = round(temp);
+  result.time[5] = 0;
+
+  result.correct_format();
+
+  return result;
+}
+
+double date_time::get_ratio_between(const date_time& a,const date_time& b){// find t such that *this = (1-t)*a+t*b 
+  if(a == b){
+    return 0.;
+  }
+
+  date_time up,down;
+  if(b > a){
+    up = b;
+    down = a;
+  }
+  else{
+    up = a;
+    down = b;
+  }
+
+  double interval = up.numberOfDayFrom(down) + (up.get_hour() - down.get_hour())/24. + (up.get_minute() - down.get_minute())/(24.*60.) + (up.get_second() - down.get_second())/(24.*3600.) + (up.get_sec_decimal() - down.get_sec_decimal())/(24.*3600);
+  if(*this < down){
+    double ratio = down.numberOfDayFrom(*this) + (down.get_hour() - this->get_hour())/24. + (down.get_minute() - this->get_minute())/(24.*60.) + (down.get_second() - this->get_second())/(24.*3600.) + (down.get_sec_decimal() - this->get_sec_decimal())/(24.*3600.);
+    if(b > a){
+      return -ratio/interval;
+    }
+    else{
+      return 1+ratio/interval;
+    }
+  }
+  else{
+    double ratio = this->numberOfDayFrom(down) + (this->get_hour() - down.get_hour())/24. + (this->get_minute() - down.get_minute())/(24.*60.) + (this->get_second() - down.get_second())/(24.*3600.);
+    if(b > a){
+      return ratio/interval;
+    }
+    else{
+      return 1-ratio/interval;
+    }
+  }
+}
+
+bool date_time::operator<=(const date_time& to_compare) const{
+  int i;
+
+  if(*this == NOTIME || to_compare == NOTIME){
+    return 0;
+  }
+
+  for(i=0;i<6;i++){
+    if(this->time[i] > to_compare.time[i]){
+      return 0;
+    }
+    else if(this->time[i] < to_compare.time[i]){
+      return 1;
+    }
+  }
+  if(this->sec_decimal > to_compare.sec_decimal){
+    return 0;
+  }
+  else{
+    return 1;
+  }
+}
+
+bool date_time::operator>=(const date_time& to_compare) const{
+  if(*this == NOTIME || to_compare == NOTIME){
+    return 0;
+  }
+
+  return !(*this<to_compare);
+}
+
+bool date_time::operator<(const date_time& to_compare) const{
+  if(*this == NOTIME || to_compare == NOTIME){
+    return 0;
+  }
+  int i;
+
+  for(i=0;i<6;i++){
+    if(this->time[i] > to_compare.time[i]){
+      return 0;
+    }
+    else if(this->time[i] < to_compare.time[i]){
+      return 1;
+    }
+  }
+  if(this->sec_decimal < to_compare.sec_decimal){
+    return 1;
+  }
+  else{
+    return 0;
+  }
+}
+
+bool date_time::operator>(const date_time& to_compare) const{
+  if(*this == NOTIME || to_compare == NOTIME){
+    return 0;
+  }
+  
+  return !(*this<=to_compare);
+}
+
+bool date_time::operator==(const date_time& to_compare) const{
+  int i;
+  bool result = 1;
+
+  for(i=0;i<6;i++){
+    if(this->time[i] != to_compare.time[i]){
+      result = 0;
+      break;
+    }
+  }
+
+  if(result){
+    if(this->sec_decimal != to_compare.sec_decimal){
+      result = 0;
+    }
+  }
+
+  return result;
+}
+
+bool date_time::operator!=(const date_time& to_compare) const{
+  return !(*this==to_compare);
+}
+
+ostream &operator<<(ostream &output , date_time timestamp){
+  char text[256];
+
+  if(timestamp != NOTIME){
+    sprintf(text,"%4.4d%2.2d%2.2d%2.2d%2.2d%2.2d",timestamp.get_year(),timestamp.get_month(),timestamp.get_day(),timestamp.get_hour(),timestamp.get_minute(),timestamp.get_second());
+  }
+  else{
+    sprintf(text,"NO_TIME");
+  }
+  
+  output << text;
+
+  return output;
+}
+
+namespace date_time_funct{
+  void setequal(char *a,char *b){
+    *((date_time*) b) = *((date_time*) a);
+  }
+  bool isless(char *a,char *b){
+    return (*((date_time*) b) > *((date_time*) a));
+  }
+}
+int sort_datetime(int ntime,date_time *to_sort){
+  if(ntime > 0){
+    general_sort(ntime,sizeof(date_time),(char*) to_sort,date_time_funct::setequal,date_time_funct::isless);
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+  return _ERRORCODE_NOERROR;
+}
+const int num_month = 12;
+char monthname[num_month][10]={"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
+int get_month_from_string(const char *in){
+  int i;
+  for(i=0;i<num_month;i++){
+    if(strcmp(in,monthname[i])==0){
+      return i+1;
+    }
+  }
+  return 0;
+}
+int cal_nft(char *min_ft,char *max_ft,char *delta_ft){
+  int error = _ERRORCODE_NOERROR;
+
+  date_time minft, maxft, deltaft;
+  error = minft.set_time(min_ft);
+  error = error || maxft.set_time(max_ft);
+  error = error || deltaft.set_time(delta_ft);
+
+  if(error){
+    return 0;
+  }
+  else{
+    return maxft.numberOfIntervalFrom(minft,deltaft);
+  }
+}

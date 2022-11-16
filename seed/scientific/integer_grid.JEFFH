@@ -1,0 +1,56 @@
+#ifndef INTEGERGRID
+#define INTEGERGRID
+#include "regular_grid.h"
+
+class integer_grid:public regular_grid{
+ public:
+  ###CPP### ###CUDA### ###HOST### integer_grid();
+  ###CPP### ###CUDA### ###HOST### integer_grid(int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### virtual ~integer_grid();
+  
+  ###CPP### ###CUDA### ###HOST### virtual void create(int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### inline virtual void create(int nx,int ny,int nz,int ndim,double dummy1,double dummy2) {this->create(nx,ny,nz,ndim);}
+  ###CPP### ###CUDA### ###HOST### virtual void create(int nx,int ny,int nz,int ndim,int *idummy,double* ddummy);
+  ###CUDA### ###HOST### virtual void create_gpu(int nx,int ny,int nz,int ndim);
+
+  ###CUDA### ###HOST### virtual void host2device();
+  ###CUDA### ###HOST### virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim);
+  ###CUDA### ###HOST### virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work);
+  ###CUDA### ###HOST### virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work,int nstream); //if nstream > 1, work must be pinned memory allocated by cudaMallocHost
+  ###CUDA### ###HOST### virtual void device2host();
+  ###CUDA### ###HOST### virtual void device2host(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim);
+
+  ###CPP### ###CUDA### ###HOST### void set_offset(int *idummy);
+  ###CPP### ###CUDA### ###HOST### void set_scale(double *ddummy);
+
+  //will try to guess the offset and scale for you
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(double *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(float *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(double *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(float *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(double *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(float *indata);
+
+  ###CPP### ###CUDA### ###HOST### inline double *get_z() const {return this->z;}
+  ###CPP### ###CUDA### ###HOST### virtual double get_z(int ix,int iy,int iz);
+  ###CPP### ###CUDA### ###HOST### virtual double get_z(double ix,double iy,double iz);
+  ###CPP### ###CUDA### ###HOST### inline double *get_y() const {return this->y;}
+  ###CPP### ###CUDA### ###HOST### virtual double get_y(int ix,int iy,int iz);
+  ###CPP### ###CUDA### ###HOST### virtual double get_y(double ix,double iy,double iz);
+  ###CPP### ###CUDA### ###HOST### inline double *get_x() const {return this->x;}
+  ###CPP### ###CUDA### ###HOST### virtual double get_x(int ix,int iy,int iz);
+  ###CPP### ###CUDA### ###HOST### virtual double get_x(double ix,double iy,double iz);
+
+  ###CPP### ###CUDA### ###HOST### virtual grid_data& operator=(const grid_data& in);
+
+  ###CPP### ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(double x, double y, double z, double *temp) const;
+  ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(int npt,double *x, double *y, double *z, double *temp);
+
+  ###CPP### ###CUDA### ###HOST### virtual double* multiple_cubic_interpolate(double x, double y, double z, double *temp) const;
+
+ private:
+  int offsetx, offsety, offsetz;
+  double scalex, scaley, scalez;
+};
+
+#endif

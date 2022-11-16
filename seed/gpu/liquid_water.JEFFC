@@ -1,0 +1,185 @@
+#include "liquid_water.h"
+#include "complex.h"
+#include "physics_constants.h"
+#include "math_special_function.h"
+#include <cmath>
+#include <cstdlib>
+using namespace std;
+using namespace libjeff;
+
+###CPP### ###CUDA### ###HOST### ###DEVICE### complex liquid_water_epsilon_10GHz(double temperature,double frequency){
+  const double sigma = 12.5664e8/18.8496e10;
+  double alpha = -16.8129/temperature + 0.0609265;
+  double lamda_s = 0.00033836*exp(2513.98/temperature);
+  double lamda = phys_c/frequency*100.;
+  temperature -= meteorology_C_to_K;
+  double epsil_inf = 5.27137 + 0.0216474*temperature - 0.00131198*temperature*temperature;
+  temperature -= 25.;
+  double epsil_s = 78.54*(1. - 4.579e-3*temperature + 1.19e-5*temperature*temperature - 2.8e-8*temperature*temperature*temperature);
+  double lamda_r = libjeff::pow(lamda_s/lamda,1.-alpha);
+  //double lamda_r = exp((1.-alpha)*log(lamda_s/lamda));
+  alpha *= pi*0.5;
+  
+  complex epsilon;
+  epsilon = complex(epsil_inf + (epsil_s - epsil_inf)*(1+lamda_r*sin(alpha))/(1+2*lamda_r*sin(alpha)+lamda_r*lamda_r),(epsil_s - epsil_inf)*lamda_r*cos(alpha)/(1. + 2*lamda_r*sin(alpha) + lamda_r*lamda_r) + sigma*lamda);
+
+  return epsilon;
+}
+
+###CPP### ###CUDA### ###HOST### ###DEVICE### void liquid_water_epsilon_10GHz(double temperature,int nfre,double *frequency,complex *epsilon){
+  const double sigma = 12.5664e8/18.8496e10;
+  double alpha = -16.8129/temperature + 0.0609265;
+  double lamda_s = 0.00033836*exp(2513.98/temperature);
+  double *lamda, *lamda_r;
+  lamda = new double [nfre];
+  lamda_r = new double [nfre];
+  int i;
+  for(i=0;i<nfre;i++){
+    lamda[i] = phys_c/frequency[i]*100.;
+    lamda_r[i] = libjeff::pow(lamda_s/lamda[i],1.-alpha);
+  }
+  temperature -= meteorology_C_to_K;
+  double epsil_inf = 5.27137 + 0.0216474*temperature - 0.00131198*temperature*temperature;
+  temperature -= 25.;
+  double epsil_s = 78.54*(1. - 4.579e-3*temperature + 1.19e-5*temperature*temperature - 2.8e-8*temperature*temperature*temperature);
+  alpha *= pi*0.5;
+  
+  for(i=0;i<nfre;i++){
+    epsilon[i] = complex(epsil_inf + (epsil_s - epsil_inf)*(1+lamda_r[i]*sin(alpha))/(1+2*lamda_r[i]*sin(alpha)+lamda_r[i]*lamda_r[i]),(epsil_s - epsil_inf)*lamda_r[i]*cos(alpha)/(1. + 2*lamda_r[i]*sin(alpha) + lamda_r[i]*lamda_r[i]) + sigma*lamda[i]);
+  }
+  
+  delete [] lamda;
+  delete [] lamda_r;
+}
+
+###CUDA### ###GLOBAL### void g_liquid_water_epsilon_10GHz(int nstate,int nfre,double *in_temperature,double *frequency,complex *epsilon){
+  double lamda, lamda_r,temperature;
+  int i = blockDim.x*blockIdx.x + threadIdx.x;
+  // j is frequency index
+  int j = i%nfre;
+  // k is layer index
+  int k = i/nfre;
+
+  if(i<nstate*nfre){
+    const double sigma = 12.5664e8/18.8496e10;
+    double alpha = -16.8129/in_temperature[k] + 0.0609265;
+    double lamda_s = 0.00033836*exp(2513.98/in_temperature[k]);
+
+    lamda = phys_c/frequency[j]*100.;
+    lamda_r = libjeff::pow(lamda_s/lamda,1.-alpha);
+    //lamda_r = exp((1.-alpha)*log(lamda_s/lamda));
+
+    temperature = in_temperature[k] - meteorology_C_to_K;
+    double epsil_inf = 5.27137 + 0.0216474*temperature - 0.00131198*temperature*temperature;
+    temperature -= 25.;
+    double epsil_s = 78.54*(1. - 4.579e-3*temperature + 1.19e-5*temperature*temperature - 2.8e-8*temperature*temperature*temperature);
+    alpha *= pi*0.5;
+  
+    epsilon[i] = complex(epsil_inf + (epsil_s - epsil_inf)*(1+lamda_r*sin(alpha))/(1+2*lamda_r*sin(alpha)+lamda_r*lamda_r),(epsil_s - epsil_inf)*lamda_r*cos(alpha)/(1. + 2*lamda_r*sin(alpha) + lamda_r*lamda_r) + sigma*lamda);
+  }
+
+}
+
+###CPP### ###CUDA### ###HOST### ###DEVICE### double liquid_water_density(double temperature){
+  const int no_data = 15;
+  double temp_lookup[no_data], density_lookup[no_data];
+
+  int i;
+  for(i=0;i<4;i++){
+    temp_lookup[i]=meteorology_C_to_K + (i-3)*10.;
+  }
+  temp_lookup[4]=meteorology_C_to_K + 4.;
+  for(i=5;i<8;i++){
+    temp_lookup[i]=meteorology_C_to_K + (i-3)*5.;
+  }
+  temp_lookup[8]=meteorology_C_to_K + 22.;
+  temp_lookup[9]=meteorology_C_to_K + 25.;
+  temp_lookup[10]=meteorology_C_to_K + 30.;
+  for(i=11;i<no_data;i++){
+    temp_lookup[i]=meteorology_C_to_K + (i-9)*20.;
+  }
+
+  density_lookup[14]=958.4;
+  density_lookup[13]=971.8;
+  density_lookup[12]=983.2;
+  density_lookup[11]=992.2;
+  density_lookup[10]=995.6502;
+  density_lookup[9]=997.0479;
+  density_lookup[8]=997.7735;
+  density_lookup[7]=998.2071;
+  density_lookup[6]=999.1026;
+  density_lookup[5]=999.7026;
+  density_lookup[4]=999.9720;
+  density_lookup[3]=999.8395;
+  density_lookup[2]=998.117;
+  density_lookup[1]=993.547;
+  density_lookup[0]=983.854;
+
+  if(temperature < (meteorology_C_to_K - 30.)){
+    return density_lookup[0];
+  }
+  else if(temperature > (meteorology_C_to_K + 100.)){
+    return density_lookup[14];
+  }
+
+  
+  for(i=1;i<no_data;i++){
+    if(temp_lookup[i]>temperature){
+      break;
+    }
+  }
+
+  return density_lookup[i-1] + (density_lookup[i] - density_lookup[i-1])/(temp_lookup[i] - temp_lookup[i-1])*(temperature - temp_lookup[i-1]);
+}
+
+###CUDA### ###GLOBAL### void g_liquid_water_density(int nstate,double *temperature,double *density){
+  int j= blockDim.x*blockIdx.x + threadIdx.x;
+
+  if(j<nstate){
+    const int no_data = 15;
+    double temp_lookup[no_data], density_lookup[no_data];
+    if((temperature[j] < meteorology_C_to_K - 30.) || (temperature[j] > meteorology_C_to_K + 100.)){
+      density[j] =  1000.;
+    }
+    else{
+      int i;
+      for(i=0;i<4;i++){
+	temp_lookup[i]=meteorology_C_to_K + (i-3)*10.;
+      }
+      temp_lookup[4]=meteorology_C_to_K + 4.;
+      for(i=5;i<8;i++){
+	temp_lookup[i]=meteorology_C_to_K + (i-3)*5.;
+      }
+      temp_lookup[8]=meteorology_C_to_K + 22.;
+      temp_lookup[9]=meteorology_C_to_K + 25.;
+      temp_lookup[10]=meteorology_C_to_K + 30.;
+      for(i=11;i<no_data;i++){
+	temp_lookup[i]=meteorology_C_to_K + (i-9)*20.;
+      }
+      
+      density_lookup[14]=958.4;
+      density_lookup[13]=971.8;
+      density_lookup[12]=983.2;
+      density_lookup[11]=992.2;
+      density_lookup[10]=995.6502;
+      density_lookup[9]=997.0479;
+      density_lookup[8]=997.7735;
+      density_lookup[7]=998.2071;
+      density_lookup[6]=999.1026;
+      density_lookup[5]=999.7026;
+      density_lookup[4]=999.9720;
+      density_lookup[3]=999.8395;
+      density_lookup[2]=998.117;
+      density_lookup[1]=993.547;
+      density_lookup[0]=983.854;
+      
+      for(i=1;i<no_data;i++){
+	if(temp_lookup[i]>temperature[j]){
+	  break;
+	}
+      }
+
+      density[j] =  density_lookup[i-1] + (density_lookup[i] - density_lookup[i-1])/(temp_lookup[i] - temp_lookup[i-1])*(temperature[j] - temp_lookup[i-1]);
+    }
+  }
+}

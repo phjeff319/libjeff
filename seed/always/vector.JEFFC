@@ -1,0 +1,89 @@
+#include<cmath>
+
+#include"vector.h"
+
+namespace libjeff{
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double vector_dot_pro(int ndim, double *a, double *b){
+    double pro = 0.;
+    
+    int i;
+    
+    for(i=0;i<ndim;i++){
+      pro += a[i]*b[i];
+    }
+    
+    return pro;
+  }
+  
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void vector_cross_pro(double *a, double *b, double *c){
+    c[0] = a[1]*b[2] - b[1]*a[2];
+    c[1] = a[2]*b[0] - b[2]*a[0];
+    c[2] = a[0]*b[1] - b[0]*a[1];
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double vector_spherical_coord_cal_norm(double *a,double *b){
+    double norm = a[0]*a[0] + b[0]*b[0] - 2.*a[0]*b[0]*(cos(a[1])*cos(a[2])*cos(b[1])*cos(b[2]) + cos(a[1])*sin(a[2])*cos(b[1])*sin(b[2]) + sin(a[1])*sin(b[1]));
+
+    norm = pow(norm,0.5);
+
+    return norm;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### bool vector_isequal(int ndim,int *a,int *b){
+    int i;
+    for(i=0;i<ndim;i++){
+      if(a[i]!=b[i]){
+	return false;
+      }
+    }
+    return true;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### bool vector_isequal(int ndim,double *a,double *b){
+    int i;
+    for(i=0;i<ndim;i++){
+      if(a[i]!=b[i]){
+	return false;
+      }
+    }
+    return true;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double* vector_mid_pt(int ndim,double *a,double *b,double *midpt){
+    int i;
+    for(i=0;i<ndim;i++){
+      midpt[i] = 0.5*(a[i] + b[i]);
+    }
+    return midpt;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double vector_cal_angle(double *a,double *b){
+    double angle = (acos(vector_dot_pro(2,a,b)/pow(vector_dot_pro(2,a,a)*vector_dot_pro(2,b,b),0.5)));
+    double *a3d = new double [3];
+    double *b3d = new double [3];
+    double *c3d = new double [3];
+
+    int i;
+    for(i=0;i<3;i++){
+      a3d[i] = 0.;
+      b3d[i] = 0.;
+      c3d[i] = 0.;
+    }
+
+    for(i=0;i<2;i++){
+      a3d[i] = a[i];
+      b3d[i] = b[i];
+    }
+
+    vector_cross_pro(a3d,b3d,c3d);
+    
+    int sign;
+    if(c3d[2] > 0){
+      sign = 1;
+    }
+    else{
+      sign = -1;
+    }
+
+    delete [] a3d;
+    delete [] b3d;
+    delete [] c3d;
+
+    return angle*sign;
+  }
+}

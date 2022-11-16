@@ -1,0 +1,8 @@
+#ifndef SORTING
+#define SORTING
+#include "date_time.h"
+void general_sort(int n,int mem_size,char* to_sort,void (*setequal)(char *a,char *b),bool (*isless)(char *a,char *b)); //setequal: set b=a; isless: test if a < b
+void sort(int n,double *in);
+int file_time_sorting(int nitem,char **filename,date_time *file_time); //sort file_time from earliest to latest
+
+#endif

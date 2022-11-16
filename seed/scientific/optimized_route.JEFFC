@@ -1,0 +1,589 @@
+#include <cmath>
+
+#include "debug_mode.h"
+#include "earth.h"
+#include "error_code.h"
+#include "flight_data.h"
+###XGBOOST####include "fuel_model.h"
+#include "grid_data.h"
+#include "grid_data_field.h"
+#include "math_special_function.h"
+#include "model_data.h"
+#include "numerical_schemes.h"
+#include "optimized_route.h"
+#include "physics_constants.h"
+
+namespace libjeff{
+	
+  namespace wor{
+    double cal_fwind(double *lonlat,double height,grid_data_field *u,grid_data_field *v,grid_data_field *dudx,grid_data_field *dvdx,grid_data_field *dudy,grid_data_field *dvdy,double airspeed,double heading){
+      double loc_u = u->multiple_linear_interpolate(lonlat[0],lonlat[1],height);
+      double loc_v = v->multiple_linear_interpolate(lonlat[0],lonlat[1],height);
+      double loc_dudx = dudx->multiple_linear_interpolate(lonlat[0],lonlat[1],height);
+      double loc_dudy = dudy->multiple_linear_interpolate(lonlat[0],lonlat[1],height);
+      double loc_dvdx = dvdx->multiple_linear_interpolate(lonlat[0],lonlat[1],height);
+      double loc_dvdy = dvdy->multiple_linear_interpolate(lonlat[0],lonlat[1],height);
+
+      double value = -cos(heading)*sin(heading)*loc_dudx + sin(heading)*sin(heading)*sin(lonlat[1])*loc_u + sin(heading)*sin(heading)*cos(lonlat[1])*loc_dudy - loc_dvdx + cos(heading)*sin(heading)*sin(lonlat[1])*loc_v + cos(heading)*sin(heading)*cos(lonlat[1])*loc_dvdy + airspeed*sin(heading)*sin(lonlat[1]) + sin(heading)*sin(heading)*loc_dvdx;
+      
+      return value;
+    }
+    double *cal_update_lonlat(double *lonlat,double height,grid_data_field *u,grid_data_field *v,double airspeed,double heading,double *update_lonlat){
+
+      update_lonlat[0] = (airspeed*sin(heading) + u->multiple_linear_interpolate(lonlat[0],lonlat[1],height))/((Earth_radius + height)*cos(lonlat[1]));
+      update_lonlat[1] = (airspeed*cos(heading) + v->multiple_linear_interpolate(lonlat[0],lonlat[1],height))/(Earth_radius + height);
+
+      return update_lonlat;
+    }
+    double *cal_update_lonlatheight(double *lonlatheight,grid_data_field *u,grid_data_field *v,double airspeed,double heading,double elevation,double *out){
+      double loc_u = u->multiple_linear_interpolate(lonlatheight[0],lonlatheight[1],lonlatheight[2]);
+      double loc_v = v->multiple_linear_interpolate(lonlatheight[0],lonlatheight[1],lonlatheight[2]);
+
+      out[0] = (airspeed*cos(elevation)*sin(heading) + loc_u)/((Earth_radius + lonlatheight[2])*cos(lonlatheight[1]));
+      out[1] = (airspeed*cos(elevation)*cos(heading) + loc_v)/(Earth_radius + lonlatheight[2]);
+      out[2] = airspeed*sin(elevation);
+
+      return out;
+    }
+
+    int cal_route_rk4_step(double *in_lonlat,double height,grid_data_field *u,grid_data_field *v,grid_data_field *dudx,grid_data_field *dvdx,grid_data_field *dudy,grid_data_field *dvdy,double stepsize,double wind_cost,double airspeed,double in_heading,double &out_heading,double *out_lonlat){
+      int i,j;
+      double temp_heading;
+      double *temp_lonlat = new double [2];
+      double *update_lonlat = new double [2];
+
+      double k[4][3];
+      for(j=0;j<2;j++){
+	temp_lonlat[j] = in_lonlat[j];
+      }
+      temp_heading = in_heading;
+      
+      for(i=0;i<4;i++){
+	double fwind = cal_fwind(temp_lonlat,height,u,v,dudx,dvdx,dudy,dvdy,airspeed,temp_heading);
+	cal_update_lonlat(temp_lonlat,height,u,v,airspeed,temp_heading,update_lonlat);
+
+	k[i][0] = stepsize*fwind/(wind_cost*Earth_radius*cos(temp_lonlat[1]));
+	k[i][1] = stepsize*update_lonlat[0];
+	k[i][2] = stepsize*update_lonlat[1];
+	
+	if(i<3){
+	  temp_heading = in_heading + numerical_schemes::rk4_xstep[i]*k[i][0];
+	  for(j=0;j<2;j++){
+	    temp_lonlat[j] = in_lonlat[j] + numerical_schemes::rk4_xstep[i]*k[i][j+1];
+	  }
+	}
+	else{
+	  out_heading = 0.;
+	  out_lonlat[0] = 0.;
+	  out_lonlat[1] = 0.;
+	  for(j=0;j<4;j++){
+	    out_heading += k[j][0]*numerical_schemes::rk4_ystep[j];
+	    out_lonlat[0] += k[j][1]*numerical_schemes::rk4_ystep[j];
+	    out_lonlat[1] += k[j][2]*numerical_schemes::rk4_ystep[j];
+	  }
+
+	  out_heading /= 6.;
+	  out_lonlat[0] /= 6.;
+	  out_lonlat[1] /= 6.;
+
+	  out_heading += in_heading;
+	  out_lonlat[0] += in_lonlat[0];
+	  out_lonlat[1] += in_lonlat[1];
+	}
+      }
+
+      delete [] temp_lonlat;
+      delete [] update_lonlat;
+
+      return _ERRORCODE_NOERROR;
+    }
+    int cal_route_rk4_step(double *in_lonlatheight,grid_data_field *u,grid_data_field *v,double stepsize,double airspeed,double in_heading,double in_elevation,double *out_lonlatheight){
+      int i,j,m;
+      double temp_heading;
+      double *temp_lonlatheight = new double [3];
+      double *update_lonlatheight = new double [3];
+
+      double k[4][3];
+      for(j=0;j<3;j++){
+        temp_lonlatheight[j] = in_lonlatheight[j];
+      }
+      temp_heading = in_heading;
+
+      for(i=0;i<4;i++){
+        cal_update_lonlatheight(temp_lonlatheight,u,v,airspeed,temp_heading,in_elevation,update_lonlatheight);
+
+	for(j=0;j<3;j++){
+	  k[i][j] = stepsize*update_lonlatheight[j];
+	}
+
+        if(i<3){
+          temp_heading = in_heading;
+          for(j=0;j<3;j++){
+            temp_lonlatheight[j] = in_lonlatheight[j] + numerical_schemes::rk4_xstep[i]*k[i][j];
+          }
+        }
+        else{
+          //out_heading = 0.;
+	  for(m=0;m<3;m++){
+	    out_lonlatheight[m] = 0.;
+	    for(j=0;j<4;j++){
+	      out_lonlatheight[m] += k[j][m]*numerical_schemes::rk4_ystep[j];
+	    }
+
+	    out_lonlatheight[m] /= 6.;
+	    out_lonlatheight[m] += in_lonlatheight[m];
+	  }
+        }
+      }
+
+      delete [] temp_lonlatheight;
+      delete [] update_lonlatheight;
+
+      return _ERRORCODE_NOERROR;
+    }
+
+    int find_route(double *st_lonlatheight,double *target_lonlatheight,double airspeed,double &heading,double &elevation,double &time,bool (*tolerance)(double* lonlatheight1,double *lonlatheight2)){
+      int error = _ERRORCODE_NOERROR;
+
+      return error;
+    }
+  };
+    
+  int cal_wor(double *st_lonlat,double *target_lonlat,double height,grid_data_field *u,grid_data_field *v,grid_data_field *dudx,grid_data_field *dvdx,grid_data_field *dudy,grid_data_field *dvdy,double airspeed,double stepsize,double wind_cost,int max_n_route_pt,double **route,int &n_route_pt,double accuracy,double mixing){
+    if(mixing < 0. || mixing > 1.){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+
+    double *st_lonlat_rad = new double [2];
+    double *target_lonlat_rad = new double [2];
+    double *temp_lonlat = new double [2];
+    
+    int i,j;
+    for(i=0;i<2;i++){
+      st_lonlat_rad[i] = st_lonlat[i]*ang_to_rad;
+      target_lonlat_rad[i] = target_lonlat[i]*ang_to_rad;
+    }
+
+    double direct_distance = earth_latlon2dist(st_lonlat[1],st_lonlat[0],target_lonlat[1],target_lonlat[0]);
+
+    double **test_route = new double *[max_n_route_pt];
+    const int nstore = 3;
+    double ***store_route = new double **[nstore];
+    for(i=0;i<max_n_route_pt;i++){
+      test_route[i] = new double [3];
+    }
+    for(j=0;j<nstore;j++){
+      store_route[j] = new double *[max_n_route_pt];
+      for(i=0;i<max_n_route_pt;i++){
+	store_route[j][i] = new double [3];
+      }
+    }
+
+    for(j=0;j<nstore;j++){
+      for(i=0;i<2;i++){
+	store_route[j][0][i] = st_lonlat_rad[i];
+      }
+    }
+
+    store_route[0][0][2] = earth_latlon_cal_bearing(st_lonlat[1],st_lonlat[0],target_lonlat[1],target_lonlat[0])*ang_to_rad - 0.5*pi;
+    store_route[1][0][2] = earth_latlon_cal_bearing(st_lonlat[1],st_lonlat[0],target_lonlat[1],target_lonlat[0])*ang_to_rad + 0.5*pi;
+    store_route[2][0][2] = earth_latlon_cal_bearing(st_lonlat[1],st_lonlat[0],target_lonlat[1],target_lonlat[0])*ang_to_rad;
+
+    if(debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Heading bounds: " << store_route[0][0][2]/ang_to_rad << " - " << store_route[1][0][2]/ang_to_rad << std::endl;
+    }
+
+    bool found = false;
+    int store_counter[nstore], counter;
+    double *store_dist = new double [nstore];
+    for(j=0;j<nstore;j++){
+      double distance = 0.;
+      for(i=1;i<max_n_route_pt;i++){
+	wor::cal_route_rk4_step(store_route[j][i-1],height,u,v,dudx,dvdx,dudy,dvdy,stepsize,wind_cost,airspeed,store_route[j][i-1][2],store_route[j][i][2],store_route[j][i]);
+
+	double dist = earth_latlon2dist(target_lonlat[1],target_lonlat[0],store_route[j][i][1]/ang_to_rad,store_route[j][i][0]/ang_to_rad);
+
+	if(debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "Step: " << i << " : " << store_route[j][i][0]/ang_to_rad << " " << store_route[j][i][1]/ang_to_rad << " " << dist << std::endl;
+	}
+	if(dist < accuracy){
+	  store_counter[j] = i;
+	  n_route_pt = i+1;
+
+	  int ii,jj;
+	  for(ii=0;ii<n_route_pt;ii++){
+	    for(jj=0;jj<3;jj++){
+	      test_route[ii][jj] = store_route[j][ii][jj];
+	    }
+	  }
+
+	  found = true;
+	  break;
+	}
+	else{
+	  distance += earth_latlon2dist(store_route[j][i-1][1]/ang_to_rad,store_route[j][i-1][0]/ang_to_rad,store_route[j][i][1]/ang_to_rad,store_route[j][i][0]/ang_to_rad);
+	  
+	  if(distance > 1.2*direct_distance){
+	    store_counter[j] = i;
+	    break;
+	  }
+	}
+      }
+    }
+    /*
+    double store_bearings[2];
+
+    if(!found){
+      int mapping[2];
+
+      for(j=0;j<2;j++){
+	double min_distance =  earth_latlon2dist(store_route[j][0][1]/ang_to_rad,store_route[j][0][0]/ang_to_rad,target_lonlat[1],target_lonlat[0]);
+	int index = 0;
+	for(i=1;i<store_counter[j];i++){
+	  double dist = earth_latlon2dist(store_route[j][i][1]/ang_to_rad,store_route[j][i][0]/ang_to_rad,target_lonlat[1],target_lonlat[0]);
+	  if(dist < min_distance){
+	    index = i;
+	    min_distance = dist;
+	  }
+	}
+
+	store_bearings[j] = earth_latlon_cal_bearing(target_lonlat[1],target_lonlat[0],store_route[j][index][1]/ang_to_rad,store_route[j][index][0]/ang_to_rad);
+      }
+      if(debug_setting::get_debug_mode_debug_message()){
+	std::cout << "Bearings: " << store_bearings[0] << " - " << store_bearings[1] << std::endl;
+      }
+
+      double bearing_boundary[2];
+      bearing_boundary[0] = 0.5*(store_bearings[0] + store_bearings[1]);
+      if(bearing_boundary[0] > 180){
+	bearing_boundary[1] = bearing_boundary[0];
+	bearing_boundary[0] -= 180.;
+      }
+      else{
+	bearing_boundary[1] = bearing_boundary[0] + 180.;
+      }
+
+      if(debug_setting::get_debug_mode_debug_message()){
+	std::cout << "Bearing boundaries: " << bearing_boundary[0] << " - " << bearing_boundary[1] << std::endl;
+      }
+
+      if(store_bearings[0] > bearing_boundary[0] && store_bearings[0] < bearing_boundary[1]){
+	mapping[0] = 0;
+	mapping[1] = 1;
+      }
+      else{
+	mapping[0] = 1;
+	mapping[1] = 0;
+      }
+
+      while(true){
+	for(i=0;i<2;i++){
+	  test_route[0][i] = st_lonlat_rad[i];
+	}
+
+	test_route[0][2] = 0.5*(store_route[0][0][2] + store_route[1][0][2]);
+	if(debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "Test bearing: " << test_route[0][2]/ang_to_rad << " ";
+	}
+
+	double distance = 0.;
+	for(i=1;i<max_n_route_pt;i++){
+	  wor::cal_route_rk4_step(test_route[i-1],height,u,v,dudx,dvdx,dudy,dvdy,stepsize,wind_cost,airspeed,test_route[i-1][2],test_route[i][2],test_route[i]);
+	  if(earth_latlon2dist(target_lonlat[1],target_lonlat[0],test_route[i][1]/ang_to_rad,test_route[i][0]/ang_to_rad) < accuracy){
+	    counter = i;
+	    found = true;
+	    break;
+	  }
+	  else{
+	    distance += earth_latlon2dist(test_route[i-1][1]/ang_to_rad,test_route[i-1][0]/ang_to_rad,test_route[i][1]/ang_to_rad,test_route[i][0]/ang_to_rad);
+	  
+	    if(distance > 1.2*direct_distance){
+	      counter = i;
+	      break;
+	    }
+	  }
+	}
+
+	double min_distance =  earth_latlon2dist(test_route[0][1]/ang_to_rad,test_route[0][0]/ang_to_rad,target_lonlat[1],target_lonlat[0]);
+	int index = 0;
+	for(i=1;i<counter;i++){
+	  double dist = earth_latlon2dist(test_route[i][1]/ang_to_rad,test_route[i][0]/ang_to_rad,target_lonlat[1],target_lonlat[0]);
+	  if(dist < min_distance){
+	    index = i;
+	    min_distance = dist;
+	  }
+	}
+
+	if(debug_setting::get_debug_mode_debug_message()){
+	  std::cout << min_distance << std::endl;
+	}
+
+	double bearing = earth_latlon_cal_bearing(target_lonlat[1],target_lonlat[0],test_route[index][1]/ang_to_rad,test_route[index][0]/ang_to_rad);
+
+	if(bearing >= bearing_boundary[0] && bearing < bearing_boundary[1]){
+	  for(i=0;i<counter;i++){
+	    for(j=0;j<3;j++){
+	      store_route[mapping[0]][i][j] = test_route[i][j];
+	    }
+	  }
+	  store_bearings[mapping[0]] = bearing;
+	}
+	else{
+	  for(i=0;i<counter;i++){
+	    for(j=0;j<3;j++){
+	      store_route[mapping[1]][i][j] = test_route[i][j];
+	    }
+	  }
+	  store_bearings[mapping[1]] = bearing;
+	}
+
+      }
+    }
+    */
+
+    double *store_bearings = new double [nstore];
+
+    double **mat = new double *[nstore];
+    double **mat_l = new double *[nstore];
+    double **mat_u = new double *[nstore];
+    for(i=0;i<nstore;i++){
+      mat[i] = new double [nstore];
+      mat_u[i] = new double [nstore];
+      mat_l[i] = new double [nstore];
+    }
+
+    if(!found){
+      for(j=0;j<nstore;j++){
+	store_dist[j] =  earth_latlon2dist(store_route[j][0][1]/ang_to_rad,store_route[j][0][0]/ang_to_rad,target_lonlat[1],target_lonlat[0]);
+	for(i=1;i<store_counter[j];i++){
+	  double dist = earth_latlon2dist(store_route[j][i][1]/ang_to_rad,store_route[j][i][0]/ang_to_rad,target_lonlat[1],target_lonlat[0]);
+	  if(dist < store_dist[j]){
+	    store_dist[j] = dist;
+	  }
+	}
+
+	store_bearings[j] = store_route[j][0][2];
+      }
+
+      while(!found){
+	if(debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "Latest bearings: ";
+	  for(i=0;i<nstore;i++){
+	    std::cout << store_bearings[i] << " ";
+	  }
+	  std::cout << std::endl;
+	  std::cout << "Latest dist: ";
+	  for(i=0;i<nstore;i++){
+	    std::cout << store_dist[i] << " ";
+	  }
+	  std::cout << std::endl;
+	}
+
+	double quad_a = 1,quad_b = 1;
+
+	for(i=0;i<nstore;i++){
+	  mat[i][0] = store_dist[i];
+	  mat[i][1] = store_bearings[i];
+	  mat[i][2] = 1.;
+	}
+	
+	math_cal_ludcomp(mat,nstore,mat_l,mat_u);
+	for(i=0;i<nstore;i++){
+	  quad_a*=mat_u[i][i];
+	}
+	
+	for(i=0;i<nstore;i++){
+	  mat[i][0] = store_bearings[i]*store_bearings[i];
+	  mat[i][1] = store_dist[i];
+	  mat[i][2] = 1.;
+	}
+	
+	math_cal_ludcomp(mat,nstore,mat_l,mat_u);
+	for(i=0;i<nstore;i++){
+	  quad_b*=mat_u[i][i];
+	}
+
+	if(fabs(quad_a)>=1.e-10){
+	  test_route[0][2] = -0.5*quad_b/quad_a;
+	}
+	else{
+	  test_route[0][2] = 0.5*(store_bearings[1] + store_bearings[2]);
+	}
+
+	for(i=0;i<2;i++){
+	  test_route[0][i] = st_lonlat_rad[i];
+	}
+	
+	j=0;
+	for(i=1;i<nstore;i++){
+	  if(store_dist[i] > store_dist[j]){
+	    j=i;
+	  }
+	}
+	//add a bit of mixing to reduce update speed for reducing numerical issues
+	test_route[0][2] = (1. - mixing)*test_route[0][2] + mixing*store_bearings[j];
+
+	if(debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "Test bearing: " << test_route[0][2]/ang_to_rad << " ";
+	}
+
+	double distance = 0.;
+	for(i=1;i<max_n_route_pt;i++){
+	  wor::cal_route_rk4_step(test_route[i-1],height,u,v,dudx,dvdx,dudy,dvdy,stepsize,wind_cost,airspeed,test_route[i-1][2],test_route[i][2],test_route[i]);
+	  if(earth_latlon2dist(target_lonlat[1],target_lonlat[0],test_route[i][1]/ang_to_rad,test_route[i][0]/ang_to_rad) < accuracy){
+	    n_route_pt = i+1;
+	    found = true;
+	    break;
+	  }
+	  else{
+	    distance += earth_latlon2dist(test_route[i-1][1]/ang_to_rad,test_route[i-1][0]/ang_to_rad,test_route[i][1]/ang_to_rad,test_route[i][0]/ang_to_rad);
+	  
+	    if(distance > 1.2*direct_distance){
+	      counter = i;
+	      break;
+	    }
+	  }
+	}
+
+	j=0;
+	for(i=1;i<nstore;i++){
+	  if(store_dist[i] > store_dist[j]){
+	    j=i;
+	  }
+	}
+	store_bearings[j] = test_route[0][2];
+	store_dist[j] = earth_latlon2dist(test_route[0][1]/ang_to_rad,test_route[0][0]/ang_to_rad,target_lonlat[1],target_lonlat[0]);
+	for(i=1;i<counter;i++){
+	  double dist = earth_latlon2dist(test_route[i][1]/ang_to_rad,test_route[i][0]/ang_to_rad,target_lonlat[1],target_lonlat[0]);
+	  if(dist < store_dist[j]){
+	    store_dist[j] = dist;
+	  }
+	}
+
+      }
+
+    }
+
+    for(i=0;i<nstore;i++){
+      delete [] mat[i];
+      delete [] mat_u[i];
+      delete [] mat_l[i];
+    }
+    delete [] mat;
+    delete [] mat_u;
+    delete [] mat_l;
+
+    delete [] store_bearings;
+    delete [] store_dist;
+
+    int error = _ERRORCODE_NOERROR;
+    if(!found){
+      error = _ERRORCODE_ITERATIONSFAILEDTOCONVERGE;
+    }
+    else{
+      for(i=0;i<n_route_pt;i++){
+	for(j=0;j<3;j++){
+	  route[i][j] = test_route[i][j]/ang_to_rad;
+	}
+      }
+    }
+
+
+    delete [] st_lonlat_rad;
+    delete [] target_lonlat_rad;
+    delete [] temp_lonlat;
+
+
+    for(i=0;i<max_n_route_pt;i++){
+      delete [] test_route[i];
+    }
+    for(j=0;j<nstore;j++){
+      for(i=0;i<max_n_route_pt;i++){
+	delete [] store_route[j][i];
+      }
+      delete [] store_route[j];
+    }
+    delete [] test_route;
+    delete [] store_route;
+
+    return error;
+  }
+  ###XGBOOST###int cal_optimized_route(model_data* fcst_data,grid_data_field *u,grid_data_field *v,grid_data_field *t,grid_data_field *z,double timestepsize,int n_route_pt,flight_data *route,flight_fuel_model* model,double min_validity){
+    if(timestepsize <= 0. ||  min_validity <= 0.){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+    if(route->get_num_data_pt()!=2){
+      return _ERRORCODE_INPUTERROR;
+    }
+    double *st_lonlat_rad = new double [3];
+    double *target_lonlat_rad = new double [3];
+    double *temp_lonlat = new double [3];
+    double *temp_latlon = new double [2];
+    
+    route->get_data_pt(0)->get_lonlat(st_lonlat_rad);
+    st_lonlat_rad[2] = route->get_data_pt(0)->get("flight level");
+    route->get_data_pt(1)->get_lonlat(target_lonlat_rad);
+    target_lonlat_rad[2] = route->get_data_pt(1)->get("flight level");
+
+    //unit conversion. Latlon from deg to rad. height from ft to m
+    int i,j;
+    for(i=0;i<2;i++){
+      st_lonlat_rad[i] *= ang_to_rad;
+      target_lonlat_rad[i] *= ang_to_rad;
+    }
+    st_lonlat_rad[2] *= 0.3048;
+    target_lonlat_rad[2] *= 0.3048;
+
+    int error = _ERRORCODE_NOERROR;
+
+    flight_data *temp_route = new flight_data;
+    flight_data_pt *new_pt = new flight_data_pt;
+
+    temp_route->create(n_route_pt);
+
+    *(temp_route->get_data_pt(0)) = *(route->get_data_pt(0));
+    temp_route->get_data_pt(0)->set_lonlat(st_lonlat_rad);
+    temp_route->get_data_pt(0)->set("flight level",st_lonlat_rad[2]);
+
+    temp_route->get_data_pt(n_route_pt-1)->set_lonlat(target_lonlat_rad);
+    temp_route->get_data_pt(n_route_pt-1)->set("flight level",target_lonlat_rad[2]);
+
+    //setting up first guess
+    for(i=1;i<n_route_pt-1;i++){
+      earth_cal_latlon_rad_from_ratio(temp_route->get_data_pt(0)->get_latlon(),temp_route->get_data_pt(n_route_pt-1)->get_latlon(),((double) i)/(n_route_pt-1),temp_latlon);
+      temp_route->get_data_pt(i)->set_latlon(temp_latlon);
+      temp_route->get_data_pt(i)->set("flight level",temp_route->get_data_pt(0)->get("flight level") + i/n_route_pt*(temp_route->get_data_pt(n_route_pt-1)->get("flight level") - temp_route->get_data_pt(0)->get("flight level")));
+
+      for(j=0;j<model->get_npredictor();j++){
+	if(strcmp(model->get_predictor(j),"flight level") != 0){
+	  temp_route->get_data_pt(i)->set(model->get_predictor(j),temp_route->get_data_pt(0)->get(model->get_predictor(j)));
+	}
+      } 
+      
+    }
+
+    flight_data *new_route = new flight_data;
+
+    /*
+    while(temp_route->get_num_data_pt() < max_n_route_pt){
+  
+      new_pt = new flight_data_pt [num_newpt];
+
+      for(i=0;i<num_newpt;i++){
+	earth_cal_latlon_rad_from_ratio(temp_route->get_data_pt(i)->get_latlon(),temp_route->get_data_pt(i+1)->get_latlon(),0.5,temp_latlon);
+	new_pt[i].set_latlon(temp_latlon);
+	new_pt[i].set("flight level",0.5*(temp_route->get_data_pt(i)->get("flight level") + temp_route->get_data_pt(i+1)->get("flight level")));
+      }
+
+      delete [] new_pt;
+    }
+    */
+
+    delete [] st_lonlat_rad;
+    delete [] target_lonlat_rad;
+    delete [] temp_lonlat;
+    delete [] temp_latlon;
+
+    return error;
+  }
+}

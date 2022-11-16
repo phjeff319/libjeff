@@ -1,0 +1,954 @@
+#include<curand_kernel.h>
+#include<iostream>
+
+#include"cuda_setting.h"
+#include"cuda_tools.h"
+#include"debug_mode.h"
+#include"error_code.h"
+#include"optimization.h"
+#include"random.h"
+
+namespace libjeff{
+  int optimization_minimize_particle_swarm(int nparam,double *param,void* optimization_funct_param,optimization_PSO_setting* iter_setting,double* (*funct)(int nparticle,double** in,void *param,double *out),optimization_PSO_monitor* monitor){
+    int i,j,n;
+
+    double **swarm_pos, **swarm_vec;
+    double **particle_best, *swarm_best;
+    swarm_pos = new double *[nparam];
+    swarm_vec = new double *[nparam];
+    particle_best  = new double *[nparam];
+    swarm_best = new double [nparam];
+
+    random_number** rand_p = new random_number* [nparam];
+    random_number** rand_v = new random_number* [nparam];
+    for(i=0;i<nparam;i++){
+      rand_p[i] = new random_uniform;
+      rand_v[i] = new random_uniform;
+    }
+
+    double *best_p = new double [iter_setting->num_particle];
+    double *curr_p = new double [iter_setting->num_particle];
+    double best_s;
+
+    for(i=0;i<nparam;i++){
+      swarm_pos[i] = new double [iter_setting->num_particle];
+      swarm_vec[i] = new double [iter_setting->num_particle];
+      particle_best[i] = new double [iter_setting->num_particle];
+      rand_p[i]->set_param(iter_setting->lowbound[i],iter_setting->upbound[i]);
+      rand_v[i]->set_param(-fabs(iter_setting->upbound[i]-iter_setting->lowbound[i]),fabs(iter_setting->upbound[i]-iter_setting->lowbound[i]));
+
+      for(j=0;j<iter_setting->num_particle;j++){
+	swarm_pos[i][j] = rand_p[i]->rand();
+	swarm_vec[i][j] = rand_v[i]->rand();
+      }
+
+      rand_v[i]->set_param(0.,1.);
+    }
+
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Particle Swarm Optimization:" << std::endl;
+      std::cout << "--------------------------------------------" << std::endl;
+      std::cout << "Initial" << std::endl;
+      for(j=0;j<iter_setting->num_particle;j++){
+	std::cout << "Particle " << j << " : ";
+	for(i=0;i<nparam;i++){
+	  std::cout << swarm_pos[i][j] << " ";
+	}
+	for(i=0;i<nparam;i++){
+	  std::cout << swarm_vec[i][j] << " ";
+	}
+	std::cout << std::endl;
+      }
+      std::cout << "--------------------------------------------" << std::endl;
+    }
+
+    int no_update = 0;
+    bool converged = false;
+    double max_vec;
+    int iteration_count = 0;
+    for(n=0;n<iter_setting->max_iteration&&!converged;n++){
+      curr_p = (*funct)(iter_setting->num_particle,swarm_pos,optimization_funct_param,curr_p);
+
+      if(n==0){
+	for(j=0;j<iter_setting->num_particle;j++){
+	  best_p[j] = curr_p[j];
+	}
+
+	best_s = best_p[0];
+	for(i=0;i<nparam;i++){
+	  particle_best[i][0] = swarm_pos[i][0];
+	  param[i] = swarm_pos[i][0];
+	}
+	for(j=1;j<iter_setting->num_particle;j++){
+	  for(i=0;i<nparam;i++){
+	    particle_best[i][j] = swarm_pos[i][j];
+	  }
+	  if(best_p[j] < best_s){
+	    best_s = best_p[j];
+	    for(i=0;i<nparam;i++){
+	      param[i] = swarm_pos[i][j];
+	      swarm_best[i] = swarm_pos[i][j];
+	    }
+	  }
+	}
+      }
+      else{
+	for(j=0;j<iter_setting->num_particle;j++){
+	  if(curr_p[j] < best_p[j]){
+	    best_p[j] = curr_p[j];
+	    for(i=0;i<nparam;i++){
+	      particle_best[i][j] = swarm_pos[i][j];
+	    }
+	  }
+	}
+
+	bool update = false;
+	for(j=0;j<iter_setting->num_particle;j++){
+	  if(best_p[j] < best_s){
+	    best_s = best_p[j];
+	    update = true;
+	    for(i=0;i<nparam;i++){
+	      swarm_best[i] = swarm_pos[i][j];
+	      param[i] = swarm_pos[i][j];
+	    }
+	  }
+	}
+
+	if(!update){
+	  no_update++;
+	}
+	else{
+	  no_update = 0;
+	}
+
+	if(iter_setting->converge_mode_max_vec){
+	  max_vec = fabs(swarm_vec[0][0]);
+	  for(i=1;i<nparam;i++){
+	    if(fabs(swarm_vec[i][0]) > max_vec){
+	      max_vec = fabs(swarm_vec[i][0]);
+	    }
+	  }
+	  for(j=1;j<iter_setting->num_particle;j++){
+	    for(i=0;i<nparam;i++){
+	      if(fabs(swarm_vec[i][j]) > max_vec){
+		max_vec = fabs(swarm_vec[i][j]);
+	      }
+	    }
+	  }
+	}
+
+	if((!iter_setting->converge_mode_no_update || no_update > iter_setting->no_update_iteration) && (!iter_setting->converge_mode_max_vec || max_vec <iter_setting->max_vec)){
+	  converged = true;
+	}
+      }
+
+	
+      for(j=0;j<iter_setting->num_particle;j++){
+	for(i=0;i<nparam;i++){
+	  swarm_vec[i][j] = iter_setting->damp*swarm_vec[i][j] + iter_setting->potential_p*rand_v[i]->rand()*(particle_best[i][j] - swarm_pos[i][j]) + iter_setting->potential_s*rand_v[i]->rand()*(swarm_best[i] - swarm_pos[i][j]);
+	  swarm_pos[i][j] += swarm_vec[i][j];
+	}
+      }
+
+      if(iter_setting->hard_boundary){
+	for(i=0;i<nparam;i++){
+	  for(j=0;j<iter_setting->num_particle;j++){
+	    if(swarm_pos[i][j] < iter_setting->lowbound[i]){
+	      swarm_pos[i][j] = iter_setting->lowbound[i];
+	    }
+	    if(swarm_pos[i][j] > iter_setting->upbound[i]){
+	      swarm_pos[i][j] = iter_setting->upbound[i];
+	    }
+	  }
+	}
+      }
+
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "Iteration " << n << " " << best_s << " " << max_vec << std::endl;
+	for(j=0;j<iter_setting->num_particle;j++){
+	  std::cout << "Particle " << j << " : ";
+	  for(i=0;i<nparam;i++){
+	    std::cout << swarm_pos[i][j] << " ";
+	  }
+	  for(i=0;i<nparam;i++){
+	    std::cout << swarm_vec[i][j] << " ";
+	  }
+	  std::cout << std::endl;
+	}
+	std::cout << "--------------------------------------------" << std::endl;
+      }
+
+      if(monitor!=NULL){
+	for(j=0;j<iter_setting->num_particle;j++){
+	  for(i=0;i<nparam;i++){
+	    monitor->particle_pos[iteration_count][j][i] = swarm_pos[i][j];
+	    monitor->particle_vec[iteration_count][j][i] = swarm_vec[i][j];
+	    monitor->particle_best_loc[iteration_count][j][i] = particle_best[i][j];
+	  }
+	  monitor->best_p[iteration_count][j] = best_p[j];
+	}
+	for(i=0;i<nparam;i++){
+	  monitor->swarm_best_loc[iteration_count][i] = swarm_best[i];
+	}
+	monitor->best_s[iteration_count] = best_s;
+      }
+
+      iteration_count++;
+    }
+
+    if(monitor!=NULL){
+      monitor->num_iteration_carried_out = iteration_count;
+    }
+
+    delete [] best_p;
+    delete [] curr_p;
+
+    for(i=0;i<nparam;i++){
+      delete rand_p[i];
+      delete rand_v[i];
+    }
+    delete [] rand_p;
+    delete [] rand_v;
+
+    for(i=0;i<nparam;i++){
+      delete [] swarm_pos[i];
+      delete [] swarm_vec[i];
+      delete [] particle_best[i];
+    }
+    delete [] swarm_pos;
+    delete [] swarm_vec;
+    delete [] particle_best;
+
+    delete [] swarm_best;
+
+    if(converged){
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_ITERATIONSFAILEDTOCONVERGE;
+    }
+  }
+  int optimization_minimize_particle_swarm(int ndata,double **data,bool *obs,double (*funct)(double* data,double *param),double (*metric)(int ndata,double *data,bool *obs),int nparam,double *param,optimization_PSO_setting* iter_setting){ //data[ndata][n_component], param: input as fg, output as solution
+    int i,j,n;
+
+    double **swarm_pos, **swarm_vec;
+    swarm_pos = new double *[nparam];
+    swarm_vec = new double *[nparam];
+
+    random_number** rand_p = new random_number*[nparam];
+    random_number** rand_v = new random_number*[nparam];
+    for(i=0;i<nparam;i++){
+      rand_p[i] = new random_uniform;
+      rand_v[i] = new random_uniform;
+    }
+
+    double *best_p = new double [iter_setting->num_particle];
+    double *curr_p = new double [iter_setting->num_particle];
+    double best_s;
+
+    for(i=0;i<nparam;i++){
+      swarm_pos[i] = new double [iter_setting->num_particle];
+      swarm_vec[i] = new double [iter_setting->num_particle];
+      rand_p[i]->set_param(iter_setting->lowbound[i],iter_setting->upbound[i]);
+      rand_v[i]->set_param(-fabs(iter_setting->upbound[i]-iter_setting->lowbound[i]),fabs(iter_setting->upbound[i]-iter_setting->lowbound[i]));
+
+      for(j=0;j<iter_setting->num_particle;j++){
+	swarm_pos[i][j] = rand_p[i]->rand();
+	swarm_vec[i][j] = rand_v[i]->rand();
+      }
+
+      rand_v[i]->set_param(0.,1.);
+    }
+    
+
+    double *test_data = new double [ndata];
+    double *temp_param = new double [nparam];
+    int no_update = 0;
+    bool converged = false;
+    double max_vec;
+    for(n=0;n<iter_setting->max_iteration&&!converged;n++){
+      for(j=0;j<iter_setting->num_particle;j++){
+	for(i=0;i<nparam;i++){
+	  temp_param[i] = swarm_pos[i][j];
+	}
+
+	for(i=0;i<ndata;i++){
+	  test_data[i] = (*funct)(data[i],temp_param);
+	}
+
+	curr_p[j] = (*metric)(ndata,test_data,obs);
+      }
+
+      if(n==0){
+	for(j=0;j<iter_setting->num_particle;j++){
+	  best_p[j] = curr_p[j];
+	}
+
+	best_s = best_p[0];
+	for(j=1;j<iter_setting->num_particle;j++){
+	  if(best_p[j] < best_s){
+	    best_s = best_p[j];
+	    for(i=0;i<nparam;i++){
+	      param[i] = swarm_pos[i][j];
+	    }
+	  }
+	}
+      }
+      else{
+	for(j=0;j<iter_setting->num_particle;j++){
+	  if(curr_p[j] < best_p[j]){
+	    best_p[j] = curr_p[j];
+	  }
+	}
+
+	best_s = best_p[0];
+	bool update = false;
+	for(j=1;j<iter_setting->num_particle;j++){
+	  if(best_p[j] < best_s){
+	    best_s = best_p[j];
+	    update = true;
+	    for(i=0;i<nparam;i++){
+	      param[i] = swarm_pos[i][j];
+	    }
+	  }
+	}
+
+	if(!update){
+	  no_update++;
+	}
+	else{
+	  no_update = 0;
+	}
+
+	if(iter_setting->converge_mode_max_vec){
+	  max_vec = fabs(swarm_vec[0][0]);
+	  for(i=1;i<nparam;i++){
+	    if(fabs(swarm_vec[i][0]) > max_vec){
+	      max_vec = fabs(swarm_vec[i][0]);
+	    }
+	  }
+	  for(j=1;j<iter_setting->num_particle;j++){
+	    for(i=0;i<nparam;i++){
+	      if(fabs(swarm_vec[i][j]) > max_vec){
+		max_vec = fabs(swarm_vec[i][j]);
+	      }
+	    }
+	  }
+	}
+	
+
+	if((!iter_setting->converge_mode_no_update || no_update > iter_setting->no_update_iteration) && (!iter_setting->converge_mode_max_vec || max_vec <iter_setting->max_vec)){
+	  converged = true;
+	}
+      }
+
+	
+      for(j=0;j<iter_setting->num_particle;j++){
+	for(i=0;i<nparam;i++){
+	  swarm_vec[i][j] = iter_setting->damp*swarm_vec[i][j] + iter_setting->potential_p*rand_v[i]->rand()*(best_p[j] - swarm_pos[i][j]) + iter_setting->potential_s*rand_v[i]->rand()*(best_s - swarm_pos[i][j]);
+	  swarm_pos[i][j] += swarm_vec[i][j];
+	}
+      }
+    }
+
+    
+
+    delete [] test_data;
+    delete [] temp_param;
+
+    delete [] best_p;
+    delete [] curr_p;
+
+    for(i=0;i<nparam;i++){
+      delete rand_p[i];
+      delete rand_v[i];
+    }
+    delete [] rand_p;
+    delete [] rand_v;
+
+    for(i=0;i<nparam;i++){
+      delete [] swarm_pos[i];
+      delete [] swarm_vec[i];
+    }
+    delete [] swarm_pos;
+    delete [] swarm_vec;
+
+    if(converged){
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_ITERATIONSFAILEDTOCONVERGE;
+    }
+  }
+
+  ###CUDA### ###GLOBAL### void particle_swarm_set_init_loc(int nparam,int num_particle,double *loc,double *lowbound,double *upbound){
+    int i=(blockDim.x*blockIdx.x + threadIdx.x);
+    int particle_index=i/nparam;
+    int dim_index=i%nparam;
+
+    if(particle_index < num_particle){
+      loc[i] = loc[i]*(upbound[dim_index] - lowbound[dim_index]) + lowbound[dim_index];
+    }
+  }
+  ###CUDA### ###GLOBAL### void particle_swarm_set_init_vec(int nparam,int num_particle,double *vec,double *lowbound,double *upbound){
+    int i=(blockDim.x*blockIdx.x + threadIdx.x);
+    int particle_index=i/nparam;
+    int dim_index=i%nparam;
+
+    if(particle_index < num_particle){
+      vec[i] = vec[i]*2*(upbound[dim_index] - lowbound[dim_index]) + lowbound[dim_index] - upbound[dim_index];
+    }
+  }
+  ###CUDA### ###GLOBAL### void particle_swarm_update_best_p_kernel(int nparam,int num_particle,double* curr_p,double* curr_loc,double *best_p,double *best_loc){
+    int particle_index=(blockDim.x*blockIdx.x + threadIdx.x);
+    int i;
+
+    if(particle_index < num_particle){
+      if(curr_p[particle_index] < best_p[particle_index]){
+	best_p[particle_index] = curr_p[particle_index];
+	for(i=0;i<nparam;i++){
+	  best_loc[particle_index*nparam+i] = curr_loc[particle_index*nparam+i];
+	}
+      }
+    }
+  }
+
+  ###CUDA### ###GLOBAL### void particle_swarm_find_min_kernel(int nparam,int num_particle,double *best_p,double *best_loc){
+    int particle_index=(blockDim.x*blockIdx.x + threadIdx.x);
+    int i;
+    
+    if(particle_index < num_particle){
+      if(best_p[particle_index] > best_p[particle_index+num_particle]){
+	best_p[particle_index] = best_p[particle_index+num_particle];
+	for(i=0;i<nparam;i++){
+	  best_loc[particle_index*nparam+i] = best_loc[(particle_index+num_particle)*nparam+i];
+	}
+      }
+    }
+  }
+###CUDA### ###GLOBAL### void particle_swarm_particle_kernel(int nparam,int nparticle,double *param,void* optimization_funct_param,double (*funct)(int threadid,double* din,int *iin,void *param),double *curr_p){
+    int particle_index=blockDim.x*blockIdx.x + threadIdx.x;
+  
+    if(particle_index < nparticle){
+      curr_p[particle_index] = (*funct)(particle_index,param+particle_index*nparam,NULL,optimization_funct_param);
+    }
+  }
+
+  ###CUDA### ###GLOBAL### void particle_swarm_update_loc_vec(int nparam,int nparticle,double damp,double potential_p,double potential_s,double *vec,double *loc,double *rand1,double *rand2,double *particle_best_loc,double *swarm_best_loc){
+    int i=(blockDim.x*blockIdx.x + threadIdx.x);
+    int particle_index=i/nparam;
+    int dim_index=i%nparam;
+    
+    if(particle_index < nparticle){
+      vec[i] *= damp;
+      vec[i] += potential_p*rand1[i]*(particle_best_loc[i] - loc[i]) + potential_s*rand2[i]*(swarm_best_loc[dim_index] - loc[i]);
+      loc[i] += vec[i];
+    }
+  }
+  ###CUDA### ###GLOBAL### void particle_swarm_loc_check(int nparam,int nparticle,double *lowbound,double* upbound,double *loc,double *vec){
+    int i=(blockDim.x*blockIdx.x + threadIdx.x);
+    int particle_index=i/nparam;
+    int dim_index=i%nparam;
+
+    if(particle_index < nparticle){
+      if(vec[i] > upbound[dim_index] - lowbound[dim_index]){
+	vec[i] = upbound[dim_index] - lowbound[dim_index];
+      }
+      else if(vec[i] < -(upbound[dim_index] - lowbound[dim_index])){
+	vec[i] = -(upbound[dim_index] - lowbound[dim_index]);
+      }
+
+      if(loc[i] < lowbound[dim_index]){
+	loc[i] = lowbound[dim_index];
+	vec[i] *= -1;
+      }
+      else if(loc[i] > upbound[dim_index]){
+	loc[i] = upbound[dim_index];
+	vec[i] *= -1;
+      }
+    }
+  }
+
+###CPP### ###CUDA### ###GLOBAL### void particle_swarm_swarm_kernel(int nparam,int numthreads,void* optimization_funct_param,optimization_PSO_setting* iter_setting,double (*funct)(int threadid,double* din,int *iin,void *param),double *curr_p,double *best_p,double *best_loc,double *best_s,double *swarm_best_loc,double *rand_gen,curandState_t *state,double *working_loc,double *working_vec,double *work,double *work2,optimization_PSO_monitor_gpu *iter_monitor,double *fg){
+    int swarm_index=blockDim.x*blockIdx.x + threadIdx.x;
+  
+    if(swarm_index < 1){
+      dim3 grid_swarm,grid_dim,grid_n2,grid_nnpar2,grid_nparam, grid_n2npar2;
+      //const int nstream = 2;
+      int n2 = (int) pow(2.,((int) ceil(log((double) iter_setting->num_particle)/log(2.))));
+      int npar2 = (int) pow(2.,((int) ceil(log((double) nparam)/log(2.))));
+      int nnpar2 =  (int) pow(2.,((int) ceil(log((double) nparam*iter_setting->num_particle)/log(2.))));
+      int n2npar2 = (int) pow(2.,((int) ceil(log((double) nparam*n2)/log(2.))));
+      int i,j;
+      int no_update;
+      bool iteration_end;
+      cudaError_t error;
+      
+      /*
+      cudaStream_t stream[nstream];
+      for(i=0;i<nstream;i++){
+	cudaStreamCreateWithFlags(stream+i,cudaStreamNonBlocking);
+      }
+      */
+
+      grid_dim.x = (int) ceil((double) iter_setting->num_particle*nparam/numthreads);
+      grid_swarm.x = (int) ceil((double) iter_setting->num_particle/numthreads);
+      grid_nparam.x = (int) ceil((double) nparam/numthreads);
+      grid_n2.x = (int) ceil((double) n2/numthreads);
+      grid_nnpar2.x = (int) ceil((double) nnpar2/numthreads);
+      grid_n2npar2.x = (int) ceil((double) n2npar2/numthreads);
+
+      curand_uniform_double_kernel<<<grid_dim,numthreads>>>(iter_setting->num_particle*nparam,state,working_loc);
+      particle_swarm_set_init_loc<<<grid_dim,numthreads>>>(nparam,iter_setting->num_particle,working_loc,iter_setting->lowbound,iter_setting->upbound);
+
+      if(fg!=NULL){
+	cuda_set_value<<<grid_nparam,numthreads>>>(nparam,working_loc,fg);
+      }
+      
+      curand_uniform_double_kernel<<<grid_dim,numthreads>>>(iter_setting->num_particle*nparam,state,working_vec);
+      particle_swarm_set_init_vec<<<grid_dim,numthreads>>>(nparam,iter_setting->num_particle,working_vec,iter_setting->lowbound,iter_setting->upbound);
+      //cudaDeviceSynchronize();
+
+      bool converged = false;
+      for(i=0;i<iter_setting->max_iteration&&!converged;i++){
+	particle_swarm_particle_kernel<<<grid_swarm,numthreads>>>(nparam,iter_setting->num_particle,working_loc,optimization_funct_param,funct,curr_p);
+	//cudaError_t error = cudaDeviceSynchronize();
+	
+	if(i==0){
+	  cuda_copy_kernel<<<grid_swarm,numthreads>>>(iter_setting->num_particle,curr_p,best_p);
+	  cuda_copy_kernel<<<grid_dim,numthreads>>>(iter_setting->num_particle*nparam,working_loc,best_loc);
+	}
+	else{
+	  particle_swarm_update_best_p_kernel<<<grid_swarm,numthreads>>>(nparam,iter_setting->num_particle,curr_p,working_loc,best_p,best_loc);
+	}
+
+	cuda_expand_by_repeat_kernel<<<grid_n2,numthreads>>>(iter_setting->num_particle,n2,best_p,work);
+	cuda_expand_by_repeat_kernel<<<grid_n2npar2,numthreads>>>(iter_setting->num_particle*nparam,n2*nparam,best_loc,work2);
+	
+	j=n2/2;
+	while(j>=1){
+	  grid_n2.x = (int) ceil((double) j/numthreads);
+	  particle_swarm_find_min_kernel<<<grid_n2,numthreads>>>(nparam,j,work,work2);
+	  j/=2;
+	}
+	
+	error = cudaDeviceSynchronize();
+	if(error){
+	  iter_setting->error = error;
+	}
+
+	if(work[0] < *best_s || i==0){
+	  cuda_copy_kernel<<<1,1>>>(1,work,best_s);
+	  cuda_copy_kernel<<<1,nparam>>>(nparam,work2,swarm_best_loc);
+	  error = cudaDeviceSynchronize();
+
+	  if(error){
+	    iter_setting->error = error;
+	  }
+
+	  no_update = 0;
+	}
+	else{
+	  no_update++;
+	}
+
+	if(iter_monitor != NULL){
+	  cuda_copy_kernel<<<1,nparam>>>(nparam,swarm_best_loc,iter_monitor->swarm_best_loc+i*nparam);
+	  iter_monitor->best_s[i] = best_s[0];
+	}
+	
+	curand_uniform_double_kernel<<<grid_dim,numthreads>>>(iter_setting->num_particle*nparam,state,work);
+	curand_uniform_double_kernel<<<grid_dim,numthreads>>>(iter_setting->num_particle*nparam,state,work2);
+	particle_swarm_update_loc_vec<<<grid_dim,numthreads>>>(nparam,iter_setting->num_particle,
+							       (iter_setting->damp2 - iter_setting->damp)*i/iter_setting->max_iteration + iter_setting->damp,
+							       (iter_setting->potential_p2 - iter_setting->potential_p)*i/iter_setting->max_iteration + iter_setting->potential_p,
+							       (iter_setting->potential_s2 - iter_setting->potential_s)*i/iter_setting->max_iteration + iter_setting->potential_s,
+							       working_vec,working_loc,work,work2,best_loc,swarm_best_loc);
+
+	particle_swarm_loc_check<<<grid_dim,numthreads>>>(nparam,iter_setting->num_particle,iter_setting->lowbound,iter_setting->upbound,working_loc,working_vec);
+	
+	iteration_end = false;
+	if(iter_setting->converge_mode_no_update && no_update >= iter_setting->no_update_iteration){
+	  iteration_end = true;
+	}
+
+	if(iteration_end){
+	  break;
+	}
+
+      }
+
+      if(iter_monitor != NULL){
+	iter_monitor->num_iteration_carried_out = i;
+      }
+
+      /*
+      for(i=0;i<nstream;i++){
+	cudaStreamDestroy(stream[i]);
+      }
+      */
+    }
+  }
+
+  ###CPP### ###CUDA### ###HOST### int optimization_minimize_particle_swarm_gpu(int nparam,double *param,void* optimization_funct_param,optimization_PSO_setting* iter_setting,double (*funct)(int threadid,double *din,int *iin,void *param),optimization_PSO_monitor_gpu *iter_monitor,double *fg){
+    //int particle_index=blockDim.x*blockIdx.x + threadIdx.x;
+    
+    double *curr_p,*best_p,*best_loc,*best_s,*rand_gen;
+    cudaMalloc(&curr_p,iter_setting->num_particle*sizeof(double));
+    cudaMalloc(&best_p,iter_setting->num_particle*sizeof(double));
+    cudaMalloc(&best_loc,iter_setting->num_particle*nparam*sizeof(double));
+    cudaMalloc(&rand_gen,iter_setting->num_particle*nparam*sizeof(double));
+    cudaMalloc(&best_s,sizeof(double));
+
+    double *working_loc,*working_vec,*work, *work2;
+    double num_particle_2n = (int) pow(2.,((int) ceil(log((double) iter_setting->num_particle)/log(2.))));
+    double nparam_2n = (int) pow(2.,((int) ceil(log((double) nparam)/log(2.))));
+    cudaMalloc(&working_loc,iter_setting->num_particle*nparam*sizeof(double));
+    cudaMalloc(&working_vec,iter_setting->num_particle*nparam*sizeof(double));
+    cudaMalloc(&work,num_particle_2n*nparam_2n*sizeof(double));
+    cudaMalloc(&work2,num_particle_2n*nparam_2n*sizeof(double));
+/*
+    pfdv h_funct;
+    cudaMemcpyFromSymbol(&h_funct,funct,sizeof(pfdv));
+    if ( cudaSuccess != cudaPeekAtLastError() ) std::cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpyFromSymbol@optimization_minimize_particle_swarm_gpu" << std::endl;
+*/
+/*
+unsigned long long h_funct;
+cudaMemcpy(&h_funct,funct,
+*/
+    double *swarm_best_loc;
+    cudaMalloc(&swarm_best_loc,nparam*sizeof(double));
+
+    optimization_PSO_setting h_iter_setting = *iter_setting;
+    optimization_PSO_setting* d_iter_setting;
+    optimization_PSO_monitor_gpu* d_monitor = NULL;
+    cudaMalloc(&d_iter_setting,sizeof(optimization_PSO_setting));
+
+    cudaMalloc(&h_iter_setting.lowbound,nparam*sizeof(double));
+    cudaMalloc(&h_iter_setting.upbound,nparam*sizeof(double));
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMalloc@optimization_minimize_particle_swarm_gpu" <<endl;
+
+    if(iter_monitor != NULL){
+      cudaMalloc(&d_monitor,sizeof(optimization_PSO_monitor_gpu));
+      cudaMemcpy(d_monitor,iter_monitor,sizeof(optimization_PSO_monitor_gpu),cudaMemcpyHostToDevice);
+    }
+
+    double *d_fg = NULL;
+    if(fg != NULL){
+      cudaMalloc(&d_fg,nparam*sizeof(double));
+      cudaMemcpy(d_fg,fg,nparam*sizeof(double),cudaMemcpyHostToDevice);
+    }
+
+    cudaMemcpy(d_iter_setting,&h_iter_setting,sizeof(optimization_PSO_setting),cudaMemcpyHostToDevice);
+
+    cudaMemcpy(h_iter_setting.lowbound,iter_setting->lowbound,nparam*sizeof(double),cudaMemcpyHostToDevice);
+    cudaMemcpy(h_iter_setting.upbound,iter_setting->upbound,nparam*sizeof(double),cudaMemcpyHostToDevice);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy@optimization_minimize_particle_swarm_gpu" <<endl;
+
+    curandState_t *state;
+    cudaMalloc(&state,iter_setting->num_particle*nparam*sizeof(curandState_t));
+
+    unsigned long long seed = time(NULL);
+
+    dim3 grid;
+    int numthreads = cuda_setting::get_numthreads();
+    grid.x = (int) ceil((double) iter_setting->num_particle*nparam/numthreads);
+    
+    libjeff::curand_init_kernel<<<grid,numthreads>>>(iter_setting->num_particle*nparam,seed,state);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@curand_init_kernel@optimization_minimize_particle_swarm_gpu" <<endl;
+        
+    particle_swarm_swarm_kernel<<<1,1>>>(nparam,numthreads,optimization_funct_param,d_iter_setting,funct,curr_p,best_p,best_loc,best_s,swarm_best_loc,rand_gen,state,working_loc,working_vec,work,work2,d_monitor,d_fg);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@particle_swarm_swarm_kernel@optimization_minimize_particle_swarm_gpu" <<endl;
+
+    cudaMemcpy(param,swarm_best_loc,nparam*sizeof(double),cudaMemcpyDeviceToHost);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpyDeviceToHost@optimization_minimize_particle_swarm_gpu" <<endl;
+    cudaMemcpy(&h_iter_setting,d_iter_setting,sizeof(optimization_PSO_setting),cudaMemcpyDeviceToHost);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpyDeviceToHost@optimization_minimize_particle_swarm_gpu" <<endl;
+    iter_setting->error = h_iter_setting.error;
+	
+    if(iter_monitor != NULL){
+      cudaMemcpy(iter_monitor,d_monitor,sizeof(optimization_PSO_monitor_gpu),cudaMemcpyDeviceToHost);
+      cudaFree(d_monitor);
+    }
+    if(fg != NULL){
+      cudaFree(d_fg);
+    }
+
+    cudaFree(d_iter_setting);
+    cudaFree(h_iter_setting.lowbound);
+    cudaFree(h_iter_setting.upbound);
+    cudaFree(state);
+    cudaFree(rand_gen);
+    cudaFree(best_loc);
+    cudaFree(curr_p);
+    cudaFree(best_p);
+    cudaFree(best_s);
+
+    cudaFree(swarm_best_loc);
+    
+    cudaFree(work);
+    cudaFree(work2);
+    cudaFree(working_loc);
+    cudaFree(working_vec);
+
+    return _ERRORCODE_NOERROR;
+  }
+/*
+  ###CPP### ###CUDA### ###HOST### int optimization_minimize_particle_swarm_gpu(int nparam,double *param,void* optimization_funct_param,optimization_PSO_setting* iter_setting,void (*funct)(double* in,void *param,double *out)){
+    //int particle_index=blockDim.x*blockIdx.x + threadIdx.x;
+    
+    double *curr_p,*best_p,*best_loc,*best_s,*rand_gen;
+    cudaMalloc(&curr_p,iter_setting->num_particle*sizeof(double));
+    cudaMalloc(&best_p,iter_setting->num_particle*sizeof(double));
+    cudaMalloc(&best_loc,iter_setting->num_particle*nparam*sizeof(double));
+    cudaMalloc(&rand_gen,iter_setting->num_particle*nparam*sizeof(double));
+    cudaMalloc(&best_s,sizeof(double));
+
+    double *working_loc,*working_vec,*work, *work2;
+    double num_particle_2n = (int) pow(2.,((int) ceil(log((double) iter_setting->num_particle)/log(2.))));
+    double nparam_2n = (int) pow(2.,((int) ceil(log((double) nparam)/log(2.))));
+    cudaMalloc(&working_loc,iter_setting->num_particle*nparam*sizeof(double));
+    cudaMalloc(&working_vec,iter_setting->num_particle*nparam*sizeof(double));
+    cudaMalloc(&work,num_particle_2n*nparam_2n*sizeof(double));
+    cudaMalloc(&work2,num_particle_2n*nparam_2n*sizeof(double));
+
+    double *swarm_best_loc;
+    cudaMalloc(&swarm_best_loc,nparam*sizeof(double));
+
+    optimization_PSO_setting h_iter_setting = *iter_setting;
+    optimization_PSO_setting* d_iter_setting;
+    cudaMalloc(&d_iter_setting,sizeof(optimization_PSO_setting));
+
+    cudaMalloc(&h_iter_setting.lowbound,nparam*sizeof(double));
+    cudaMalloc(&h_iter_setting.upbound,nparam*sizeof(double));
+
+    cudaMemcpy(d_iter_setting,&h_iter_setting,sizeof(optimization_PSO_setting),cudaMemcpyHostToDevice);
+
+    cudaMemcpy(h_iter_setting.lowbound,iter_setting->lowbound,nparam*sizeof(double),cudaMemcpyHostToDevice);
+    cudaMemcpy(h_iter_setting.upbound,iter_setting->upbound,nparam*sizeof(double),cudaMemcpyHostToDevice);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy@optimization_minimize_particle_swarm_gpu" <<endl;
+
+    curandState_t *state;
+    cudaMalloc(&state,iter_setting->num_particle*nparam*sizeof(curandState_t));
+
+    unsigned long long seed = time(NULL);
+
+    dim3 grid;
+    int numthreads = cuda_setting::get_numthreads();
+    grid.x = (int) ceil((double) iter_setting->num_particle*nparam/numthreads);
+    
+    libjeff::curand_init_kernel<<<grid,numthreads>>>(iter_setting->num_particle*nparam,seed,state);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@curand_init_kernel@optimization_minimize_particle_swarm_gpu" <<endl;
+        
+    particle_swarm_swarm_kernel<<<1,1>>>(nparam,numthreads,optimization_funct_param,d_iter_setting,funct,curr_p,best_p,best_loc,best_s,swarm_best_loc,rand_gen,state,working_loc,working_vec,work,work2);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@particle_swarm_swarm_kernel@optimization_minimize_particle_swarm_gpu" <<endl;
+
+    cudaMemcpy(param,swarm_best_loc,nparam*sizeof(double),cudaMemcpyDeviceToHost);
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpyDeviceToHost@optimization_minimize_particle_swarm_gpu" <<endl;
+	
+    cudaFree(d_iter_setting);
+    cudaFree(h_iter_setting.lowbound);
+    cudaFree(h_iter_setting.upbound);
+    cudaFree(state);
+    cudaFree(rand_gen);
+    cudaFree(best_loc);
+    cudaFree(curr_p);
+    cudaFree(best_p);
+    cudaFree(best_s);
+
+    cudaFree(swarm_best_loc);
+    
+    cudaFree(work);
+    cudaFree(work2);
+    cudaFree(working_loc);
+    cudaFree(working_vec);
+
+    return _ERRORCODE_NOERROR;
+  }
+*/
+  namespace optimization{
+    const int roc_init_nseg = 100;
+    const double converge_criteria = 1e-4;
+
+    double* skill_area_in_ROC(int nparticle,double** in,void *par,double *out){
+      int i,j;
+      optimization_skill_area_in_ROC_param* param = (optimization_skill_area_in_ROC_param*) par;
+
+      double *test_data = new double [param->ndata];
+      double *temp_param = new double [param->nparam];
+      double temp_result;
+
+      for(j=0;j<nparticle;j++){
+	for(i=0;i<param->nparam;i++){
+	  temp_param[i] = in[i][j];
+	}
+
+	for(i=0;i<param->ndata;i++){
+	  test_data[i] = (*param->funct)(param->data[i],temp_param);
+	}
+	temp_result = skill_area_in_ROC(param->ndata,test_data,param->obs);
+	if(param->auto_flip_roc){
+	  if(temp_result < 0.5){
+	    temp_result = 1. - temp_result;
+	  }
+	}
+	out[j] = -temp_result;
+      }
+
+      delete [] test_data;
+      delete [] temp_param;
+
+      return out;
+    }
+
+    double skill_area_in_ROC(int ndata,double *data,bool *obs){
+      double results = -1;
+      double pre_results = -1;
+
+      int roc_nseg = roc_init_nseg;
+      if(roc_nseg >= ndata){
+	roc_nseg = ndata-1;
+      }
+
+      if(ndata > 1){
+	double max_data, min_data, threshold_workon;
+	
+	max_data = data[0];
+	min_data = data[0];
+
+	int i,j,k;
+	for(i=1;i<ndata;i++){
+	  if(data[i] > max_data){
+	    max_data = data[i];
+	  }
+	  if(data[i] < min_data){
+	    min_data = data[i];
+	  }
+	}
+
+	double *threshold;
+	int threshold_index_workon;
+	bool *threshold_found;
+	double *pod, *fpr;
+	double temp_fpr;
+
+	bool converged = false;
+	long long *temp_verification = new long long [4];
+	int pre_index, next_index;
+	while(!converged){
+	  threshold = new double [roc_nseg+1];
+	  pod = new double [roc_nseg+1];
+	  fpr = new double [roc_nseg+1];
+	  threshold_found = new bool [roc_nseg+1];
+
+	  for(i=0;i<=roc_nseg;i++){
+	    threshold_found[i] = false;
+	  }
+
+	  threshold[0] = min_data;
+	  threshold[roc_nseg] = max_data;
+	  threshold_found[0] = true;
+	  threshold_found[roc_nseg] = true;
+
+	  pod[0] = 1.;
+	  fpr[0] = 1.;
+	  pod[roc_nseg] = 0.;
+	  fpr[roc_nseg] = 0.;
+
+	  for(j=2;j<=roc_nseg;j++){
+	    for(i=0;i<4;i++){
+	      temp_verification[i] = 0;
+	    }
+
+	    int count = 0;
+	    for(i=1;i<roc_nseg;i++){
+	      if(count == 0 && !threshold_found[i]){
+		for(k=i-1;k>=0;k--){
+		  if(threshold_found[k]){
+		    pre_index = k;
+		    break;
+		  }
+		}
+		for(k=i+1;k<=roc_nseg;k++){
+		  if(threshold_found[k]){
+		    next_index = k;
+		    break;
+		  }
+		}
+		count = 1;
+	      }
+	      if(count==1){
+		break;
+	      }
+	    }
+
+	    threshold_workon = 0.5*(threshold[pre_index] + threshold[next_index]);
+	    for(k=0;k<ndata;k++){
+	      if(obs[k]){
+		if(data[k] >= threshold_workon){
+		  temp_verification[0]++;
+		}
+		else{
+		  temp_verification[2]++;
+		}
+	      }
+	      else{
+		if(data[k] >= threshold_workon){
+		  temp_verification[1]++;
+		}
+		else{
+		  temp_verification[3]++;
+		}
+	      }
+	    }
+
+	    temp_fpr = ((double) temp_verification[1])/((double) temp_verification[1] + temp_verification[3]);
+	    if(fpr[pre_index] != fpr[next_index]){
+	      threshold_index_workon = round((temp_fpr - fpr[pre_index])/(fpr[next_index] - fpr[pre_index])*(next_index - pre_index - 2) + pre_index + 1);
+	    }
+	    else{
+	      threshold_index_workon = round(0.5*(next_index - pre_index - 2) + pre_index + 1);
+	    }
+
+	    fpr[threshold_index_workon] = temp_fpr;
+	    pod[threshold_index_workon] = ((double) temp_verification[0])/((double) temp_verification[0] + temp_verification[2]);
+	    threshold_found[threshold_index_workon] = true;
+	    threshold[threshold_index_workon] = threshold_workon;
+	  }
+	  
+	  results = 0.;
+	  for(j=1;j<=roc_nseg;j++){
+	    if(fabs(fpr[j] - fpr[j-1]) > 1e-10){
+	      results += 0.5*(pod[j] + pod[j-1])*fabs(fpr[j] - fpr[j-1]);
+	    }
+	  }
+	  /*
+	  std::cout << roc_nseg << " " << pre_results << " " << results << std::endl;
+	  for(j=0;j<=roc_nseg;j++){
+	    std::cout << threshold[j] << "\t" << fpr[j] << "\t" << pod[j] << std::endl;
+	  }
+	  */
+
+	  delete [] threshold;
+	  delete [] pod;
+	  delete [] fpr;
+	  delete [] threshold_found;
+
+	  if(fabs(pre_results - results) < converge_criteria){
+	    converged = true;
+	  }
+	  else{
+	    pre_results = results;
+	    roc_nseg *= 2.;
+	    if(roc_nseg >= ndata){
+	      roc_nseg = ndata-1;
+	    }
+	  }
+	}
+	delete [] temp_verification;
+      }
+      
+      return results;
+    }
+  }
+}

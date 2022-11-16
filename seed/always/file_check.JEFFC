@@ -1,0 +1,355 @@
+#include<cstdlib>
+#include<cstring>
+#include<fstream>
+#include<dirent.h>
+#include<iostream>
+#include<sys/stat.h>
+
+#include "debug_mode.h"
+#include "error_code.h"
+#include "file_check.h"
+###EXTERNAL####include "file_handler.h"
+###EXTERNAL####include "ssh_interface.h"
+#include "string_man.h"
+#include"tools.h"
+
+#define buff_size 40960000
+#define FILENAMEBUFFSIZE 4096
+#define SFTPPROTOCOLLEN 7
+
+namespace libjeff{
+  bool file_check_exist(char *filename){
+    struct stat results;
+    if(stat(filename,&results)==0){
+      return 1;
+    }
+    else{
+      return 0;
+    }
+  }
+  
+  int file_check_length(char *filename){
+    if(file_check_exist(filename)){
+      std::ifstream fin;
+      int count = 0;
+      
+      char *temp = new char [buff_size];
+      
+      fin.open(filename);
+      fin.getline(temp,buff_size,'\n');
+      while(!fin.eof()){
+	count++;
+	fin.getline(temp,buff_size,'\n');
+      }
+      fin.close();
+      delete [] temp;
+      return count;
+    }
+    else{
+      return 0;
+    }
+  }
+  int file_check_size(char *filename){
+    if(libjeff::is_sftp_file(filename)){
+      size_t result = -1;
+      ###EXTERNAL###{
+	char *hostname = new char [strlen(filename)+1];
+	char *port = new char [strlen(filename)+1];
+	char *username = new char [strlen(filename)+1];
+	char *password = new char [strlen(filename)+1];
+	char *filepath = new char [strlen(filename)+1];
+	
+	file_handler_sftp_file_decipher(filename,username,password,hostname,filepath,port);
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "SFTP connection with the following settings:" << std::endl;
+	  std::cout << "Username: " << username << std::endl;
+	  std::cout << "Password: " << password << std::endl;
+	  std::cout << "Hostname: " << hostname << std::endl;
+	  std::cout << "Filepath: " << filepath << std::endl;
+	  std::cout << "Port: " << port << std::endl;
+	}
+	
+	libjeff::ssh_interface ssh(hostname,username,password,atoi(port));
+	
+	result = ssh.sftp_get_file_size(filepath);
+	
+	delete [] hostname;
+	delete [] port;
+	delete [] username;
+	delete [] password;
+	delete [] filepath;
+      }
+	
+      return result;
+    }
+    else{
+      if(file_check_exist(filename)){
+	struct stat stat_buf;
+	stat(filename,&stat_buf);
+	return stat_buf.st_size;
+      }
+      else{
+	return 0;
+      }
+    }
+  }
+  void file_check_list_directory(char* inpath,char** &content,int &num_dir){
+    num_dir = 0;
+    
+    DIR *dir = opendir(inpath);
+    struct dirent *entry = readdir(dir);
+    while (entry != NULL){
+      if(entry->d_type == DT_DIR){
+	if(strcmp(entry->d_name,".") != 0 && strcmp(entry->d_name,"..") != 0){
+	  num_dir++;
+	}
+      }
+      entry = readdir(dir);
+    }
+    closedir(dir);
+    
+    int i = 0;
+    content = new char* [num_dir];
+    dir = opendir(inpath);
+    entry = readdir(dir);
+    while (entry != NULL){
+      if(entry->d_type == DT_DIR){
+	if(strcmp(entry->d_name,".") != 0 && strcmp(entry->d_name,"..") != 0){
+	  content[i] = new char [4096];
+	  strcpy(content[i],entry->d_name);
+	  i++;
+	}
+      }
+      
+      entry = readdir(dir);
+    }
+    closedir(dir);
+  }
+  void file_check_list_item(char* inpath,char ** &content,int &num_item){
+    num_item = 0;
+    int error = _ERRORCODE_NOERROR;
+    
+    if(libjeff::is_sftp_file(inpath)){
+      ###EXTERNAL###{
+	char *hostname = new char [strlen(inpath)+1];
+	char *port = new char [strlen(inpath)+1];
+	char *username = new char [strlen(inpath)+1];
+	char *password = new char [strlen(inpath)+1];
+	char *filepath = new char [strlen(inpath)+1];
+	
+	file_handler_sftp_file_decipher(inpath,username,password,hostname,filepath,port);
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "SFTP connection with the following settings:" << std::endl;
+	  std::cout << "Username: " << username << std::endl;
+	  std::cout << "Password: " << password << std::endl;
+	  std::cout << "Hostname: " << hostname << std::endl;
+	  std::cout << "Filepath: " << filepath << std::endl;
+	  std::cout << "Port: " << port << std::endl;
+	}
+	
+	libjeff::ssh_interface ssh(hostname,username,password,atoi(port));
+	
+	error = ssh.sftp_list_item(filepath,content,num_item);
+	
+	delete [] hostname;
+	delete [] port;
+	delete [] username;
+	delete [] password;
+	delete [] filepath;
+      }
+    }
+    else{
+      DIR *dir = opendir(inpath);
+      if(dir!=NULL){
+	struct dirent *entry = readdir(dir);
+	while (entry != NULL){
+	  if(strcmp(entry->d_name,".") != 0 && strcmp(entry->d_name,"..") != 0){
+	    num_item++;
+	  }
+	  entry = readdir(dir);
+	}
+	closedir(dir);
+	
+	int i = 0;
+	if(num_item!=0){
+	  content = new char* [num_item];
+	  dir = opendir(inpath);
+	  entry = readdir(dir);
+	  while (entry != NULL){
+	    if(strcmp(entry->d_name,".") != 0 && strcmp(entry->d_name,"..") != 0){
+	      content[i] = new char [4096];
+	      strcpy(content[i],entry->d_name);
+	      i++;
+	    }
+	    
+	    entry = readdir(dir);
+	  }
+	  closedir(dir);
+	}
+	else{
+	  content = NULL;
+	}
+      }
+      else{
+	content = NULL;
+      }
+    }
+  }
+
+  ###EXTERNAL###void file_check_list_item(libjeff::file_handler* file,char ** &content,int &num_item){
+    num_item = 0;
+
+    char *ctemp = NULL;
+    size_t size = 0;
+
+    file->read_file(ctemp,size);
+        
+    int read_size = 0;
+    char *pt = ctemp;
+    int counter = 0;
+    while(pt < ctemp+size){
+      if(pt != NULL){
+	if(libjeff::tar::is_file(pt)){
+	  num_item++;
+	}
+	counter++;
+	pt = libjeff::tar::goto_block(pt,size-(pt-ctemp),1);
+      }
+      else{
+	break;
+      }
+    }
+
+    content = new char* [num_item];
+    int i;
+    int count = 0;
+    for(i=0;i<counter;i++){
+      content[i] = NULL;
+      pt = libjeff::tar::goto_block(ctemp,size,i);
+      if(libjeff::tar::is_file(pt)){
+	libjeff::tar::get_filename(pt,content[count]);
+	count++;
+      }
+    }
+
+    delete [] ctemp;
+
+  }
+
+  bool is_grib_file(char *filename){
+    bool result = false;
+    char *ctemp = new char [strlen(filename)+10];
+
+    string_reverse(filename,ctemp);
+    if(strncmp(ctemp,"brg.",4)==0){
+      result = true;
+    }
+
+    delete [] ctemp;
+    return result;
+  }
+  bool is_netcdf_file(char *filename){
+    bool result = false;
+    char *ctemp = new char [strlen(filename)+10];
+
+    string_reverse(filename,ctemp);
+    if(strncmp(ctemp,"cn.",3)==0){
+      result = true;
+    }
+
+    delete [] ctemp;
+    return result;
+  }
+  bool is_bz2_file(char *filename){
+    char *temp_filename = new char [strlen(filename)+10];
+    string_reverse(filename,temp_filename);
+    bool result = strncmp(temp_filename,"2zb.",4);
+    delete [] temp_filename;
+    
+    return !result;
+  }
+  bool is_gz_file(char *filename){
+    char *temp_filename = new char [strlen(filename)+10];
+    string_reverse(filename,temp_filename);
+    bool result = strncmp(temp_filename,"zg.",3);
+    delete [] temp_filename;
+    
+    return !result;
+  }
+  bool is_sftp_file(char *filename){    
+    bool result = true;
+    if(strncmp(filename,"sftp://",SFTPPROTOCOLLEN)!=0){
+      result = false;
+    }
+    char *ctemp = strstr(filename+SFTPPROTOCOLLEN,"@");
+    if(ctemp == NULL){
+      result = false;
+    }
+    else{
+      ctemp = strstr(ctemp+1,":");
+      if(ctemp == NULL){
+	result = false;
+      }
+      else{
+	char *ctemp2 = new char [FILENAMEBUFFSIZE];
+	strcpy(ctemp2,ctemp+1);      
+	ctemp = strstr(ctemp2,"/");
+	if(ctemp == NULL){
+	  result = false;
+	}
+	else{
+	  *ctemp = '\0';
+	  if(!is_number(ctemp2)){
+	    result = false;
+	  }
+	}
+	delete [] ctemp2;
+      }
+    }
+    return result;
+  }
+  bool is_tar_file(char *filename){
+    char *temp_filename = new char [strlen(filename)+10];
+    string_reverse(filename,temp_filename);
+    bool result = strncmp(temp_filename,"rat.",4);
+    delete [] temp_filename;
+    
+    return !result;
+  }
+
+  int file_handler_sftp_file_decipher(char *filename,char *username,char *password,char* hostname,char *filepath,char *port){
+    if(!libjeff::is_sftp_file(filename)){
+      return _ERRORCODE_SFTP_INVALID_FILENAME;
+    }
+    
+    int protocol_len = SFTPPROTOCOLLEN;
+    
+    char *ctemp;
+    char *ctemp2 = new char [strlen(filename)];
+    strcpy(ctemp2,filename+protocol_len);
+    *strstr(ctemp2,"@") = '\0';
+    
+    ctemp = strstr(ctemp2,":");
+    if(ctemp == NULL){
+      strcpy(password,"");
+    }
+    else{
+      strcpy(password,ctemp+1);
+      *ctemp = '\0';
+    }
+    strcpy(username,ctemp2);
+    
+    strcpy(ctemp2,strstr(filename+6,"@")+1);
+    *strstr(ctemp2,"/") = '\0';
+    
+    strcpy(port,strstr(ctemp2,":")+1);
+    *strstr(ctemp2,":") = '\0';
+    strcpy(hostname,ctemp2);
+    
+    strcpy(filepath,strstr(filename+protocol_len,"/"));
+
+    delete [] ctemp2;
+    
+    return _ERRORCODE_NOERROR;
+  }
+}

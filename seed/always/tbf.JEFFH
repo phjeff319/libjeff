@@ -1,0 +1,33 @@
+#ifndef TERMINATORBINARYFORMAT
+#define TERMINATORBINARYFORMAT
+
+/* Basically a csv like file format similar to the QAR data from CX and KA 
+   but using binary format for numerical data to ensure consistence in data
+   up to the numerical accuracy of the data format. */
+
+#include "date_time.h"
+#include "file_handler.h"
+
+namespace libjeff{
+  class tbh{
+  public:
+    tbh();
+    tbh(char *filename);
+    ~tbh();
+    
+  private:
+    int num_field;
+    int *field_type;
+    /* 00 for char 
+       12 for 4 bytes signed int
+       13 for 8 bytes signed int
+       22 for 4 bytes unsigned int
+       23 for 8 bytes unsigned int
+       32 for 4 bytes double
+       33 for 8 bytes double
+       
+    */
+    outstream::file_handler *ofile;
+  };
+}
+#endif

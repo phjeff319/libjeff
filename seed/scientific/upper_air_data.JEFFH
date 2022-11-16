@@ -1,0 +1,41 @@
+#ifndef UPPERAIRDATA
+#define UPPERAIRDATA
+
+#include"date_time.h"
+#include"station_meta.h"
+#include"vertical_profile.h"
+
+namespace libjeff{
+  using namespace libjeff;
+  class upper_air_data{
+  public:
+    upper_air_data();
+    ~upper_air_data();
+
+    inline void set_profile(vertical_profile* in) {profile = in;}
+    inline void set_station_info(station_meta_data *in) {station_info = in;}
+
+    inline date_time get_obs_time() const {return this->obs_time;}
+    inline station_meta_data* get_station_info() const {return station_info;}
+    inline vertical_profile* get_profile() const {return profile;}
+
+    inline int read_profile_kp2s(char *filename) {return read_profile_kp2s(filename,0,0);}
+    int read_profile_kp2s(char *filename,int xindex,int yindex);
+    int read_profile_kp2s(char *nameformat,date_time obstime,int xindex,int yindex); //using ###obs time### and ###dir time### in the nameformat
+    int read_radiometer(char *filename,int xindex,int yindex);
+    int read_radiometer(char *nameformat,date_time obstime,int xindex,int yindex); //using ###obs time### and ###dir time### in the nameformat
+    inline int read_hkwind_profiler_data(char *filename,date_time obs_time,date_time tolerance,int strict_qc) { return read_hkwind_profiler_data(filename,obs_time,tolerance,0,0,strict_qc);}
+    int read_hkwind_profiler_data(char *filename,date_time obs_time,date_time tolerance,int xindex,int yindex,int strict_qc);
+    int read_profile_nhm_ascii(char *filename,int xindex,int yindex);
+
+    int write_to_little_R(ofstream& fout, int record_no) const;
+
+  private:
+    date_time obs_time;
+    vertical_profile* profile;
+    char * equipment_type;
+    station_meta_data* station_info;
+  };
+}
+
+#endif

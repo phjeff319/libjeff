@@ -1,0 +1,41 @@
+#ifndef RADIOMETER_CONFIG
+#define RADIOMETER_CONFIG
+class radiometer{
+ public:
+  radiometer();
+  ~radiometer();
+  int grid_point_sum();
+  int grid_point_sum(int);
+
+  void set_rain_mode();
+  void set_normal();
+
+  int gen_grid_point_fre(double *grid_fre);
+  int cal_channel_reading(double *grid_data,double *reading);
+
+  int set_filter(int type);
+ private:
+  void cal_channel_reading_rectangular(double *grid_data,double *reading);
+  void cal_channel_reading_gaussian(double *grid_data,double *reading);
+
+  void gen_grid_point_fre_rectangular(double *grid_fre);
+  void gen_grid_point_fre_gaussian(double *grid_fre);
+
+  //filter type: 
+  // 1 rectangular pass band
+  // 2 gaussian pass band
+  int filter_type;
+ protected:
+  int no_channel;
+  double elevation;
+  double *frequency, *bandwidth;
+  int *grid_point;
+};
+
+class hatpro_radiometer : public radiometer{
+ public:
+  hatpro_radiometer();
+  ~hatpro_radiometer();
+};
+#endif
+

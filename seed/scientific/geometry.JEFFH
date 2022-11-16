@@ -1,0 +1,82 @@
+#ifndef GEOMETRY
+#define GEOMETRY
+#include"polygon.h"
+using namespace libjeff;
+
+#include"grid_data_field.h"
+
+namespace libjeff{
+  namespace triangulation{
+    template <class vertice_type> class triangulation{
+    public:
+      triangulation();
+      ~triangulation();
+
+      int create(int ntriangles);
+      int destroy();
+
+      polygon<vertice_type> *get_triangles(int index);
+      inline polygon<vertice_type> *get_triangles(int index) const {return triangles;}
+
+      int set_triangles(int index,polygon<vertice_type> in);
+
+    private:
+      int ntriangles;
+      polygon<vertice_type> *triangles;
+    };
+
+    template <class vertice_type> int delaunay_triangulation(int npt,double **pts,triangulation<vertice_type> *out);
+  };
+
+  ###CPP### ###CUDA### ###HOST### int geometry_is_pt_inside_convex_polygon(int nside,double **vertices,double *point); //the polygon must be convex. The code will not check if it is convex
+  // 1 for outside, 0 for on polygon, -1 for inside
+  //int* is_inside_polygon(int nside,double **vertices,int npoint,double **points, int* out);
+  ###CPP### ###CUDA### ###HOST### bool geometry_is_ellipse_overlap_convex_polygon(int nside,double **vertices,double *center,double xwidth,double ywidth,double orient);
+  ###CPP### ###CUDA### ###HOST### bool geometry_is_line_segment_touch_ellipse(double *center,double xwidth,double ywidth,double orient,double *point1,double *point2);
+  ###CPP### ###CUDA### ###HOST### double** geometry_cal_polygon_enclose_polygon(int num_vertices,double **polygon_be_enclosed,double **polygon_enclosing);
+  ###CPP### ###CUDA### ###HOST### double *geometry_cal_2d_line_intersect(double *line1_pt,double *line1_dir,double *line2_pt,double *line2_dir,double *result);
+  ###CPP### ###CUDA### ###HOST### bool geometry_is_lines_intersect_between(double *line1pt1,double *line1_dir,double *line2pt1,double* line2pt2);
+  ###CPP### ###CUDA### ###HOST### bool geometry_is_line_segs_intersect(double *line1pt1,double *line1pt2,double *line2pt1,double* line2pt2);
+  ###CPP### ###CUDA### ###HOST### double *geometry_cal_2d_line_segs_intersect(double *line1pt1,double *line1pt2,double *line2pt1,double* line2pt2,double *result);
+  
+  ###CPP### ###CUDA### ###HOST### int geometry_extract_contour(const grid_data_field* in,double value,int &num_polygon,polygon<double>*& contours);
+  ###CPP### ###CUDA### ###HOST### int geometry_extract_contour(const grid_data_field* in,int z_index,double value,int &num_polygon,polygon<double>*& contours);
+
+  ###CUDA### ###HOST### int geometry_extract_contour(const grid_data_field* in,int num_zindex,int *z_index,int num_value,double *value,int **num_polygon,polygon<double>***& contours); //num_polygon[value_index][z_index], polygon[value_index][z_index][polygon_index]
+
+  ###CPP### ###CUDA### ###HOST### int geometry_cal_winding_number(double *point,const polygon<double>& polygon);
+  ###CPP### ###CUDA### ###HOST### bool geometry_is_pt_inside_polygon(const polygon<double>& polygon1,double *pt);
+  ###CPP### ###CUDA### ###HOST### bool geometry_is_pt_on_polygon(const polygon<double>& polygon1,double *pt);
+  ###CPP### ###CUDA### ###HOST### bool geometry_is_polygon_inside_polygon(const polygon<double>& polygon1,const polygon<double>& polygon2); //return true if polygon1 is inside polygon2
+  ###CPP### ###CUDA### ###HOST### bool geometry_is_polygon_intersect_polygon(const polygon<double>& polygon1,const polygon<double>& polygon2); //return true if polygon1 intersect polygon2
+  ###CPP### ###CUDA### ###HOST### bool geometry_is_line_cut_polygon(const polygon<double>& polygon1,double *line_pt,double *line_dir);
+  ###CPP### ###CUDA### ###HOST### int geometry_simplify_polygon_by_angle(polygon<double>& polygon,double threshold);
+  ###CPP### ###CUDA### ###HOST### int geometry_simplify_polygon_by_area(polygon<double>& polygon,double threshold);
+  ###CPP### ###CUDA### ###HOST### int geometry_simplify_polygon_by_area(polygon<double>& polygon,double threshold,int cross_check_every);
+
+  ###CPP### ###CUDA### ###HOST### void geometry_merge_with_inside_polygon(int num_polygon,polygon<double> *polygons,double gap);
+  ###CPP### ###CUDA### ###HOST### void geometry_merge_with_inside_polygon(int num_polygon,polygon<double> *polygons,double gap,double *xbounds,double *ybounds,double tolerance);
+
+  ###CPP### ###CUDA### ###HOST### double geometry_cal_polygon_area(const polygon<double> &in);
+
+  ###CPP### ###CUDA### ###HOST### bool geometry_polygon_check_self_crossing(const polygon<double> &in);
+  ###CPP### ###CUDA### ###HOST### bool geometry_polygon_check_self_crossing(const polygon<double> &in, int* location);
+
+  ###CPP### ###CUDA### ###HOST### double earth_lonlat_geometry_distance_from_line(double *pt_lonlat,double *line_pt1_lonlat,double *line_pt2_lonlat);
+
+  ###CPP### ###CUDA### ###HOST### int geometry_polygon_find_enclose_circle(const polygon<double> &in, double *center, double &radius, int *index_pairs);
+  ###CPP### ###CUDA### ###HOST### int geometry_polygon_find_enclose_convex_polygon(const polygon<double> &in, int num_vertices, polygon<double>& out);
+  ###CPP### ###CUDA### ###HOST### int geometry_polygon_find_enclose_polygon(const polygon<double> &in, int num_vertices, polygon<double>& out);
+  ###CPP### ###CUDA### ###HOST### int geometry_polygon_merge_polygon(polygon<double> in,polygon<double> to_merge,polygon<double> &out); //assuming both polygon are right-handed
+
+  //###CPP### ###CUDA### ###HOST### int geometry_polygon_clipping_sutherland_hodgman(const polygon<double> &clip,const polygon<double> &subject,polygon<double>& out);
+
+  ###CPP### ###CUDA### ###HOST### int geometry_polygon_align_centroid(const polygon<double> &align_with,polygon<double> &to_align,double *displacement);
+  ###CPP### ###CUDA### ###HOST### int geometry_polygon_creating_morphing_pairs(const polygon<double> &st_polygon,const polygon<double> &end_polygon,polygon<double>* &morphing_pairs);
+  ###CPP### ###CUDA### ###HOST### int geometry_create_polygon_from_morphing_pairs(const polygon<double>* morphing_pairs,double time,polygon<double> &out);
+  ###CPP### ###CUDA### ###HOST### int geometry_polygon_interpolate(int npairs,const polygon<double> *st_polygon,date_time *st_time,int noutput,date_time *target_time,polygon<double> *out,int coordinate_sys); //st_time assumed to be in chronological order. coordinated_sys = 1 for cartisean coordinate, 2 for polar coordinate
+
+  ###CPP### ###CUDA### ###HOST### double geometry_pt_distance_from_line_seg(double *pt,double *line_pt1,double *line_pt2,double *nearest_pt); //nearest_pt is an optional output
+  ###CPP### ###CUDA### ###HOST### double geometry_pt_to_polygon_distance(const polygon<double> &poly,double *pt,double *nearest_pt,int *index); //nearest_pt is an optional output
+}
+#endif

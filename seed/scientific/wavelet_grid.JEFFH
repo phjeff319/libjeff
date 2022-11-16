@@ -1,0 +1,40 @@
+#ifndef WAVELETGRID
+#define WAVELETGRID
+#include<cstddef>
+
+namespace libjeff{
+  class wavelet_grid{
+  public:
+    wavelet_grid();
+    ~wavelet_grid();
+    
+    int create(int ndim,size_t nallocated,int n_data_dim);
+
+    void destroy();
+    /*
+    void hosttodevice();
+    void desvicetohost();
+
+    void set_location(int pt_index,double *in);
+    void set_data(int pt_index,double *in);
+
+    int simplify(double tolerance);
+    */
+  private:
+    int ndim; //dimensions of coordinates
+    int n_data_dim;
+    size_t ngrid, nallocated;
+    double *location;
+    double *d_location;
+    size_t *reference;
+    size_t *d_reference;
+
+    double *data;
+    double *d_data;
+
+    void destroy_gpu();
+    int create_gpu(); //this whole grid assume you can put everything on GPU because it is adpative
+  };
+}
+
+#endif

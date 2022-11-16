@@ -1,0 +1,17 @@
+#ifndef BUFR_TOOLS
+#define BUFR_TOOLS
+
+#include "date_time.h"
+
+namespace libjeff{
+  int bufr_tools_get_rec_header(char *filename);
+  
+  int bufr_tools_get_rec(char *filename,int message_num,size_t &num_dataset,char *datakey,double *&value);
+  int bufr_tools_get_rec(char *filename,int message_num,size_t &num_dataset,char *datakey,long *&value);
+  int bufr_tools_get_rec(char *filename,int message_num,size_t &num_dataset,char *datakey,char **&value);
+  int bufr_tools_get_rec(char *filename,int message_num,size_t &num_dataset,int num_keys,char **datakey,date_time *&value);
+  //int bufr_tools_get_rec_with
+ 
+};
+
+#endif

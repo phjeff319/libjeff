@@ -1,0 +1,2828 @@
+#include <cmath>
+#include <cstring>
+
+#include "CivetServer.h"
+
+#include "date_time.h"
+#include "debug_mode.h"
+#include "error_code.h"
+#include "file_check.h"
+#include "file_handler.h"
+#include "flight_data_analytics.h"
+#include "meteorology.h"
+#include "model_data.h"
+#include "regular_grid.h"
+#include "swim.h"
+#include "tags.h"
+#include "timed_grid_data.h"
+#include "tools.h"
+
+#define BUFFSIZE 4096
+#define STATUSLINK "/status"
+
+namespace libjeff{
+  swim_config_v0::swim_config_v0(){
+    config = new swim_config_v0_struct;
+    config->ntable = 0;
+  }
+  swim_config_v0::~swim_config_v0(){
+    this->destroy();
+    delete config;
+  }
+  int swim_config_v0::parse_config(json_block* read){
+    int error = _ERRORCODE_NOERROR;
+
+    json_block *temp_block = new json_block;
+    char *ctemp = NULL;
+    read->extract("Swim Config Version",temp_block);
+    
+    if(temp_block->get_block_data() != NULL && strcmp(remove_quote(temp_block->get_block_data(),ctemp),"v0")==0){
+      swim_config_v0_struct* config = (swim_config_v0_struct*) this->get_config();
+
+      config->ntable = 0;
+      config->ntable = read->get_array_size("Table");
+      if(config->ntable <= 0){
+	error = _ERRORCODE_JSONBLOCKNOTFOUND;
+      }
+      
+      read->extract("Min_ft",temp_block);
+      if(temp_block->get_block_data() != NULL){
+	config->min_ft.set_time(temp_block->get_block_data());
+      }
+      else{
+	error = _ERRORCODE_JSONBLOCKNOTFOUND;
+      }
+      
+      read->extract("Max_ft",temp_block);
+      if(temp_block->get_block_data() != NULL){
+	config->max_ft.set_time(temp_block->get_block_data());
+      }
+      else{
+	error = _ERRORCODE_JSONBLOCKNOTFOUND;
+      }
+      
+      read->extract("DeltaModelRun",temp_block);
+      if(temp_block->get_block_data() != NULL){
+	config->delta_model_time.set_time(temp_block->get_block_data());
+      }
+      else{
+	error = _ERRORCODE_JSONBLOCKNOTFOUND;
+      }
+
+      read->extract("Model Run Update",temp_block);
+      if(temp_block->get_block_data() != NULL){
+        strcpy(config->modelrun_update,remove_quote(temp_block->get_block_data(),ctemp));
+      }
+      else{
+	strcpy(config->modelrun_update,"floor[12](time-09:00:00)");
+      }
+      
+      if(!error){
+	config->delta_ft = new date_time [config->ntable];
+	config->nft = new int [config->ntable];
+	config->nlevels = new int [config->ntable];
+	config->levels2read = new char **[config->ntable]; 
+	config->nsub_table = new int [config->ntable];
+	config->nelements = new int *[config->ntable];
+	config->elements2read = new char ***[config->ntable];
+	config->elementslist = new char ***[config->ntable];
+	config->filename = new char **[config->ntable];
+	config->nprefix = new int *[config->ntable];
+	config->file_prefix = new char ***[config->ntable];
+	
+	config->ngribkeys = new int *[config->ntable];
+	config->keys = new libjeff::grib_keys **[config->ntable];
+	
+	config->nx = new int [config->ntable];
+	config->ny = new int [config->ntable];
+	config->isperiodic = new bool *[config->ntable];
+	config->period = new double *[config->ntable];
+	config->deltax = new double [config->ntable];
+	config->deltay = new double [config->ntable];
+	config->startx = new double [config->ntable];
+	config->starty = new double [config->ntable];
+	config->levels = new double *[config->ntable];
+	config->plv = new double *[config->ntable];
+	config->vertical_coordinate = new libjeff::verticalCoordinateType [config->ntable];
+	
+	int i,j,k;
+	for(i=0;i<config->ntable;i++){
+	  read->extract("Table",i,temp_block)->extract("delta_ft",temp_block);
+	  if(temp_block->get_block_data() != NULL){
+	    config->delta_ft[i].set_time(temp_block->get_block_data());
+	    config->nft[i] = 0;
+	    date_time test_time_min, test_time_max;
+	    test_time_min.set_time(2020,1,1);
+	    test_time_min += config->min_ft;
+	    test_time_max.set_time(2020,1,1);
+	    test_time_max += config->max_ft;
+	    date_time test_time = test_time_min;
+	    while(test_time <= test_time_max){
+	      test_time += config->delta_ft[i];
+	      config->nft[i]++;
+	    }
+	  }
+	  else{
+	    std::cout << "Error with delta_ft" << std::endl;
+	    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	  }
+	  
+	  read->extract("Table",i,temp_block)->extract("nx",temp_block);
+	  if(temp_block->get_block_data() != NULL){
+	    config->nx[i] = atoi(temp_block->get_block_data());
+	  }
+	  else{
+	    std::cout << "Error with nx" << std::endl;
+	    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	  }
+	  
+	  read->extract("Table",i,temp_block)->extract("ny",temp_block);
+	  if(temp_block->get_block_data() != NULL){
+	    config->ny[i] = atoi(temp_block->get_block_data());
+	  }
+	  else{
+	    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	  }
+	  
+	  read->extract("Table",i,temp_block)->extract("deltaX",temp_block);
+	  if(temp_block->get_block_data() != NULL){
+	    config->deltax[i] = atof(temp_block->get_block_data());
+	  }
+	  else{
+	    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	  }
+	  
+	  read->extract("Table",i,temp_block)->extract("deltaY",temp_block);
+	  if(temp_block->get_block_data() != NULL){
+	    config->deltay[i] = atof(temp_block->get_block_data());
+	  }
+	  else{
+	    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	  }
+	  
+	  read->extract("Table",i,temp_block)->extract("startX",temp_block);
+	  if(temp_block->get_block_data() != NULL){
+	    config->startx[i] = atof(temp_block->get_block_data());
+	  }
+	  else{
+	    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	  }
+	  
+	  read->extract("Table",i,temp_block)->extract("startY",temp_block);
+	  if(temp_block->get_block_data() != NULL){
+	    config->starty[i] = atof(temp_block->get_block_data());
+	  }
+	  else{
+	    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	  }
+	  
+	  config->isperiodic[i] = new bool [3];
+	  config->period[i] = new double [3];
+	  for(j=0;j<3;j++){
+	    config->isperiodic[i][j] = false;
+	    config->period[i][j] = 0.;
+	  }
+	  
+	  if(read->extract("Table",i,temp_block)->get_array_size("periodic") > 0){
+	    if(read->extract("Table",i,temp_block)->get_array_size("periodic") != read->extract("Table",i,temp_block)->get_array_size("periods")){
+	      error = _ERRORCODE_DATAINCONSISTENCE;
+	    }
+	    
+	    for(j=0;j<read->extract("Table",i,temp_block)->get_array_size("periodic");j++){
+	      read->extract("Table",i,temp_block)->extract("periodic",j,temp_block);
+	      if(strcmp(temp_block->get_block_data(),"x")==0){
+		config->isperiodic[i][0] = true;
+		config->period[i][0] = atof(read->extract("Table",i,temp_block)->extract("periods",j,temp_block)->get_block_data());
+	      }
+	      else if(strcmp(temp_block->get_block_data(),"y")==0){
+		config->isperiodic[i][1] = true;
+		config->period[i][1] = atof(read->extract("Table",i,temp_block)->extract("periods",j,temp_block)->get_block_data());
+	      }
+	      else if(strcmp(temp_block->get_block_data(),"z")==0){
+		config->isperiodic[i][2] = true;
+		config->period[i][2] = atof(read->extract("Table",i,temp_block)->extract("periods",j,temp_block)->get_block_data());
+	      }
+	    }
+	  }
+	  
+	  config->nlevels[i] = read->extract("Table",i,temp_block)->get_array_size("srcLevels");
+	  if(config->nlevels[i] <= 0){
+	    std::cout << "Error with srcLevels" << std::endl;
+	    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	  }
+	  
+	  if(read->extract("Table",i,temp_block)->get_array_size("levels") != config->nlevels[i]){
+	    std::cout << "Error with levels" << std::endl;
+	    error = _ERRORCODE_DATAINCONSISTENCE;
+	  }
+	  
+	  if(read->extract("Table",i,temp_block)->get_array_size("srcPLevels") > 0 &&read->extract("Table",i,temp_block)->get_array_size("srcPLevels") != config->nlevels[i]){
+	    std::cout << "Error with srcPLevels" << std::endl;
+	    error = _ERRORCODE_DATAINCONSISTENCE;
+	  }
+	  
+	  read->extract("Table",i,temp_block)->extract("verticalCoordinateType",temp_block);
+	  if(temp_block->get_block_data()!=NULL){
+	    if(strcmp(temp_block->get_block_data(),"fl")==0){
+	      config->vertical_coordinate[i] = libjeff::verticalCoordinateType::fl;
+	    }
+	    else if(strcmp(temp_block->get_block_data(),"plv")==0){
+	      config->vertical_coordinate[i] = libjeff::verticalCoordinateType::plv;
+	    }
+	    else{
+	      error = _ERRORCODE_NOTIMPLEMENTED;
+	    }
+	  }
+	  else{
+	    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	  }
+	  
+	  if(!error){
+	    config->levels2read[i] = new char *[config->nlevels[i]];
+	    config->levels[i] = new double [config->nlevels[i]];
+	    config->plv[i] = new double [config->nlevels[i]];
+	    
+	    for(j=0;j<config->nlevels[i];j++){
+	      config->levels2read[i][j] = new char [16];
+	      
+	      strcpy(config->levels2read[i][j],read->extract("Table",i,temp_block)->extract("srcLevels",j,temp_block)->get_block_data());
+	      config->levels[i][j] = atof(read->extract("Table",i,temp_block)->extract("levels",j,temp_block)->get_block_data());
+	    }
+	    
+	    if(read->extract("Table",i,temp_block)->get_array_size("srcPLevels") > 0){
+	      for(j=0;j<config->nlevels[i];j++){
+		config->plv[i][j] = atof(read->extract("Table",i,temp_block)->extract("srcPLevels",j,temp_block)->get_block_data());
+	      }
+	    }
+	  }
+	  
+	  config->nsub_table[i] = read->extract("Table",i,temp_block)->get_array_size("Elements");
+	  if(config->nsub_table[i] <= 0){
+	    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	  }
+	  
+	  if(!error){
+	    config->nelements[i] = new int [config->nsub_table[i]];
+	    config->elements2read[i] = new char **[config->nsub_table[i]];
+	    config->elementslist[i] = new char **[config->nsub_table[i]];
+	    config->filename[i] = new char *[config->nsub_table[i]];
+	    config->nprefix[i] = new int [config->nsub_table[i]];
+	    config->file_prefix[i] = new char **[config->nsub_table[i]];
+	    
+	    config->ngribkeys[i] = new int [config->nsub_table[i]];
+	    config->keys[i] = new libjeff::grib_keys *[config->nsub_table[i]];
+	    
+	    for(j=0;j<config->nsub_table[i];j++){
+	      config->nelements[i][j] = read->extract("Table",i,temp_block)->extract("Elements",j,temp_block)->get_array_size("srcName");
+	      if(config->nelements[i][j] <= 0){
+		error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	      }
+	      if(read->extract("Table",i,temp_block)->extract("Elements",j,temp_block)->get_array_size("name") != config->nelements[i][j]){
+		error = _ERRORCODE_DATAINCONSISTENCE;
+	      }
+	      
+	      if(!error){
+		config->elements2read[i][j] = new char *[config->nelements[i][j]];
+		config->elementslist[i][j] = new char *[config->nelements[i][j]];
+		
+		for(k=0;k<config->nelements[i][j];k++){
+		  config->elements2read[i][j][k] = new char [16];
+		  config->elementslist[i][j][k] = new char [16]; 
+		  
+		  strcpy(config->elements2read[i][j][k],read->extract("Table",i,temp_block)->extract("Elements",j,temp_block)->extract("srcName",k,temp_block)->get_block_data());
+		  strcpy(config->elementslist[i][j][k],read->extract("Table",i,temp_block)->extract("Elements",j,temp_block)->extract("name",k,temp_block)->get_block_data());
+		}
+	      }
+	      
+	      config->ngribkeys[i][j] = read->extract("Table",i,temp_block)->extract("Elements",j,temp_block)->get_array_size("srcParam");
+	      if(config->ngribkeys[i][j] > 0){
+		config->keys[i][j] = new libjeff::grib_keys [config->ngribkeys[i][j]];
+		for(k=0;k<config->ngribkeys[i][j];k++){
+		  strcpy(config->keys[i][j][k].name,read->extract("Table",i,temp_block)->extract("Elements",j,temp_block)->extract("srcParam",k,temp_block)->extract("name",temp_block)->get_block_data());
+		  strcpy(config->keys[i][j][k].value,read->extract("Table",i,temp_block)->extract("Elements",j,temp_block)->extract("srcParam",k,temp_block)->extract("value",temp_block)->get_block_data());
+		}
+	      }
+	      
+	      config->filename[i][j] = new char [BUFFSIZE];
+	      strcpy(config->filename[i][j],remove_quote(read->extract("Table",i,temp_block)->extract("Elements",j,temp_block)->extract("filename",temp_block)->get_block_data()));
+	      
+	      config->nprefix[i][j] = read->extract("Table",i,temp_block)->extract("Elements",j,temp_block)->get_array_size("prefix");
+	      if(config->nprefix[i][j] <= 0){
+		error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	      }
+	      
+	      if(!error){
+		config->file_prefix[i][j] = new char *[config->nprefix[i][j]];
+		
+		for(k=0;k<config->nprefix[i][j];k++){
+		  config->file_prefix[i][j][k] = new char [16]; 
+		  
+		  strcpy(config->file_prefix[i][j][k],read->extract("Table",i,temp_block)->extract("Elements",j,temp_block)->extract("prefix",k,temp_block)->get_block_data());
+		}
+	      }
+	    }
+	  }
+	  
+	}      
+	
+      }
+
+    }
+    else{
+      error = _ERRORCODE_SWIM_UNKNOWN_VERSION;
+    }
+
+    delete temp_block;
+    if(ctemp != NULL){
+      delete [] ctemp;
+    }
+
+    return error;
+  }
+  swim_config_v0_struct* swim_config_v0::get_config(){
+    return config;
+  }
+  swim_config& swim_config_v0::operator=(const swim_config& in){
+    if(this == &in){
+      return *this;
+    }
+    
+    //TODO
+
+    return *this;
+  }
+  void swim_config_v0::destroy(){
+    int i,j,k;
+    for(i=0;i<config->ntable;i++){
+      for(j=0;j<config->nlevels[i];j++){
+	delete [] config->levels2read[i][j];
+      }
+
+      for(j=0;j<config->nsub_table[i];j++){
+	for(k=0;k<config->nelements[i][j];k++){
+	  delete [] config->elements2read[i][j][k];
+	  delete [] config->elementslist[i][j][k];
+	}
+
+	for(k=0;k<config->nprefix[i][j];k++){
+	  delete [] config->file_prefix[i][j][k];
+	}
+
+	delete [] config->keys[i][j];
+	delete [] config->elements2read[i][j];
+	delete [] config->elementslist[i][j];
+	delete [] config->filename[i][j];
+	delete [] config->file_prefix[i][j];
+      }
+
+
+
+      delete [] config->elements2read[i];
+      delete [] config->elementslist[i];
+      delete [] config->file_prefix[i];
+      delete [] config->filename[i];
+      delete [] config->keys[i];
+      
+      delete [] config->levels[i];
+      delete [] config->plv[i];
+      delete [] config->isperiodic[i];
+      delete [] config->period[i];
+      delete [] config->nprefix[i];
+      delete [] config->ngribkeys[i];
+      delete [] config->levels2read[i];
+      delete [] config->nelements[i];
+    }
+
+    delete [] config->delta_ft;
+    delete [] config->nft;
+    delete [] config->nlevels;
+    delete [] config->levels2read;
+    delete [] config->nsub_table;
+    delete [] config->nelements;
+    delete [] config->elements2read;
+    delete [] config->elementslist;
+    delete [] config->filename;
+    delete [] config->nprefix;
+    delete [] config->file_prefix;
+	
+    delete [] config->ngribkeys;
+    delete [] config->keys;
+    
+    delete [] config->nx;
+    delete [] config->ny;
+    delete [] config->isperiodic;
+    delete [] config->period;
+    delete [] config->deltax;
+    delete [] config->deltay;
+    delete [] config->startx;
+    delete [] config->starty;
+    delete [] config->levels;
+    delete [] config->plv;
+    delete [] config->vertical_coordinate;
+  }
+  char* swim_config_v0::get_update_schedule() const{
+    return this->config->modelrun_update;
+  }
+  int swim_config_v0::spatial_domain_setup(timed_grid_data **&fcst_data){
+    int error = _ERRORCODE_NOERROR;
+
+    if(config->ntable <= 0){
+      error = _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    else{
+      fcst_data = new timed_grid_data *[config->ntable];
+
+      int i,j;
+      int nelements;
+      for(j=0;j<config->ntable;j++){
+	fcst_data[j] = new model_data;
+	fcst_data[j]->create(config->nft[j],regular_grid_allocation);
+
+	nelements = 0;
+	for(i=0;i<config->nsub_table[j];i++){
+	  nelements += config->nelements[j][i];
+	}
+
+	for(i=0;i<config->nft[j];i++){
+	  (fcst_data[j]->get_data_grid())[i]->create(config->nx[j],config->ny[j],config->nlevels[j],nelements);
+	}
+
+	for(i=0;i<config->nlevels[j];i++){
+	  fcst_data[j]->set_z(0,0,i,config->plv[j][i]);
+	}
+
+	double *x = new double [config->nx[j]];
+	double *y = new double [config->ny[j]];
+	for(i=0;i<config->nx[j];i++){
+	  x[i] = config->startx[j] + i*config->deltax[j];
+	}
+	for(i=0;i<config->ny[j];i++){
+	  y[i] = config->starty[j] + i*config->deltay[j];
+	}
+	
+	fcst_data[j]->set_y(y);
+	fcst_data[j]->set_x(x);
+
+	if(config->isperiodic[j][0]){
+	  fcst_data[j]->set_x_periodic();
+	  fcst_data[j]->set_x_period(config->period[j][0]);
+	}
+	if(config->isperiodic[j][1]){
+	  fcst_data[j]->set_y_periodic();
+	  fcst_data[j]->set_y_period(config->period[j][1]);
+	}
+	if(config->isperiodic[j][2]){
+	  fcst_data[j]->set_z_periodic();
+	  fcst_data[j]->set_z_period(config->period[j][2]);
+	}
+	
+	delete [] x;
+	delete [] y;
+      }
+    }    
+
+    return error;
+  }
+  int swim_config_v0::time_domain_setup(timed_grid_data **fcst_data,date_time init_time){
+    libjeff::print_trace(1,"swim_config_v0::time_domain_setup");
+    int error = _ERRORCODE_NOERROR;
+
+    if(config->ntable <= 0){
+      error = _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    else{
+      date_time *valid_time;
+      date_time *fcst_hr;
+
+      int i,j;
+      for(i=0;i<config->ntable;i++){
+	if(fcst_data[i]->get_num_data_time() == config->nft[i]){
+	  valid_time = new date_time [config->nft[i]];
+	  fcst_hr = new date_time [config->nft[i]];
+	  
+	  for(j=0;j<config->nft[i];j++){
+	    fcst_hr[j].set_time(0,0,0,config->min_ft.get_hour()+j*config->delta_ft[i].get_hour(),config->min_ft.get_minute()+j*config->delta_ft[i].get_minute(),config->min_ft.get_second()+j*config->delta_ft[i].get_second());
+	    valid_time[j] = fcst_hr[j] + init_time;
+	  }
+	  
+	  fcst_data[i]->set_data_time(valid_time);
+	  
+	  delete [] valid_time;
+	  delete [] fcst_hr;
+	}
+	else{
+	  error = _ERRORCODE_DATAINCONSISTENCE;
+	}
+      }
+    }
+
+    libjeff::print_trace(0,"swim_config_v0::time_domain_setup");
+    return error;
+  }
+  int swim_config_v0::vertical_level_setup(timed_grid_data **fcst_data,char *level_type) const{
+    int error = _ERRORCODE_NOERROR;
+
+    if(config->ntable <= 0){
+      error = _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    else{
+      int i,j;
+      if(strcmp(level_type,"levels")==0){
+	for(j=0;j<config->ntable;j++){
+	  for(i=0;i<config->nlevels[j];i++){
+	    fcst_data[j]->set_z(0,0,i,config->levels[j][i]);
+	  }
+	}
+      }
+      else if(strcmp(level_type,"srcLevels")==0){
+	for(j=0;j<config->ntable;j++){
+	  for(i=0;i<config->nlevels[j];i++){
+	    if(is_number(config->levels2read[j][i])){
+	      fcst_data[j]->set_z(0,0,i,atof(config->levels2read[j][i]));
+	    }
+	    else{
+	      fcst_data[j]->set_z(0,0,i,(double) 0.);
+	    }
+	  }
+	}
+      }
+      else{
+	error = _ERRORCODE_UNKNOWNOPTION;
+      }
+    }
+
+    return error;
+  }
+  int swim_config_v0::free_domain(timed_grid_data **&fcst_data) const{
+    int i;
+    for(i=0;i<config->ntable;i++){
+      delete fcst_data[i];
+    }
+    delete [] fcst_data;
+    fcst_data = NULL;
+
+    return _ERRORCODE_NOERROR;
+  }
+    /*
+  char* swim_config_v0::get_element(int table_index,int dim_index){
+    
+  }
+    */
+  int swim_config_v0::get_element_list(int* &nelement,char*** &element_list){
+    int error = _ERRORCODE_NOERROR;
+
+    if(config->ntable <= 0){
+      error = _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    else{
+      if(nelement != NULL){
+	delete [] nelement;
+      }
+      if(element_list != NULL){
+	delete [] element_list;
+      }
+
+      nelement = new int [config->ntable];
+      element_list = new char **[config->ntable];
+
+      int i,j,k;
+      for(i=0;i<config->ntable;i++){
+	int ndim = 0;
+	for(j=0;j<config->nsub_table[i];j++){
+	  ndim += config->nelements[i][j];
+	}
+
+	nelement[i] = ndim;
+	element_list[i] = new char *[ndim];
+	for(j=0;j<ndim;j++){
+	  element_list[i][j] = new char [BUFFSIZE];
+	}
+	
+	int temp_index = 0;
+	for(j=0;j<config->nsub_table[i];j++){
+	  for(k=0;k<config->nelements[i][j];k++){
+	    strcpy(element_list[i][k+temp_index],config->elementslist[i][j][k]);
+	  }
+	  temp_index += config->nelements[i][j];
+	}
+      }
+    }
+
+    return error;    
+  }
+  bool swim_config_v0::check_data(date_time model_run) const{
+    libjeff::print_trace(1,"swim_config_v0::check_data");
+    bool complete = true;
+
+    date_time valid_time;
+    char *filename = new char [BUFFSIZE];
+    
+    int i,j,k,m;
+    for(j=0;j<config->ntable&&complete;j++){
+      for(i=0;i<config->nft[j];i++){
+	valid_time = model_run + config->min_ft;
+	for(k=0;k<i;k++){
+	  valid_time += config->delta_ft[j];
+	}
+	
+	for(m=0;m<config->nsub_table[j]&&complete;m++){
+	  bool found = false;
+	  for(k=0;k<config->nprefix[j][m];k++){
+	    libjeff::swim::generate_filename(config->filename[j][m],config->file_prefix[j][m][k],model_run,valid_time,filename);
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      std::cout << "Checking: " << filename; // << std::endl;
+	    }
+	    if(libjeff::file_check_exist(filename)){
+	      found = true;
+	      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		std::cout << " found!" << std::endl;
+	      }
+	      break;
+	    }
+	  }
+	  
+	  if(!found){
+	    complete = false;
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      std::cout << " not found!" << std::endl;
+	    }
+	    break;
+	  }
+	}
+      }
+    }
+    
+    delete [] filename;
+    
+    libjeff::print_trace(0,"swim_config_v0::check_data");
+    return complete;
+  }
+  int swim_config_v0::read_data(timed_grid_data **fcst_data,date_time model_run){
+    libjeff::print_trace(1,"swim_config_v0::read_data");
+    int error = _ERRORCODE_NOERROR;
+
+    if(this->check_data(model_run)){
+      int i,j,k,m;
+      char *ctemp = new char [BUFFSIZE];
+      char *filename = new char [BUFFSIZE];
+      
+      for(i=0;i<config->ntable;i++){
+	int elementIndex = 0;
+	for(j=0;j<config->nsub_table[i];j++){
+	  char **param_name = new char *[config->ngribkeys[i][j]];
+	  char **param_value = new char *[config->ngribkeys[i][j]];
+      
+	  for(k=0;k<config->ngribkeys[i][j];k++){
+	    param_name[k] = new char [BUFFSIZE];
+	    param_value[k] = new char [BUFFSIZE];
+	  }
+	  
+	  if(libjeff::is_grib_file(config->filename[i][j])){
+	    for(k=0;k<config->ngribkeys[i][j];k++){
+	      strcpy(param_name[k],config->keys[i][j][k].name);
+	      strcpy(param_value[k],config->keys[i][j][k].value);
+	    }
+	    
+	    char **levels = new char *[config->nlevels[i]];
+	    int *level_index = new int [config->nlevels[i]];
+	    for(k=0;k<config->nlevels[i];k++){
+	      if(strcmp(config->levels2read[i][k],"surf")!=0){
+		levels[k] = new char [BUFFSIZE];
+		strcpy(levels[k],config->levels2read[i][k]);
+	      }
+	      else{
+		levels[k] = NULL;
+	      }
+	      level_index[k] = k;
+	    }
+	    char **elements = new char *[config->nelements[i][j]];
+	    int *element_index = new int [config->nelements[i][j]];
+	    for(k=0;k<config->nelements[i][j];k++){
+	      elements[k] = new char [BUFFSIZE];
+	      element_index[k] = k+elementIndex;
+	      strcpy(elements[k],config->elements2read[i][j][k]);
+	    }
+	    
+	    for(k=0;k<config->nft[i];k++){
+	      bool found = false;
+	      for(m=0;m<config->nprefix[i][j];m++){
+		libjeff::swim::generate_filename(config->filename[i][j],config->file_prefix[i][j][m],model_run,(fcst_data[i]->get_data_time())[k],filename);
+		std::cout << filename << std::endl;
+		int test_error = ((model_data*) fcst_data[i])->read_grib_data(filename,config->nelements[i][j],elements,element_index,config->nlevels[i],levels,level_index,(fcst_data[i]->get_data_time())[k],k,config->ngribkeys[i][j],param_name,param_value);
+		if(test_error == _ERRORCODE_NOERROR){
+		  found = true;
+		  break;
+		}
+	      }
+	      
+	      if(!found){
+		std::cout << "Error in reading grib file." << std::endl;
+		error = _ERRORCODE_GRIBDATA_NOTFOUND;
+		break;
+	      }
+	    }
+	    
+	    for(k=0;k<config->nelements[i][j];k++){
+	      if(strcmp(config->elementslist[i][j][k],"p")==0 || strcmp(config->elementslist[i][j][k],"mslp")==0){
+		libjeff::grid_data_field *p = new libjeff::grid_data_field;
+		for(m=0;m<config->nft[i];m++){
+		  p->set(fcst_data[i]->get_data_grid()[m],elementIndex+k);
+		  *p *= 0.01;
+		}
+		delete p;
+	      }
+	    }
+	    
+	    elementIndex+=config->nelements[i][j];
+	    
+	    for(k=0;k<config->nelements[i][j];k++){
+	      delete [] elements[k];
+	    }
+	    delete [] elements;
+	    delete [] element_index;
+	    
+	    for(k=0;k<config->nlevels[i];k++){
+	      if(levels[k] != NULL){
+		delete [] levels[k];
+	      }
+	    }
+	    delete [] level_index;
+	    delete [] levels;     
+	  }
+	  else if(libjeff::is_netcdf_file(config->filename[i][j])){
+	    if(config->ngribkeys[i][j] == 0){
+	      error = _ERRORCODE_INPUTMISSING;
+	    }
+	    
+	    if(!error){
+	      for(k=0;k<config->ngribkeys[i][j];k++){
+		strcpy(param_value[k],"");
+	      }
+	      
+	      int key_index[6];
+	      for(k=0;k<6;k++){
+		key_index[k] = -1;
+	      }
+	      bool innermostright = true;
+	      
+	      for(k=0;k<config->ngribkeys[i][j];k++){
+		if(strcmp(config->keys[i][j][k].name,"xdimname")==0){
+		  //strcpy(param_value[0],config->keys[i][j][k].value);
+		  key_index[0] = k;
+		}
+		else if(strcmp(config->keys[i][j][k].name,"ydimname")==0){
+		  //strcpy(param_value[1],config->keys[i][j][k].value);
+		  key_index[1] = k;
+		}
+		else if(strcmp(config->keys[i][j][k].name,"zdimname")==0){
+		  //strcpy(param_value[2],config->keys[i][j][k].value);
+		  key_index[2] = k;
+		}
+		else if(strcmp(config->keys[i][j][k].name,"xname")==0){
+		  //strcpy(param_value[3],config->keys[i][j][k].value);
+		  key_index[3] = k;
+		}
+		else if(strcmp(config->keys[i][j][k].name,"yname")==0){
+		  //strcpy(param_value[4],config->keys[i][j][k].value);
+		  key_index[4] = k;
+		}
+		else if(strcmp(config->keys[i][j][k].name,"zname")==0){
+		  //strcpy(param_value[5],config->keys[i][j][k].value);
+		  key_index[5] = k;
+		}
+		else if(strcmp(config->keys[i][j][k].name,"innermostright")==0){
+		  if(strcmp(config->keys[i][j][k].value,"false")==0){
+		    innermostright = false;
+		  }
+		}
+	      }
+	      /*
+		for(k=0;k<6;k++){
+		if(strcmp(param_value[k],"")==0){
+		error = _ERRORCODE_INPUTMISSING;
+		}
+		}
+	      */
+	      if(!error){
+		char **elements = new char *[config->nelements[i][j]];
+		int *element_index = new int [config->nelements[i][j]];
+		for(k=0;k<config->nelements[i][j];k++){
+		  elements[k] = new char [BUFFSIZE];
+		  element_index[k] = k+elementIndex;
+		  strcpy(elements[k],config->elements2read[i][j][k]);
+		}
+		
+		for(k=0;k<config->nft[i];k++){
+		  bool found = false;
+		  for(m=0;m<config->nprefix[i][j];m++){
+		    libjeff::swim::generate_filename(config->filename[i][j],config->file_prefix[i][j][m],model_run,(fcst_data[i]->get_data_time())[k],filename);
+		    std::cout << filename << std::endl;
+		    int test_error = ((model_data*) fcst_data[i])->read_netCDF_data(filename,k,k,(key_index[0]>=0?config->keys[i][j][key_index[0]].value:NULL),(key_index[1]>=0?config->keys[i][j][key_index[1]].value:NULL),(key_index[2]>=0?config->keys[i][j][key_index[2]].value:NULL),(key_index[3]>=0?config->keys[i][j][key_index[3]].value:NULL),(key_index[4]>=0?config->keys[i][j][key_index[4]].value:NULL),(key_index[5]>=0?config->keys[i][j][key_index[5]].value:NULL),innermostright,config->nelements[i][j],elements,element_index);
+		    if(test_error == _ERRORCODE_NOERROR){
+		      found = true;
+		      break;
+		    }
+		    else{
+		      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			std::cout << "Error message from reading NetCDF file. Code = " << test_error << std::endl;
+		      }
+		    }
+		  }
+		  
+		  if(!found){
+		    std::cout << "Error in reading NetCDF file." << std::endl;
+		    error = _ERRORCODE_NETCDF_FILE_NOTFOUND;
+		    break;
+		  }
+		}
+		
+		for(k=0;k<config->nelements[i][j];k++){
+		  if(strcmp(config->elementslist[i][j][k],"p")==0){
+		    libjeff::grid_data_field *p = new libjeff::grid_data_field;
+		    for(m=0;m<config->nft[i];m++){
+		      p->set(fcst_data[i]->get_data_grid()[m],elementIndex+k);
+		      *p *= 0.01;
+		    }
+		    delete p;
+		  }
+		}
+		
+		elementIndex+=config->nelements[i][j];
+		
+		for(k=0;k<config->nelements[i][j];k++){
+		  delete [] elements[k];
+		}
+		delete [] elements;
+		delete [] element_index;
+	      }	  
+	    }
+	  }
+	  
+	  for(k=0;k<config->ngribkeys[i][j];k++){
+	    delete [] param_name[k];
+	    delete [] param_value[k];
+	  }
+	  delete [] param_name;
+	  delete [] param_value;
+	}
+      }
+      
+      delete [] ctemp;
+      delete [] filename;
+    }
+    else{
+      error = _ERRORCODE_DATANOTENOUGH;
+    }
+
+    libjeff::print_trace(0,"swim_config_v0::read_data");
+    return error;
+  }
+  int swim_config_v0::get_ntable() const{
+    return config->ntable;
+  }
+  libjeff::verticalCoordinateType* swim_config_v0::get_vertical_coordinate() const{
+    return config->vertical_coordinate;
+  }
+  int* swim_config_v0::get_table_and_element_index(date_time modelrun,date_time valid_time,double *xy,double* level,char *element,int *index) const{
+    return this->get_table_and_element_index(modelrun,valid_time,xy,level,NULL,element,index);
+  }
+  int* swim_config_v0::get_table_and_element_index(date_time modelrun,date_time valid_time,double *xy,double* level,char* leveltype,char *element,int *index) const{
+    index[0] = -1;
+    index[1] = -1;
+
+    if(valid_time < modelrun+config->min_ft || valid_time > modelrun+config->max_ft){
+      return index;
+    }
+
+    int i,j,k,m,n;
+    for(i=0;i<this->get_ntable();i++){
+      if((level == NULL && config->nlevels[i]==1) || (level==NULL?false:(*level >= config->levels[i][0] && *level <= config->levels[i][config->nlevels[i]-1])) || (level==NULL?false:(*level <= config->levels[i][0] && *level >= config->levels[i][config->nlevels[i]-1]))){ //vertical level check
+	if(config->isperiodic[i][0] || 
+	   (xy[0] >= config->startx[i] && xy[0] <= (config->startx[i]+config->nx[i]*config->deltax[i])) || 
+	   (xy[0] <= config->startx[i] && xy[0] >= (config->startx[i]+config->nx[i]*config->deltax[i]))){ //x direction check
+	  if(config->isperiodic[i][1] ||
+	     (xy[1] >= config->starty[i] && xy[1] <= (config->starty[i]+config->ny[i]*config->deltay[i])) ||
+	     (xy[1] <= config->starty[i] && xy[1] >= (config->starty[i]+config->ny[i]*config->deltay[i]))){ //y direction check
+	    //element check
+	    int count = 0;
+	    for(j=0;j<config->nsub_table[i];j++){
+	      for(k=0;k<config->nelements[i][j];k++){
+		if(strcmp(config->elementslist[i][j][k],element)==0){
+		  index[0]=i;
+		  index[1]=count;
+
+		  if(level == NULL){
+		    return index;
+		  }
+		  else{
+		    if(leveltype == NULL || libjeff::swim::vertical_coordinate_match(config->vertical_coordinate[i],leveltype)){
+		      return index;
+		    }
+		    else{
+		      for(m=0;m<config->nsub_table[i];m++){
+			for(n=0;n<config->nelements[i][m];n++){
+			  if(strcmp(config->elementslist[i][m][n],leveltype)==0){
+			    return index;
+			  }
+			}
+		      }
+		      
+		      if(libjeff::is_derivable(config->nsub_table[i],config->nelements[i],config->elementslist[i],leveltype)){
+			return index;
+		      }
+		    }
+		  }
+		  index[0]=-1;
+		  index[1]=-1;
+		}
+		count++;
+	      }
+	    }
+
+	    if(libjeff::is_derivable(config->nsub_table[i],config->nelements[i],config->elementslist[i],element)){
+	      index[0]=i;
+	      index[1]=-2;
+
+	      if(level == NULL){
+		return index;
+	      }
+	      else{
+		if(leveltype == NULL || libjeff::swim::vertical_coordinate_match(config->vertical_coordinate[i],leveltype)){
+		  return index;
+		}
+		else{
+		  for(m=0;m<config->nsub_table[i];m++){
+		    for(n=0;n<config->nelements[i][m];n++){
+		      if(strcmp(config->elementslist[i][m][n],leveltype)==0){
+			return index;
+		      }
+		    }
+		  }
+		  
+		  if(libjeff::is_derivable(config->nsub_table[i],config->nelements[i],config->elementslist[i],leveltype)){
+		    return index;
+		  }
+		}
+	      }
+
+	      index[0]=-1;
+	      index[1]=-1;
+	    }
+	  }
+	}
+      } 
+    }
+
+    return index;
+  }
+  date_time swim_config_v0::get_previous_run(date_time model_run) const{
+    libjeff::print_trace(1,"swim_config_v0::get_previous_run() const");
+    libjeff::print_trace(0,"swim_config_v0::get_previous_run() const");
+    return model_run - config->delta_model_time;
+  }
+
+  swim_config_v1::swim_config_v1(){
+    config = new swim_config_v1_struct;
+    config->ntable = 0;
+  }
+  swim_config_v1::~swim_config_v1(){
+    this->destroy();
+    delete config;
+  }
+  int swim_config_v1::parse_config(json_block* read){
+    int error = _ERRORCODE_NOERROR;
+
+    json_block *temp_block = new json_block;
+    json_block *table = new json_block;
+    char* ctemp = NULL;
+    read->extract("Swim Config Version",temp_block);
+    if(temp_block->get_block_data() != NULL && strcmp(remove_quote(temp_block->get_block_data(),ctemp),"v1")==0){
+      read->extract("Min_ft",temp_block);
+      if(temp_block->get_block_data() != NULL){
+        config->min_ft.set_time(temp_block->get_block_data());
+      }
+      else{
+        error = _ERRORCODE_JSONBLOCKNOTFOUND;
+      }
+
+      read->extract("Max_ft",temp_block);
+      if(temp_block->get_block_data() != NULL){
+        config->max_ft.set_time(temp_block->get_block_data());
+      }
+      else{
+        error = _ERRORCODE_JSONBLOCKNOTFOUND;
+      }
+
+      read->extract("DeltaModelRun",temp_block);
+      if(temp_block->get_block_data() != NULL){
+        config->delta_model_time.set_time(temp_block->get_block_data());
+      }
+      else{
+        error = _ERRORCODE_JSONBLOCKNOTFOUND;
+      }
+
+      read->extract("Model Run Update",temp_block);
+      if(temp_block->get_block_data() != NULL){
+        strcpy(config->modelrun_update,remove_quote(temp_block->get_block_data(),ctemp));
+      }
+      else{
+	strcpy(config->modelrun_update,"floor[12](time-09:00:00)");
+      }
+
+      config->ntable = 0;
+      config->ntable = read->get_array_size("Table");
+      if(config->ntable <= 0){
+	error = _ERRORCODE_JSONBLOCKNOTFOUND;
+      }
+
+      if(!error){
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "Parsing of main config message done. Going to parse individual tables." << std::endl;
+	}
+
+	config->legs = new swim_config_leg [config->ntable];
+	config->vertical_coordinate = new verticalCoordinateType [config->ntable];
+
+	int i,j,k,m;
+	for(i=0;i<config->ntable;i++){
+	  read->extract("Table",i,table);
+	  config->legs[i].nsegment = 0;
+	  config->legs[i].nsegment = table->get_array_size("Legs");
+	  if(config->legs[i].nsegment <= 0){
+	    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	  }
+	  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	    std::cout << "Table " << i << " has " << config->legs[i].nsegment << " leg segments." << std::endl;
+	  }
+
+	  if(!error){
+	    table->extract("verticalCoordinateType",temp_block);
+	    if(temp_block->get_block_data()!=NULL){
+	      if(strcmp(temp_block->get_block_data(),"fl")==0){
+		config->vertical_coordinate[i] = libjeff::verticalCoordinateType::fl;
+	      }
+	      else if(strcmp(temp_block->get_block_data(),"plv")==0){
+		config->vertical_coordinate[i] = libjeff::verticalCoordinateType::plv;
+	      }
+	      else{
+		error = _ERRORCODE_NOTIMPLEMENTED;
+	      }
+	    }
+	    else{
+	      error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	    }
+
+	    config->legs[i].segments = new swim_config_leg_segment[config->legs[i].nsegment];
+
+	    config->legs[i].nelements = 0;
+	    config->legs[i].nelements = table->get_array_size("Element name");
+	    if(config->legs[i].nelements <= 0){
+	      error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	    }
+	    else{
+	      config->legs[i].elementslist = new char *[config->legs[i].nelements];
+	      for(j=0;j<config->legs[i].nelements;j++){
+		config->legs[i].elementslist[j] = new char [16];
+		strcpy(config->legs[i].elementslist[j],table->extract("Element name",j,temp_block)->get_block_data());
+	      }
+	    }		
+
+	    for(j=0;j<config->legs[i].nsegment;j++){
+	      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		std::cout << "Parsing of table " << i << " leg segment " << j << std::endl;
+	      }
+	      table->extract("Legs",j,temp_block)->extract("Leg Min_ft",temp_block);
+	      if(temp_block->get_block_data() != NULL){
+		config->legs[i].segments[j].min_ft.set_time(temp_block->get_block_data());
+	      }
+	      else{
+		error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	      }
+	      
+	      table->extract("Legs",j,temp_block)->extract("Leg Max_ft",temp_block);
+	      if(temp_block->get_block_data() != NULL){
+		config->legs[i].segments[j].max_ft.set_time(temp_block->get_block_data());
+	      }
+	      else{
+		error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	      }
+
+	      table->extract("Legs",j,temp_block)->extract("delta_ft",temp_block);
+	      if(temp_block->get_block_data() != NULL){
+		config->legs[i].segments[j].delta_ft.set_time(temp_block->get_block_data());
+	      }
+	      else{
+		error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	      }
+
+	      config->legs[i].segments[j].nft=0;
+	      date_time test_time_min, test_time_max;
+	      test_time_min.set_time(2020,1,1);
+	      test_time_min += config->legs[i].segments[j].min_ft;
+	      test_time_max.set_time(2020,1,1);
+	      test_time_max += config->legs[i].segments[j].max_ft;
+	      date_time test_time = test_time_min;
+	      while(test_time <= test_time_max){
+		test_time += config->legs[i].segments[j].delta_ft;
+		config->legs[i].segments[j].nft++;
+	      }
+
+	      table->extract("Legs",j,temp_block)->extract("nx",temp_block);
+	      if(temp_block->get_block_data() != NULL){
+		config->legs[i].segments[j].nx = atoi(temp_block->get_block_data());
+	      }
+	      else{
+		std::cout << "Error with nx" << std::endl;
+		error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	      }
+	      table->extract("Legs",j,temp_block)->extract("ny",temp_block);
+	      if(temp_block->get_block_data() != NULL){
+		config->legs[i].segments[j].ny = atoi(temp_block->get_block_data());
+	      }
+	      else{
+		std::cout << "Error with ny" << std::endl;
+		error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	      }
+
+	      
+	      table->extract("Legs",j,temp_block)->extract("deltaX",temp_block);
+	      if(temp_block->get_block_data() != NULL){
+		config->legs[i].segments[j].deltax = atof(temp_block->get_block_data());
+	      }
+	      else{
+		std::cout << "Error with deltaX" << std::endl;
+		error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	      }
+	      table->extract("Legs",j,temp_block)->extract("deltaY",temp_block);
+	      if(temp_block->get_block_data() != NULL){
+		config->legs[i].segments[j].deltay = atof(temp_block->get_block_data());
+	      }
+	      else{
+		std::cout << "Error with deltaY" << std::endl;
+		error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	      }
+
+	      table->extract("Legs",j,temp_block)->extract("startX",temp_block);
+	      if(temp_block->get_block_data() != NULL){
+		config->legs[i].segments[j].startx = atof(temp_block->get_block_data());
+	      }
+	      else{
+		std::cout << "Error with startX" << std::endl;
+		error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	      }
+	      table->extract("Legs",j,temp_block)->extract("startY",temp_block);
+	      if(temp_block->get_block_data() != NULL){
+		config->legs[i].segments[j].starty = atof(temp_block->get_block_data());
+	      }
+	      else{
+		std::cout << "Error with startY" << std::endl;
+		error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	      }
+
+	      for(k=0;k<3;k++){
+		config->legs[i].segments[j].isperiodic[k] = false;
+		config->legs[i].segments[j].period[k] = 0.;
+	      }
+
+	      if(table->extract("Legs",j,temp_block)->get_array_size("periodic") > 0){
+		if(table->extract("Legs",j,temp_block)->get_array_size("periodic") != table->extract("Legs",j,temp_block)->get_array_size("periods")){
+		  error = _ERRORCODE_DATAINCONSISTENCE;
+		}
+		
+		for(k=0;k<table->extract("Legs",j,temp_block)->get_array_size("periodic");k++){
+		  table->extract("Legs",j,temp_block)->extract("periodic",k,temp_block);
+		  if(strcmp(temp_block->get_block_data(),"x")==0){
+		    config->legs[i].segments[j].isperiodic[0] = true;
+		    config->legs[i].segments[j].period[0] = atof(table->extract("Legs",j,temp_block)->extract("periods",k,temp_block)->get_block_data());
+		  }
+		  else if(strcmp(temp_block->get_block_data(),"y")==0){
+		    config->legs[i].segments[j].isperiodic[1] = true;
+		    config->legs[i].segments[j].period[1] = atof(table->extract("Legs",j,temp_block)->extract("periods",k,temp_block)->get_block_data());
+		  }
+		  else if(strcmp(temp_block->get_block_data(),"z")==0){
+		    config->legs[i].segments[j].isperiodic[2] = true;
+		    config->legs[i].segments[j].period[2] = atof(table->extract("Legs",j,temp_block)->extract("periods",k,temp_block)->get_block_data());
+		  }
+		}
+	      }
+
+	      config->legs[i].segments[j].nlevels = table->extract("Legs",j,temp_block)->get_array_size("srcLevels");
+	      if(config->legs[i].segments[j].nlevels <= 0){
+		std::cout << "Error with srcLevels" << std::endl;
+		error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	      }
+
+	      if(table->extract("Legs",j,temp_block)->get_array_size("levels") != config->legs[i].segments[j].nlevels){
+		std::cout << "Error with levels" << std::endl;
+		error = _ERRORCODE_DATAINCONSISTENCE;
+	      }
+	      
+	      if(table->extract("Legs",j,temp_block)->get_array_size("srcPLevels") > 0 && table->extract("Legs",j,temp_block)->get_array_size("srcPLevels") != config->legs[i].segments[j].nlevels){
+		std::cout << "Error with srcPLevels" << std::endl;
+		error = _ERRORCODE_DATAINCONSISTENCE;
+	      }
+	      
+	      if(!error){
+		config->legs[i].segments[j].levels2read = new char *[config->legs[i].segments[j].nlevels];
+		config->legs[i].segments[j].levels = new double [config->legs[i].segments[j].nlevels];
+		config->legs[i].segments[j].plv = new double [config->legs[i].segments[j].nlevels];
+	    
+		for(k=0;k<config->legs[i].segments[j].nlevels;k++){
+		  config->legs[i].segments[j].levels2read[k] = new char [16];
+		  
+		  strcpy(config->legs[i].segments[j].levels2read[k],table->extract("Legs",j,temp_block)->extract("srcLevels",k,temp_block)->get_block_data());
+		  config->legs[i].segments[j].levels[k] = atof(table->extract("Legs",j,temp_block)->extract("levels",k,temp_block)->get_block_data());
+		}
+		
+		if(table->extract("Legs",j,temp_block)->get_array_size("srcPLevels") > 0){
+		  for(k=0;k<config->legs[i].segments[j].nlevels;k++){
+		    config->legs[i].segments[j].plv[k] = atof(table->extract("Legs",j,temp_block)->extract("srcPLevels",k,temp_block)->get_block_data());
+		  }
+		}
+	      }
+
+	      config->legs[i].segments[j].nsub_table = table->extract("Legs",j,temp_block)->get_array_size("Elements");
+	      if(config->legs[i].segments[j].nsub_table <= 0){
+		error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	      }
+	  
+	      if(!error){
+		config->legs[i].segments[j].nelements2read = new int [config->legs[i].segments[j].nsub_table];
+		config->legs[i].segments[j].elements2read = new char **[config->legs[i].segments[j].nsub_table];
+		config->legs[i].segments[j].filename = new char *[config->legs[i].segments[j].nsub_table];
+		config->legs[i].segments[j].nprefix = new int [config->legs[i].segments[j].nsub_table];
+		config->legs[i].segments[j].file_prefix = new char **[config->legs[i].segments[j].nsub_table];
+		
+		config->legs[i].segments[j].ngribkeys = new int [config->legs[i].segments[j].nsub_table];
+		config->legs[i].segments[j].keys = new libjeff::grib_keys *[config->legs[i].segments[j].nsub_table];
+	    
+		int nelement_count = 0;
+		for(k=0;k<config->legs[i].segments[j].nsub_table;k++){
+		  config->legs[i].segments[j].nelements2read[k] = table->extract("Legs",j,temp_block)->extract("Elements",k,temp_block)->get_array_size("srcName");
+		  if(config->legs[i].segments[j].nelements2read[k] <= 0){
+		    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+		  }
+		  nelement_count += config->legs[i].segments[j].nelements2read[k];
+		  if(!error){
+		    config->legs[i].segments[j].elements2read[k] = new char *[config->legs[i].segments[j].nelements2read[k]];
+		
+		    for(m=0;m<config->legs[i].segments[j].nelements2read[k];m++){
+		      config->legs[i].segments[j].elements2read[k][m] = new char [16];
+		  
+		      strcpy(config->legs[i].segments[j].elements2read[k][m],table->extract("Legs",j,temp_block)->extract("Elements",k,temp_block)->extract("srcName",m,temp_block)->get_block_data());
+		    }
+		  }
+	      
+		  config->legs[i].segments[j].ngribkeys[k] = table->extract("Legs",j,temp_block)->extract("Elements",k,temp_block)->get_array_size("srcParam");
+		  if(config->legs[i].segments[j].ngribkeys[k] > 0){
+		    config->legs[i].segments[j].keys[k] = new libjeff::grib_keys [config->legs[i].segments[j].ngribkeys[k]];
+		    for(m=0;m<config->legs[i].segments[j].ngribkeys[k];m++){
+		      strcpy(config->legs[i].segments[j].keys[k][m].name,table->extract("Legs",j,temp_block)->extract("Elements",k,temp_block)->extract("srcParam",m,temp_block)->extract("name",temp_block)->get_block_data());
+		      strcpy(config->legs[i].segments[j].keys[k][m].value,table->extract("Legs",j,temp_block)->extract("Elements",k,temp_block)->extract("srcParam",m,temp_block)->extract("value",temp_block)->get_block_data());
+		    }
+		  }
+	      
+		  config->legs[i].segments[j].filename[k] = new char [BUFFSIZE];
+		  strcpy(config->legs[i].segments[j].filename[k],remove_quote(table->extract("Legs",j,temp_block)->extract("Elements",k,temp_block)->extract("filename",temp_block)->get_block_data()));
+	      
+		  config->legs[i].segments[j].nprefix[k] = table->extract("Legs",j,temp_block)->extract("Elements",k,temp_block)->get_array_size("prefix");
+		  if(config->legs[i].segments[j].nprefix[k] <= 0){
+		    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+		  }
+	      
+		  if(!error){
+		    config->legs[i].segments[j].file_prefix[k] = new char *[config->legs[i].segments[j].nprefix[k]];
+		
+		    for(m=0;m<config->legs[i].segments[j].nprefix[k];m++){
+		      config->legs[i].segments[j].file_prefix[k][m] = new char [16]; 
+		  
+		      strcpy(config->legs[i].segments[j].file_prefix[k][m],table->extract("Legs",j,temp_block)->extract("Elements",k,temp_block)->extract("prefix",m,temp_block)->get_block_data());
+		    }
+		  }
+		}
+		if(nelement_count != config->legs[i].nelements){
+		  error = _ERRORCODE_DATAINCONSISTENCE;
+		}
+	      }   
+	    }
+	  }
+	}
+      }
+    }
+    else{
+      error = _ERRORCODE_SWIM_UNKNOWN_VERSION;
+    }
+
+    delete temp_block;
+    delete table;
+    if(ctemp != NULL){
+      delete [] ctemp;
+    }
+
+    if(!error){
+      int i,j;
+      for(i=0;i<config->ntable;i++){
+	date_time min_ft, max_ft;
+	min_ft = config->legs[i].segments[0].min_ft;
+	max_ft = config->legs[i].segments[0].max_ft;
+
+	for(j=1;j<config->legs[i].nsegment;j++){
+	  if(min_ft > config->legs[i].segments[j].min_ft){
+	    min_ft = config->legs[i].segments[j].min_ft;
+	  }
+	  if(max_ft < config->legs[i].segments[j].max_ft){
+	    max_ft = config->legs[i].segments[j].max_ft;
+	  }
+	}
+
+	if(min_ft != config->min_ft || max_ft != config->max_ft){
+	  error = _ERRORCODE_SWIM_CONFIG_INCONSISTENT;
+	  break;
+	}
+      }
+    }
+
+    if(!error){
+      int i;
+      for(i=1;i<config->ntable;i++){
+	if(config->legs[i].segments[0].min_ft != config->legs[i].segments[0].min_ft){
+	  error = _ERRORCODE_SWIM_CONFIG_INCONSISTENT;
+	  break;
+	}
+	else if(config->legs[i].segments[config->legs[i].nsegment-1].max_ft != config->legs[0].segments[config->legs[0].nsegment-1].max_ft){
+	  error = _ERRORCODE_SWIM_CONFIG_INCONSISTENT;
+	  break;
+	}
+      }
+    }
+
+    return error;
+  }
+  swim_config_v1_struct* swim_config_v1::get_config(){
+    return config;
+  }
+  swim_config& swim_config_v1::operator=(const swim_config& in){
+    if(this == &in){
+      return *this;
+    }
+    //TODO
+    
+    return *this;
+  }
+  void swim_config_v1::destroy(){
+    //TODO
+  }
+  char* swim_config_v1::get_update_schedule() const{
+    return this->config->modelrun_update;
+  }
+  int swim_config_v1::spatial_domain_setup(timed_grid_data **&fcst_data){
+    int error = _ERRORCODE_NOERROR;
+
+    if(config->ntable <= 0){
+      error = _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    else{
+      fcst_data = new timed_grid_data *[config->ntable];
+
+      int i,j,k;
+      int nelements;
+      for(j=0;j<config->ntable;j++){
+	fcst_data[j] = new model_data;
+	int nft = 0;
+	for(k=0;k<config->legs[j].nsegment;k++){
+	  nft += config->legs[j].segments[k].nft;
+	}
+
+	fcst_data[j]->create(nft,regular_grid_allocation);
+	int ft_count = 0;
+	for(k=0;k<config->legs[j].nsegment;k++){
+	  nelements = config->legs[j].nelements;
+	  
+	  for(i=0;i<config->legs[j].segments[k].nft;i++){
+	    (fcst_data[j]->get_data_grid())[i+ft_count]->create(config->legs[j].segments[k].nx,config->legs[j].segments[k].ny,config->legs[j].segments[k].nlevels,nelements);
+	  }
+		
+	  
+	  //	  domain_setup_set_plv(fcst_data,config);
+		
+	  double *x = new double [config->legs[j].segments[k].nx];
+	  double *y = new double [config->legs[j].segments[k].ny];
+	  for(i=0;i<config->legs[j].segments[k].nx;i++){
+	    x[i] = config->legs[j].segments[k].startx + i*config->legs[j].segments[k].deltax;
+	  }
+	  for(i=0;i<config->legs[j].segments[k].ny;i++){
+	    y[i] = config->legs[j].segments[k].starty + i*config->legs[j].segments[k].deltay;
+	  }
+	  
+	  for(i=0;i<config->legs[j].segments[k].nft;i++){
+	    (fcst_data[j]->get_data_grid())[i+ft_count]->set_y(y);
+	    (fcst_data[j]->get_data_grid())[i+ft_count]->set_x(x);
+	  
+	    if(config->legs[j].segments[k].isperiodic[0]){
+	      (fcst_data[j]->get_data_grid())[i+ft_count]->set_x_periodic();
+	      (fcst_data[j]->get_data_grid())[i+ft_count]->set_x_period(config->legs[j].segments[k].period[0]);
+	    }
+	    if(config->legs[j].segments[k].isperiodic[1]){
+	      (fcst_data[j]->get_data_grid())[i+ft_count]->set_y_periodic();
+	      (fcst_data[j]->get_data_grid())[i+ft_count]->set_y_period(config->legs[j].segments[k].period[1]);
+	    }
+	    if(config->legs[j].segments[k].isperiodic[2]){
+	      (fcst_data[j]->get_data_grid())[i+ft_count]->set_z_periodic();
+	      (fcst_data[j]->get_data_grid())[i+ft_count]->set_z_period(config->legs[j].segments[k].period[2]);
+	    }
+	  }
+	  
+	  delete [] x;
+	  delete [] y;
+
+	  ft_count += config->legs[j].segments[k].nft;
+	}
+      }
+    }    
+
+    return error;
+  }
+  int swim_config_v1::time_domain_setup(timed_grid_data **fcst_data,date_time init_time){
+    int i,j,k;
+    int error = _ERRORCODE_NOERROR;
+    if(config->ntable <= 0){
+      error = _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    else{
+      for(i=0;i<config->ntable;i++){
+	date_time *valid_time = new date_time [fcst_data[i]->get_num_data_time()];
+	int count = 0;
+	for(j=0;j<config->legs[i].nsegment;j++){
+	  valid_time[count] = init_time + config->legs[i].segments[j].min_ft;
+	  count++;
+	  for(k=1;k<config->legs[i].segments[j].nft;k++){
+	    valid_time[count] = valid_time[count-1] + config->legs[i].segments[j].delta_ft;
+	    count++;
+	  }
+	}
+
+	for(j=1;j<fcst_data[i]->get_num_data_time();j++){
+	  if(valid_time[j] <= valid_time[j-1]){
+	    error = _ERRORCODE_SWIM_CONFIG_UNMONOTONIC_TIME;
+	    break;
+	  }
+	}
+
+	if(!error){
+	  fcst_data[i]->set_data_time(valid_time);
+	}
+	delete [] valid_time;
+
+	if(error){
+	  break;
+	}	
+      }
+    }
+
+    return error;
+  }
+  int swim_config_v1::vertical_level_setup(timed_grid_data **fcst_data,char *level_type) const{
+    int error = _ERRORCODE_NOERROR;
+
+    if(config->ntable <= 0){
+      error = _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    else{
+      int i,j,ft_index,seg_index;
+      if(strcmp(level_type,"levels")==0){
+	for(j=0;j<config->ntable;j++){
+	  int ft_count = 0;
+	  for(seg_index=0;seg_index<config->legs[j].nsegment;seg_index++){
+	    for(ft_index=0;ft_index<config->legs[j].segments[seg_index].nft;ft_index++){
+	      for(i=0;i<config->legs[j].segments[seg_index].nlevels;i++){
+		(fcst_data[j]->get_data_grid())[ft_index+ft_count]->set_z(0,0,i,config->legs[j].segments[seg_index].levels[i]);
+	      }
+	    }
+	    ft_count += config->legs[j].segments[seg_index].nft;
+	  }
+	}
+      }
+      else if(strcmp(level_type,"srcLevels")==0){
+	for(j=0;j<config->ntable;j++){
+	  int ft_count = 0;
+	  for(seg_index=0;seg_index<config->legs[j].nsegment;seg_index++){
+	    for(ft_index=0;ft_index<config->legs[j].segments[seg_index].nft;ft_index++){
+	      for(i=0;i<config->legs[j].segments[seg_index].nlevels;i++){
+		if(is_number(config->legs[j].segments[seg_index].levels2read[i])){
+		  (fcst_data[j]->get_data_grid())[ft_index+ft_count]->set_z(0,0,i,atof(config->legs[j].segments[seg_index].levels2read[i]));
+		}
+		else{
+		  (fcst_data[j]->get_data_grid())[ft_index+ft_count]->set_z(0,0,i,(double) 0.);
+		}
+	      }
+	    }
+	    ft_count += config->legs[j].segments[seg_index].nft;
+	  }
+	}
+      }
+      else{
+	error = _ERRORCODE_UNKNOWNOPTION;
+      }
+    }
+
+    return error;
+  }
+  int swim_config_v1::free_domain(timed_grid_data **&fcst_data) const{
+    int i;
+    for(i=0;i<config->ntable;i++){
+      delete fcst_data[i];
+    }
+    delete [] fcst_data;
+    fcst_data = NULL;
+
+    return _ERRORCODE_NOERROR;
+  }
+  /*
+  char* swim_config_v1::get_element(int table_index,int dim_index){
+  }
+  */
+  int swim_config_v1::get_element_list(int* &nelement,char*** &element_list){
+    int error = _ERRORCODE_NOERROR;
+
+    if(config->ntable <= 0){
+      error = _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    else{
+      if(nelement != NULL){
+	delete [] nelement;
+      }
+      if(element_list != NULL){
+	delete [] element_list;
+      }
+
+      nelement = new int [config->ntable];
+      element_list = new char **[config->ntable];
+
+      int i,j,k;
+      for(i=0;i<config->ntable;i++){
+	int ndim = config->legs[i].nelements;
+
+	nelement[i] = ndim;
+	element_list[i] = new char *[ndim];
+	for(j=0;j<ndim;j++){
+	  element_list[i][j] = new char [BUFFSIZE];
+	}
+	
+	for(j=0;j<ndim;j++){
+	  strcpy(element_list[i][j],config->legs[i].elementslist[j]);
+	}
+      }
+    }
+
+    return error;    
+  }
+  bool swim_config_v1::check_data(date_time model_run) const{
+    libjeff::print_trace(1,"swim_config_v1::check_data");
+    bool complete = true;
+
+    date_time valid_time;
+    char *filename = new char [BUFFSIZE];
+
+    int i,j,k,m,n;
+    for(j=0;j<config->ntable&&complete;j++){
+      for(n=0;n<config->legs[j].nsegment;n++){
+	valid_time = model_run + config->legs[j].segments[n].min_ft;
+	for(i=0;i<config->legs[j].segments[n].nft;i++){
+	  
+	  for(m=0;m<config->legs[j].segments[n].nsub_table&&complete;m++){
+	    bool found = false;
+	    for(k=0;k<config->legs[j].segments[n].nprefix[m];k++){
+	      libjeff::swim::generate_filename(config->legs[j].segments[n].filename[m],config->legs[j].segments[n].file_prefix[m][k],model_run,valid_time,filename);
+	      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		std::cout << "Checking: " << filename << std::endl;
+	      }
+	      if(libjeff::file_check_exist(filename)){
+		found = true;
+		if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		  std::cout << " found!" << std::endl;
+		}
+		break;
+	      }
+	    }
+
+	    if(!found){
+	      complete = false;
+	      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		std::cout << " not found!" << std::endl;
+	      }
+	      break;
+	    }
+	  }
+
+	  valid_time += config->legs[j].segments[n].delta_ft;
+	}
+      }
+    }
+    
+    delete [] filename;
+
+    libjeff::print_trace(0,"swim_config_v1::check_data");
+    return complete;
+  }
+  int swim_config_v1::read_data(timed_grid_data **fcst_data,date_time model_run){
+    libjeff::print_trace(1,"swim_config_v1::read_data");
+    int error = _ERRORCODE_NOERROR;
+
+    if(this->check_data(model_run)){
+      //date_time valid_time;
+      char *filename = new char [BUFFSIZE];
+      
+      int i,j,k,sub_table_ind,n,prefix_ind;
+      for(j=0;j<config->ntable;j++){
+	int time_count = 0;
+	for(n=0;n<config->legs[j].nsegment;n++){
+	  int element_count = 0;
+	  for(sub_table_ind=0;sub_table_ind<config->legs[j].segments[n].nsub_table;sub_table_ind++){
+	    //valid_time = model_run + config->legs[j].segments[n].min_ft;
+	    char **param_name = new char *[config->legs[j].segments[n].ngribkeys[sub_table_ind]];
+	    char **param_value = new char *[config->legs[j].segments[n].ngribkeys[sub_table_ind]];
+	    
+	    for(k=0;k<config->legs[j].segments[n].ngribkeys[sub_table_ind];k++){
+	      param_name[k] = new char [BUFFSIZE];
+	      param_value[k] = new char [BUFFSIZE];
+	    }
+	    
+	    char **levels = new char *[config->legs[j].segments[n].nlevels];
+	    int *level_index = new int [config->legs[j].segments[n].nlevels];
+
+	    for(k=0;k<config->legs[j].segments[n].nlevels;k++){
+	      if(strcmp(config->legs[j].segments[n].levels2read[k],"surf")!=0){
+		levels[k] = new char [BUFFSIZE];
+		strcpy(levels[k],config->legs[j].segments[n].levels2read[k]);
+	      }
+	      else{
+		levels[k] = NULL;
+	      }
+	      level_index[k] = k;
+	    }
+
+	    char **elements = new char *[config->legs[j].segments[n].nelements2read[sub_table_ind]];
+	    int *element_index = new int [config->legs[j].segments[n].nelements2read[sub_table_ind]];
+	    for(k=0;k<config->legs[j].segments[n].nelements2read[sub_table_ind];k++){
+	      elements[k] = new char [BUFFSIZE];
+	      element_index[k] = k+element_count;
+	      strcpy(elements[k],config->legs[j].segments[n].elements2read[sub_table_ind][k]);
+	    }
+	    
+	    for(i=0;i<config->legs[j].segments[n].nft;i++){
+	      bool found = false;
+	      
+	      for(prefix_ind=0;prefix_ind<config->legs[j].segments[n].nprefix[sub_table_ind];prefix_ind++){
+		libjeff::swim::generate_filename(config->legs[j].segments[n].filename[sub_table_ind],config->legs[j].segments[n].file_prefix[sub_table_ind][prefix_ind],model_run,(fcst_data[j]->get_data_time())[i+time_count],filename);
+		
+		if(libjeff::is_grib_file(filename)){
+		  for(k=0;k<config->legs[j].segments[n].ngribkeys[sub_table_ind];k++){
+		    strcpy(param_name[k],config->legs[j].segments[n].keys[sub_table_ind][k].name);
+		    strcpy(param_value[k],config->legs[j].segments[n].keys[sub_table_ind][k].value);
+		  }
+		  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		    std::cout << "Attempting to read file " << filename << std::endl;
+		  }
+		  if(libjeff::file_check_exist(filename)){
+		    int test_error = ((model_data*) fcst_data[j])->read_grib_data(filename,config->legs[j].segments[n].nelements2read[sub_table_ind],elements,element_index,config->legs[j].segments[n].nlevels,levels,level_index,(fcst_data[j]->get_data_time())[i+time_count],i+time_count,config->legs[j].segments[n].ngribkeys[sub_table_ind],param_name,param_value);
+		    //cout << "test_error = " << test_error << endl;
+		    if(test_error == _ERRORCODE_NOERROR){
+		      found = true;
+		      break;
+		    }
+		    else{
+		      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			std::cout << "Error code = " << test_error << std::endl;
+		      }
+		    }
+		  }
+		}
+		else if(libjeff::is_netcdf_file(filename)){
+		  if(config->legs[j].segments[n].ngribkeys[sub_table_ind]==0){
+		    std::cout << "Error in reading netcdf file." << std::endl;
+		    error = _ERRORCODE_INPUTMISSING;
+		  }
+
+		  if(!error){
+		    for(k=0;k<config->legs[j].segments[n].ngribkeys[sub_table_ind];k++){
+		      strcpy(param_value[k],"");
+		    }
+
+		    int key_index[6];
+		    for(k=0;k<6;k++){
+		      key_index[k] = -1;
+		    }
+
+		    int innermostright = true;
+
+		    for(k=0;k<config->legs[j].segments[n].ngribkeys[sub_table_ind];k++){
+		      if(strcmp(config->legs[j].segments[n].keys[sub_table_ind][k].name,"xdimname")==0){
+			//strcpy(param_value[0],config->keys[i][n][j][k].value);
+			key_index[0] = k;
+		      }
+		      else if(strcmp(config->legs[j].segments[n].keys[sub_table_ind][k].name,"ydimname")==0){
+			//strcpy(param_value[1],config->keys[i][n][j][k].value);
+			key_index[1] = k;
+		      }
+		      else if(strcmp(config->legs[j].segments[n].keys[sub_table_ind][k].name,"zdimname")==0){
+			//strcpy(param_value[2],config->keys[i][n][j][k].value);
+			key_index[2] = k;
+		      }
+		      else if(strcmp(config->legs[j].segments[n].keys[sub_table_ind][k].name,"xname")==0){
+			//strcpy(param_value[3],config->keys[i][n][j][k].value);
+			key_index[3] = k;
+		      }
+		      else if(strcmp(config->legs[j].segments[n].keys[sub_table_ind][k].name,"yname")==0){
+			//strcpy(param_value[4],config->keys[i][n][j][k].value);
+			key_index[4] = k;
+		      }
+		      else if(strcmp(config->legs[j].segments[n].keys[sub_table_ind][k].name,"zname")==0){
+			//strcpy(param_value[5],config->keys[i][n][j][k].value);
+			key_index[5] = k;
+		      }
+		      else if(strcmp(config->legs[j].segments[n].keys[sub_table_ind][k].name,"innermostright")==0){
+			if(strcmp(config->legs[j].segments[n].keys[sub_table_ind][k].value,"false")==0){
+			  innermostright = false;
+			}
+		      }
+		    }
+
+		    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		      std::cout << "Attempting to read file " << filename << std::endl;
+		    }
+		    if(libjeff::file_check_exist(filename)){
+		      int test_error = ((model_data*) fcst_data[j])->read_netCDF_data(filename,i+time_count,i+time_count,(key_index[0]>=0?config->legs[j].segments[n].keys[sub_table_ind][key_index[0]].value:NULL),(key_index[1]>=0?config->legs[j].segments[n].keys[sub_table_ind][key_index[1]].value:NULL),(key_index[2]>=0?config->legs[j].segments[n].keys[sub_table_ind][key_index[2]].value:NULL),(key_index[3]>=0?config->legs[j].segments[n].keys[sub_table_ind][key_index[3]].value:NULL),(key_index[4]>=0?config->legs[j].segments[n].keys[sub_table_ind][key_index[4]].value:NULL),(key_index[5]>=0?config->legs[j].segments[n].keys[sub_table_ind][key_index[5]].value:NULL),innermostright,config->legs[j].segments[n].nelements2read[sub_table_ind],elements,element_index);
+		      if(test_error == _ERRORCODE_NOERROR){
+			found = true;
+			break;
+		      }
+		      else{
+			if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			  std::cout << "Error code = " << test_error << std::endl;
+			}
+		      }
+		    }
+		  }
+		}
+	      }
+
+	      if(!found){
+		std::cout << "Error in reading data file." << std::endl;
+		error = _ERRORCODE_GRIBDATA_NOTFOUND;
+		cout << "_ERRORCODE_GRIBDATA_NOTFOUND = " << error << endl;
+		break;
+	      }
+	      //valid_time += config->legs[j].segments[n].delta_ft;
+	    }
+	    element_count += config->legs[j].segments[n].nelements2read[sub_table_ind];
+
+	    for(k=0;k<config->legs[j].segments[n].nelements2read[sub_table_ind];k++){
+	      delete [] elements[k];
+	    }
+	    delete [] elements;
+	    delete [] element_index;
+
+	    for(k=0;k<config->legs[j].segments[n].nlevels;k++){
+	      if(levels[k] != NULL){
+		delete [] levels[k];
+	      }
+	    }
+	    delete [] level_index;
+	    delete [] levels;  
+
+	    for(k=0;k<config->legs[j].segments[n].ngribkeys[sub_table_ind];k++){
+	      delete [] param_name[k];
+	      delete [] param_value[k];
+	    }
+	    delete [] param_name;
+	    delete [] param_value;
+
+	    if(error){
+	      break;
+	    }
+	  }
+
+	  if(error){
+	    break;
+	  }
+	  time_count += config->legs[j].segments[n].nft;
+	}
+
+	for(k=0;k<config->legs[j].nelements;k++){
+	  if(strcmp(config->legs[j].elementslist[k],"p")==0 || strcmp(config->legs[j].elementslist[k],"mslp")==0){
+	    libjeff::grid_data_field *p = new libjeff::grid_data_field;
+	    int time_count = 0;
+	    for(n=0;n<config->legs[j].nsegment;n++){
+	      for(i=0;i<config->legs[j].segments[n].nft;i++){
+		p->set(fcst_data[j]->get_data_grid()[time_count+i],k);
+		*p *= 0.01;
+	      }
+	      time_count += config->legs[j].segments[n].nft;
+	    }
+	    delete p;
+	  }
+	}
+
+	if(error){
+	  break;
+	}
+
+	
+      }
+      
+      delete [] filename;
+    }
+    else{
+      error = _ERRORCODE_DATANOTENOUGH;
+    }
+    
+    libjeff::print_trace(0,"swim_config_v1::read_data");
+    return error;
+  }
+  int swim_config_v1::get_ntable() const{
+    return config->ntable;
+  }
+  libjeff::verticalCoordinateType* swim_config_v1::get_vertical_coordinate() const{
+    return config->vertical_coordinate;
+  }
+  int* swim_config_v1::get_table_and_element_index(date_time modelrun,date_time valid_time,double *xy,double* level,char *element,int *index) const{
+    return this->get_table_and_element_index(modelrun,valid_time,xy,level,NULL,element,index);
+  }
+  int* swim_config_v1::get_table_and_element_index(date_time modelrun,date_time valid_time,double *xy,double* level,char* leveltype,char *element,int *index) const{
+    index[0]=-1;
+    index[1]=-1;
+
+    if(valid_time < modelrun+config->min_ft || valid_time > modelrun+config->max_ft){
+      return index;
+    }
+
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "[swim_config_v1::get_table_and_element_index] Checking for: " << element << " ";
+      if(level==NULL){
+	std::cout << "{single level}";
+      }
+      else{
+	std::cout << *level;
+      }
+      std::cout << std::endl;
+    }
+
+    int i,j,leg_index,m;
+    for(i=0;i<this->get_ntable();i++){
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "Table " << i << " ";
+      }
+      for(leg_index=0;leg_index<config->legs[i].nsegment;leg_index++){ //within a leg
+	if(valid_time >= modelrun+config->legs[i].segments[leg_index].min_ft && valid_time <= modelrun+config->legs[i].segments[leg_index].max_ft){
+	  /*
+	  if((level == NULL && config->legs[i].segments[leg_index].nlevels == 1) || 
+	     (level==NULL?false:(*level >= config->legs[i].segments[leg_index].levels[0] && *level <= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1])) || 
+	     (level==NULL?false:(*level <= config->legs[i].segments[leg_index].levels[0] && *level >= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1]))){ //vertical level check
+	  */
+	  if(config->legs[i].segments[leg_index].isperiodic[0] ||
+	     (xy[0] >= config->legs[i].segments[leg_index].startx && xy[0] <= (config->legs[i].segments[leg_index].startx+config->legs[i].segments[leg_index].nx*config->legs[i].segments[leg_index].deltax)) ||
+	     (xy[0] <= config->legs[i].segments[leg_index].startx && xy[0] >= (config->legs[i].segments[leg_index].startx+config->legs[i].segments[leg_index].nx*config->legs[i].segments[leg_index].deltax))){ //x direction check
+	    if(config->legs[i].segments[leg_index].isperiodic[1] ||
+	       (xy[1] >= config->legs[i].segments[leg_index].starty && xy[1] <= (config->legs[i].segments[leg_index].starty+config->legs[i].segments[leg_index].ny*config->legs[i].segments[leg_index].deltay)) ||
+	       (xy[1] <= config->legs[i].segments[leg_index].starty && xy[1] >= (config->legs[i].segments[leg_index].starty+config->legs[i].segments[leg_index].ny*config->legs[i].segments[leg_index].deltay))){ //y direction check
+	      for(j=0;j<config->legs[i].nelements;j++){
+		if(strcmp(config->legs[i].elementslist[j],element)==0){
+		  index[0]=i;
+		  index[1]=j;
+		  
+		  if(level == NULL && config->legs[i].segments[leg_index].nlevels == 1){
+		    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		      std::cout << "Ok as direct match for single layer." << std::endl;
+		    }
+		    return index;
+		  }
+		  else if(level != NULL && leveltype != NULL){
+		    if(libjeff::swim::vertical_coordinate_match(config->vertical_coordinate[i],leveltype)){
+		      if((*level >= config->legs[i].segments[leg_index].levels[0] && *level <= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1]) || 
+			 (*level <= config->legs[i].segments[leg_index].levels[0] && *level >= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1])){ //vertical level check
+			if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			  std::cout << "Ok as direct match with direct coordinate." << std::endl;
+			}
+			return index;
+		      }
+		    }
+		    else if(libjeff::swim::vertical_coordinate_convertable(config->vertical_coordinate[i],leveltype)){
+		      double conv_level = libjeff::swim::vertical_coordinate_conversion(config->vertical_coordinate[i],leveltype,*level);
+		      if((conv_level >= config->legs[i].segments[leg_index].levels[0] && conv_level <= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1]) || 
+			 (conv_level <= config->legs[i].segments[leg_index].levels[0] && conv_level >= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1])){ //vertical level check
+			if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			  std::cout << "Ok as direct match with convertable coordinate." << std::endl;
+			}
+			return index;
+		      }
+		    }
+		    else{
+		      for(m=0;m<config->legs[i].nelements;m++){
+			if(strcmp(config->legs[i].elementslist[m],leveltype)==0){
+			  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			    std::cout << "Ok as direct match with interpolated coordinate." << std::endl;
+			  }
+			  return index;
+			}
+		      }
+		      
+		      if(libjeff::is_derivable(config->legs[i].nelements,config->legs[i].elementslist,leveltype)){
+			if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			  std::cout << "Ok as direct match with derived coordinate." << std::endl;
+			}
+			return index;
+		      }
+		    }
+		  }
+		  
+		  index[0]=-1;
+		  index[1]=-1;
+		}
+	      }
+
+	      if(libjeff::is_derivable(config->legs[i].nelements,config->legs[i].elementslist,element)){
+		index[0]=i;
+		index[1]=-2;
+		
+		if(level == NULL && config->legs[i].segments[leg_index].nlevels == 1){
+		  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		    std::cout << "Ok as derived type for single layer." << std::endl;
+		  }
+		  return index;
+		}
+		else if(level != NULL && leveltype != NULL){
+		  if(libjeff::swim::vertical_coordinate_match(config->vertical_coordinate[i],leveltype)){
+		    if((*level >= config->legs[i].segments[leg_index].levels[0] && *level <= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1]) || 
+		       (*level <= config->legs[i].segments[leg_index].levels[0] && *level >= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1])){ //vertical level check
+		      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			std::cout << "Ok as derived type with direct coordinate." << std::endl;
+		      }
+		      return index;
+		    }
+		  }
+		  else if(libjeff::swim::vertical_coordinate_convertable(config->vertical_coordinate[i],leveltype)){
+		    double conv_level = libjeff::swim::vertical_coordinate_conversion(config->vertical_coordinate[i],leveltype,*level);
+		    if((conv_level >= config->legs[i].segments[leg_index].levels[0] && conv_level <= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1]) || 
+		       (conv_level <= config->legs[i].segments[leg_index].levels[0] && conv_level >= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1])){ //vertical level check
+		      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			std::cout << "Ok as derived type with convertable coordinate." << std::endl;
+		      }
+		      return index;
+		    }
+		  }
+		  else{
+		    for(m=0;m<config->legs[i].nelements;m++){
+		      if(strcmp(config->legs[i].elementslist[m],leveltype)==0){
+			if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			  std::cout << "Ok as derived type with interpolated coordinate." << std::endl;
+			}
+			return index;
+		      }
+		    }
+		    
+		    if(libjeff::is_derivable(config->legs[i].nelements,config->legs[i].elementslist,leveltype)){
+		      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			std::cout << "Ok as derived type with derived coordinate." << std::endl;
+		      }
+		      return index;
+		    }
+		  }
+		}
+		
+		index[0]=-1;
+		index[1]=-1;
+	      }
+	    }
+	  }
+	  //	}
+	}
+      }
+
+      for(leg_index=0;leg_index<config->legs[i].nsegment-1;leg_index++){ //between two legs
+	if(valid_time >= modelrun+config->legs[i].segments[leg_index].max_ft && valid_time <= modelrun+config->legs[i].segments[leg_index+1].min_ft){
+	  /*
+	  if((level == NULL && config->legs[i].segments[leg_index].nlevels == 1 && config->legs[i].segments[leg_index+1].nlevels == 1) ||
+	     (level==NULL?false:((*level >= config->legs[i].segments[leg_index].levels[0] && *level <= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1]) || (*level <= config->legs[i].segments[leg_index].levels[0] && *level >= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1]))) &&
+	     (level==NULL?false:((*level >= config->legs[i].segments[leg_index+1].levels[0] && *level <= config->legs[i].segments[leg_index+1].levels[config->legs[i].segments[leg_index+1].nlevels-1]) || (*level <= config->legs[i].segments[leg_index+1].levels[0] && *level >= config->legs[i].segments[leg_index+1].levels[config->legs[i].segments[leg_index+1].nlevels-1])))
+	     ){ //vertical level check
+	  */
+	  if((config->legs[i].segments[leg_index].isperiodic[0]  ||
+	      ((xy[0] >= config->legs[i].segments[leg_index].startx && xy[0] <= (config->legs[i].segments[leg_index].startx+config->legs[i].segments[leg_index].nx*config->legs[i].segments[leg_index].deltax)) ||
+	       (xy[0] <= config->legs[i].segments[leg_index].startx && xy[0] >= (config->legs[i].segments[leg_index].startx+config->legs[i].segments[leg_index].nx*config->legs[i].segments[leg_index].deltax)))) &&
+	     (config->legs[i].segments[leg_index+1].isperiodic[0] || 
+	      ((xy[0] >= config->legs[i].segments[leg_index+1].startx && xy[0] <= (config->legs[i].segments[leg_index+1].startx+config->legs[i].segments[leg_index+1].nx*config->legs[i].segments[leg_index+1].deltax)) ||
+	       (xy[0] <= config->legs[i].segments[leg_index+1].startx && xy[0] >= (config->legs[i].segments[leg_index+1].startx+config->legs[i].segments[leg_index+1].nx*config->legs[i].segments[leg_index+1].deltax))))){ //x direction check
+	    if((config->legs[i].segments[leg_index].isperiodic[1] || 
+		((xy[1] >= config->legs[i].segments[leg_index].starty && xy[1] <= (config->legs[i].segments[leg_index].starty+config->legs[i].segments[leg_index].ny*config->legs[i].segments[leg_index].deltay)) ||
+		 (xy[1] <= config->legs[i].segments[leg_index].starty && xy[1] >= (config->legs[i].segments[leg_index].starty+config->legs[i].segments[leg_index].ny*config->legs[i].segments[leg_index].deltay)))) &&
+	       (config->legs[i].segments[leg_index+1].isperiodic[1] || 
+		((xy[1] >= config->legs[i].segments[leg_index+1].starty && xy[1] <= (config->legs[i].segments[leg_index+1].starty+config->legs[i].segments[leg_index+1].ny*config->legs[i].segments[leg_index+1].deltay)) ||
+		 (xy[1] <= config->legs[i].segments[leg_index+1].starty && xy[1] >= (config->legs[i].segments[leg_index+1].starty+config->legs[i].segments[leg_index+1].ny*config->legs[i].segments[leg_index+1].deltay))))){//y direction check
+	      for(j=0;j<config->legs[i].nelements;j++){
+		if(strcmp(config->legs[i].elementslist[j],element)==0){
+		  index[0]=i;
+		  index[1]=j;
+		  
+		  if(level == NULL && config->legs[i].segments[leg_index].nlevels == 1){
+		    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		      std::cout << "Ok as direct match for single layer." << std::endl;
+		    }
+		    return index;
+		  }
+		  else if(level != NULL && leveltype != NULL){
+		    if(libjeff::swim::vertical_coordinate_match(config->vertical_coordinate[i],leveltype)){
+		      if(((*level >= config->legs[i].segments[leg_index].levels[0] && *level <= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1]) || (*level <= config->legs[i].segments[leg_index].levels[0] && *level >= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1])) && 
+			 ((*level >= config->legs[i].segments[leg_index+1].levels[0] && *level <= config->legs[i].segments[leg_index+1].levels[config->legs[i].segments[leg_index+1].nlevels-1]) || (*level <= config->legs[i].segments[leg_index+1].levels[0] && *level >= config->legs[i].segments[leg_index+1].levels[config->legs[i].segments[leg_index+1].nlevels-1]))){ //vertical level check
+			if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			  std::cout << "Ok as direct match with direct coordinate." << std::endl;
+			}
+			return index;
+		      }
+		    }
+		    else if(libjeff::swim::vertical_coordinate_convertable(config->vertical_coordinate[i],leveltype)){
+		      double conv_level = libjeff::swim::vertical_coordinate_conversion(config->vertical_coordinate[i],leveltype,*level);
+		      if(((conv_level >= config->legs[i].segments[leg_index].levels[0] && conv_level <= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1]) || (conv_level <= config->legs[i].segments[leg_index].levels[0] && conv_level >= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1])) && 
+			 ((conv_level >= config->legs[i].segments[leg_index+1].levels[0] && conv_level <= config->legs[i].segments[leg_index+1].levels[config->legs[i].segments[leg_index+1].nlevels-1]) || (conv_level <= config->legs[i].segments[leg_index+1].levels[0] && conv_level >= config->legs[i].segments[leg_index+1].levels[config->legs[i].segments[leg_index+1].nlevels-1]))){ //vertical level check
+			if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			  std::cout << "Ok as direct match with convertable coordinate." << std::endl;
+			}
+			return index;
+		      }
+		    }
+		    else{
+		      for(m=0;m<config->legs[i].nelements;m++){
+			if(strcmp(config->legs[i].elementslist[m],leveltype)==0){
+			  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			    std::cout << "Ok as direct match with interpolated coordinate." << std::endl;
+			    }
+			  return index;
+			}
+		      }
+		      
+		      if(libjeff::is_derivable(config->legs[i].nelements,config->legs[i].elementslist,leveltype)){
+			if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			  std::cout << "Ok as direct match with derived coordinate." << std::endl;
+			}
+			return index;
+		      }
+		    }
+		  }
+		  
+		  index[0]=-1;
+		  index[1]=-1;
+		}
+	      }
+	      
+	      if(libjeff::is_derivable(config->legs[i].nelements,config->legs[i].elementslist,element)){
+		index[0]=i;
+		index[1]=-2;
+		
+		if(level == NULL && config->legs[i].segments[leg_index].nlevels == 1){
+		  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		    std::cout << "Ok as direct match for single layer" << std::endl;
+		  }
+		  return index;
+		}
+		else if(level != NULL && leveltype != NULL){
+		  if(libjeff::swim::vertical_coordinate_match(config->vertical_coordinate[i],leveltype)){
+		    if(((*level >= config->legs[i].segments[leg_index].levels[0] && *level <= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1]) || (*level <= config->legs[i].segments[leg_index].levels[0] && *level >= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1])) && 
+		       ((*level >= config->legs[i].segments[leg_index+1].levels[0] && *level <= config->legs[i].segments[leg_index+1].levels[config->legs[i].segments[leg_index+1].nlevels-1]) || (*level <= config->legs[i].segments[leg_index+1].levels[0] && *level >= config->legs[i].segments[leg_index+1].levels[config->legs[i].segments[leg_index+1].nlevels-1]))){ //vertical level check
+		      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			std::cout << "Ok as direct match with direct coordinate." << std::endl;
+		      }
+		      return index;
+		    }
+		  }
+		  else if(libjeff::swim::vertical_coordinate_convertable(config->vertical_coordinate[i],leveltype)){
+		      double conv_level = libjeff::swim::vertical_coordinate_conversion(config->vertical_coordinate[i],leveltype,*level);
+		      if(((conv_level >= config->legs[i].segments[leg_index].levels[0] && conv_level <= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1]) || (conv_level <= config->legs[i].segments[leg_index].levels[0] && conv_level >= config->legs[i].segments[leg_index].levels[config->legs[i].segments[leg_index].nlevels-1])) && 
+			 ((conv_level >= config->legs[i].segments[leg_index+1].levels[0] && conv_level <= config->legs[i].segments[leg_index+1].levels[config->legs[i].segments[leg_index+1].nlevels-1]) || (conv_level <= config->legs[i].segments[leg_index+1].levels[0] && conv_level >= config->legs[i].segments[leg_index+1].levels[config->legs[i].segments[leg_index+1].nlevels-1]))){ //vertical level check
+			if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			  std::cout << "Ok as direct match with convertable coordinate." << std::endl;
+			}
+			return index;
+		      }
+		    }
+		  else{
+		    for(m=0;m<config->legs[i].nelements;m++){
+		      if(strcmp(config->legs[i].elementslist[m],leveltype)==0){
+			if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			  std::cout << "Ok as direct match with interpolated coordinate." << std::endl;
+			}
+			return index;
+		      }
+		    }
+		    
+		    if(libjeff::is_derivable(config->legs[i].nelements,config->legs[i].elementslist,leveltype)){
+		      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+			std::cout << "Ok as derived type with derived coordinate." << std::endl;
+		      }
+		      return index;
+		    }
+		  }
+		}
+		
+		index[0]=-1;
+		index[1]=-1;
+	      }	      
+	    }
+	  }
+	  //}
+	}
+      }
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "not OK." << std::endl;
+      }
+    }
+
+    return index;
+  }
+  date_time swim_config_v1::get_previous_run(date_time model_run) const{
+    return model_run - config->delta_model_time;
+  }
+
+  bool swim_server_status_handler::handleGet(CivetServer *server, struct mg_connection *conn){
+    std::string s = "";
+    bool jsonmode = false;
+    char *ctemp = new char [BUFFSIZE];
+    if (CivetServer::getParam(conn, "json", s)) {
+      if(strcmp(s.c_str(),"true")==0){
+	jsonmode=true;
+      }
+    }
+
+    if(jsonmode){
+       mg_printf(conn,
+		"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: "
+		"text/html\r\nConnection: close\r\n\r\n");
+      mg_printf(conn,"{\"serverReady\": \"");
+      if(((swim_server*) server)->get_is_ready()){
+	mg_printf(conn, "true");
+      }
+      else{
+	mg_printf(conn, "false");
+      }
+      mg_printf(conn,"\"");
+      if(((swim_server*) server)->get_is_ready()){
+	mg_printf(conn,",\"dataRange\": {\"start\": {\"time\":\"");
+	mg_printf(conn, ((swim_server*) server)->get_data_grid()[0]->get_data_time()[0].get_time("yyyy-mm-ddThh:mm:ssZ",ctemp));
+	mg_printf(conn,"\",\"unixTime\": \"");
+	sprintf(ctemp,"%d",((int) round(((swim_server*) server)->get_data_grid()[0]->get_data_time()[0].numberOfSecondFrom(date_time(1970,1,1)))));
+	mg_printf(conn,ctemp);
+	mg_printf(conn,"\"},\"end\": {\"time\": \"");
+	mg_printf(conn, ((swim_server*) server)->get_data_grid()[0]->get_data_time()[((swim_server*) server)->get_data_grid()[0]->get_num_data_time()-1].get_time("yyyy-mm-ddThh:mm:ssZ",ctemp));
+	mg_printf(conn,"\",\"unixTime\": \"");
+	sprintf(ctemp,"%d",((int) round(((swim_server*) server)->get_data_grid()[0]->get_data_time()[((swim_server*) server)->get_data_grid()[0]->get_num_data_time()-1].numberOfSecondFrom(date_time(1970,1,1)))));
+	mg_printf(conn,ctemp);
+	mg_printf(conn,"\"}}");
+	if(((swim_server*) server)->get_init_time() != NOTIME){
+	  mg_printf(conn, ",\"initialTime\": {\"time\": \"");
+	  mg_printf(conn, ((swim_server*) server)->get_init_time().get_time("yyyy-mm-ddThh:mm:ssZ",ctemp));
+	  mg_printf(conn,"\",\"unixTime\": \"");
+	  sprintf(ctemp,"%d",((int) round(((swim_server*) server)->get_init_time().numberOfSecondFrom(date_time(1970,1,1)))));
+	  mg_printf(conn,ctemp);
+	  mg_printf(conn,"\"}");
+	}
+      }
+      mg_printf(conn,"}");
+    }
+    else{
+      mg_printf(conn,
+		"HTTP/1.1 200 OK\r\nContent-Type: "
+		"text/html\r\nConnection: close\r\n\r\n");
+      mg_printf(conn, "<html><body>\r\n");
+      mg_printf(conn, "<h1>Connection to SWIM server successful</h1>\r\n");
+      mg_printf(conn, "<p>Server status: <font color=\"#");
+      if(((swim_server*) server)->get_is_ready()){
+	mg_printf(conn, "00FF00;\"> Ready");
+      }
+      else{
+	mg_printf(conn, "FF0000;\"> Not Ready");
+      }
+      mg_printf(conn, "</font></p>\r\n");
+      if(((swim_server*) server)->get_is_ready()){
+	if(((swim_server*) server)->get_init_time() != NOTIME){
+	  mg_printf(conn, "<p>Server Data Initial Time: ");
+	  mg_printf(conn, ((swim_server*) server)->get_init_time().get_time("yyyy-mm-ddThh:mm:ssZ",ctemp));
+	  mg_printf(conn, "</p>");
+	}
+	mg_printf(conn, "<p>Server Data Range: ");
+	mg_printf(conn, ((swim_server*) server)->get_data_grid()[0]->get_data_time()[0].get_time("yyyy-mm-ddThh:mm:ssZ",ctemp));
+	mg_printf(conn, " - ");
+	mg_printf(conn, ((swim_server*) server)->get_data_grid()[0]->get_data_time()[((swim_server*) server)->get_data_grid()[0]->get_num_data_time()-1].get_time("yyyy-mm-ddThh:mm:ssZ",ctemp));
+	mg_printf(conn, "</p>\r\n");
+      }
+      mg_printf(conn, "</body></html>\r\n");
+    }
+    delete [] ctemp;
+
+    return true;
+  }
+
+  swim_server::swim_server(std::vector<std::string> options):CivetServer(options){
+    this->setup(NULL,NULL,NULL);
+    ndata_grid=0;
+    config = NULL;
+    data_grid=NULL;
+    init_time=NOTIME;
+    nelement = NULL;
+    element_list = NULL;
+    /*
+    int i;
+    for(i=0;i<ndata_grid;i++){
+      nelement[i] = 0;
+    }
+    */
+    is_ready = false;
+    h_server_stat = new swim_server_status_handler;
+    this->addHandler(STATUSLINK,this->h_server_stat);
+    //start();
+  }
+
+  swim_server::swim_server(std::vector<std::string> options,char *vcs_uri,char *ts_uri,char *raster_uri,swim_config* config):CivetServer(options){
+    this->setup(vcs_uri,ts_uri,raster_uri);
+    data_grid=NULL;
+    this->config = config;
+    this->ndata_grid=this->config->get_ntable();
+    init_time=NOTIME;
+    nelement = NULL;
+    element_list = NULL;
+    this->config->get_element_list(nelement,element_list);
+    is_ready = false;
+    h_server_stat = new swim_server_status_handler;
+    this->addHandler(STATUSLINK,this->h_server_stat);
+    //    start();
+  }
+
+  int swim_server::setup(char *vcs_uri,char *ts_uri,char *raster_uri){
+    /*
+    if(port!=NULL){
+      this->port = new char [strlen(port)+5];
+      strcpy(this->port,port);
+    }
+    else{
+      this->port = new char [6];
+      strcpy(this->port,"8081");
+    }
+    */
+    if(vcs_uri!=NULL){
+      this->vcs_uri = new char [strlen(vcs_uri)+5];
+      strcpy(this->vcs_uri,vcs_uri);
+    }
+    else{
+      this->vcs_uri = new char [BUFFSIZE];
+      strcpy(this->vcs_uri,"/vertical_cross_section");
+    }
+
+    if(ts_uri!=NULL){
+      this->ts_uri = new char [strlen(ts_uri)+5];
+      strcpy(this->ts_uri,ts_uri);
+    }
+    else{
+      this->ts_uri = new char [BUFFSIZE];
+      strcpy(this->ts_uri,"/time_series");
+    }
+    
+    if(raster_uri!=NULL){
+      this->raster_uri = new char [strlen(raster_uri)+5];
+      strcpy(this->raster_uri,raster_uri);
+    }
+    else{
+      this->raster_uri = new char [BUFFSIZE];
+      strcpy(this->raster_uri,"/raster");
+    }      
+
+    return _ERRORCODE_NOERROR;
+  }
+  /*
+  void swim_server::start(){
+    const char *options[] = {
+	    "listening_ports", this->port, 0};
+    std::vector<std::string> cpp_options;
+    int i;
+    for (i=0; i<(sizeof(options)/sizeof(options[0])-1); i++) {
+      cpp_options.push_back(options[i]);
+    }
+
+    server = new CivetServer(cpp_options); // <-- C++ style start
+
+    //server->addHandler(this->vcs_uri,h_vcs);
+  }
+  */
+  void swim_server::set_data_grid(timed_grid_data** in){
+    data_grid = in;
+  }
+  timed_grid_data** swim_server::get_data_grid() const{
+    return data_grid;
+  }
+  /*
+  int swim_server::set_element_list(char ***list){
+    if(data_grid == NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    
+    int i,j;
+    for(j=0;j<ndata_grid;j++){
+      if(nelement[j] > 0){
+	for(i=0;i<nelement[j];i++){
+	  delete [] element_list[j][i];
+	}
+	delete [] element_list[j];
+      }
+    
+      nelement[j] = this->get_data_grid()[j]->get_data_grid()[0]->get_ndim();
+      element_list[j] = new char *[nelement[j]];
+
+      for(i=0;i<nelement[j];i++){
+	element_list[j][i] = new char [BUFFSIZE];
+      }
+
+      for(i=0;i<nelement[j];i++){
+	strcpy(element_list[j][i],list[j][i]);
+      }
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+  */
+  int swim_server::set_vcs_handler(CivetHandler* in){
+    h_vcs = in;
+    this->addHandler(this->vcs_uri,h_vcs);
+    return _ERRORCODE_NOERROR;
+  }
+  int swim_server::set_ts_handler(CivetHandler* in){
+    h_ts = in;
+    this->addHandler(this->ts_uri,h_ts);
+    return _ERRORCODE_NOERROR;
+  }
+  int swim_server::set_raster_handler(CivetHandler* in){
+    h_raster = in;
+    this->addHandler(this->raster_uri,h_raster);
+    return _ERRORCODE_NOERROR;
+  }
+  void swim_server::set_is_ready(bool in){
+    is_ready = in;
+  }
+  bool swim_server::get_is_ready(){
+    return is_ready;
+  }
+
+  int swim_server::set_config(swim_config *in){
+    config = in;
+    return _ERRORCODE_NOERROR;
+  }
+  swim_config *swim_server::get_config() const{
+    return config;
+  }
+  
+  char *swim_server::get_element(int table_no,int element_no){
+    if(table_no<0 || element_no < 0 || element_no >= nelement[table_no]){
+      return NULL;
+    }
+    else{
+      return element_list[table_no][element_no];
+    }
+  }
+  char **swim_server::get_element(int table_no){
+    if(table_no<0 || table_no >= ndata_grid){
+      return NULL;
+    }
+    return element_list[table_no];
+  }
+  char ***swim_server::get_element_list(){
+    return element_list;
+  }
+  int swim_server::set_init_time(const date_time& in){
+    init_time = in;
+    return _ERRORCODE_NOERROR;
+  }
+  date_time swim_server::get_init_time() const{
+    return init_time;
+  }
+
+  bool is_derivable(int ndim,char **list,char *to_calculate){
+    return libjeff::is_derivable(1,&ndim,&list,to_calculate);
+  }
+
+  bool is_derivable(int ntable,int *ndim,char ***list,char *to_calculate){
+    bool result = false;
+
+    int i,j;
+    if(strcmp(to_calculate,"rh")==0 || strcmp(to_calculate,"-8d")==0 || strcmp(to_calculate,"lcl")==0 || strcmp(to_calculate,"td")==0){ //need t and q or t and td
+      bool has_t=false,has_q=false,has_d=false;
+      for(j=0;j<ntable;j++){
+	for(i=0;i<ndim[j];i++){
+	  if(strcmp(list[j][i],"t")==0){
+	    has_t = true;
+	  }
+	  else if(strcmp(list[j][i],"q")==0){
+	    has_q = true;
+	  }
+	  else if(strcmp(list[j][i],"td")==0){
+	    has_d = true;
+	  }
+	}
+      }
+
+      if((has_t && has_q) ||  (has_t && has_d)){
+	result = true;
+      }
+    }
+    else if(strcmp(to_calculate,"theta")==0){ //need t
+      bool has_t=false;
+      for(j=0;j<ntable;j++){
+	for(i=0;i<ndim[j];i++){
+	  if(strcmp(list[j][i],"t")==0){
+	    has_t = true;
+	  }
+	}
+      }
+
+      if(has_t){
+	result = true;
+      }
+    }
+    else if(strcmp(to_calculate,"theta_e")==0){ //need t and q or t and td
+      bool has_t=false,has_q=false,has_d=false;
+      for(j=0;j<ntable;j++){
+	for(i=0;i<ndim[j];i++){
+	  if(strcmp(list[j][i],"t")==0){
+	    has_t = true;
+	  }
+	  else if(strcmp(list[j][i],"q")==0){
+	    has_q = true;
+	  }
+	  else if(strcmp(list[j][i],"td")==0){
+	    has_d = true;
+	  }
+	}
+      }
+
+      if((has_t && has_q) ||  (has_t && has_d)){
+        result = true;
+      }
+    }
+    else if(strcmp(to_calculate,"ws")==0 || strcmp(to_calculate,"wd")==0 || strcmp(to_calculate,"hwind")==0 || strcmp(to_calculate,"lwind")==0){
+      bool has_u=false,has_v=false;
+      for(j=0;j<ntable;j++){
+        for(i=0;i<ndim[j];i++){
+	  if(strcmp(list[j][i],"u")==0){
+	    has_u = true;
+	  }
+	  else if(strcmp(list[j][i],"v")==0){
+	    has_v = true;
+	  }
+	}
+      }
+
+      if((has_u && has_v)){
+	result = true;
+      }
+    }
+    else if(strcmp(to_calculate,"10ws")==0 || strcmp(to_calculate,"10wd")==0){
+      bool has_u=false,has_v=false;
+      for(j=0;j<ntable;j++){
+	for(i=0;i<ndim[j];i++){
+	  if(strcmp(list[j][i],"10u")==0){
+	    has_u = true;
+	  }
+	  else if(strcmp(list[j][i],"10v")==0){
+	    has_v = true;
+	  }
+	}
+      }
+
+      if((has_u && has_v)){
+	result = true;
+      }
+    }
+    else if(strcmp(to_calculate,"100ws")==0 || strcmp(to_calculate,"100wd")==0){
+      bool has_u=false,has_v=false;
+      for(j=0;j<ntable;j++){
+        for(i=0;i<ndim[j];i++){
+	  if(strcmp(list[j][i],"100u")==0){
+	    has_u = true;
+	  }
+	  else if(strcmp(list[j][i],"100v")==0){
+	    has_v = true;
+	  }
+	}
+      }
+
+      if((has_u && has_v)){
+	result = true;
+      }
+    }
+    else if(strcmp(to_calculate,"p")==0 || strcmp(to_calculate,"fl")==0){
+      result = true;
+    }
+
+    return result;
+  }
+
+  int cal_derivable(int ndim,char **list,double *raw,char *to_calculate,double *additional_param,double &result){
+    if(!is_derivable(ndim,list,to_calculate)){
+      return _ERRORCODE_DATANOTENOUGH;
+    }
+
+    int i;
+    if(strcmp(to_calculate,"rh")==0 || strcmp(to_calculate,"-8d")==0 || strcmp(to_calculate,"lcl")==0 || strcmp(to_calculate,"td")==0){ //need t and q or t and td
+      int t_dim=-1, q_dim=-1, d_dim=-1, p_dim=-1;
+      for(i=0;i<ndim;i++){
+	if(strcmp(list[i],"p")==0){
+	  p_dim = i;
+	}
+	else if(strcmp(list[i],"t")==0){
+	  t_dim = i;
+	}
+	else if(strcmp(list[i],"q")==0){
+	  q_dim = i;
+	}
+	else if(strcmp(list[i],"td")==0){
+	  d_dim = i;
+	}
+      }
+
+      if(strcmp(to_calculate,"rh")==0){
+	if(q_dim < 0){
+	  result = meteorology_cal_rh((p_dim<0?additional_param[0]:raw[p_dim]),raw[t_dim],raw[d_dim]);
+	}
+	else{
+	  result = raw[q_dim]/meteorology_cal_saturated_mixing_ratio((p_dim<0?additional_param[0]:raw[p_dim]),raw[t_dim])*100.;
+	}
+      }
+      else if(strcmp(to_calculate,"-8d")==0){
+	double tt = raw[t_dim];
+	if(q_dim < 0){
+	  double td = raw[d_dim] - 273.15;
+	   if(tt < 273.15 - 20.){
+	    tt = 273.15 - 10.;
+	  }
+	  result = 8*td - 9*(tt - 273.15);
+	}
+	else{
+	  double td = meteorology_cal_dewpoint((p_dim<0?additional_param[0]:raw[p_dim]),raw[t_dim],raw[q_dim]) - 273.15;
+	  if(tt < 273.15 - 20.){
+	    tt = 273.15 - 10.;
+	  }
+	  result = 8*td - 9*(tt - 273.15);
+	}
+      }
+      else if(strcmp(to_calculate,"lcl")==0){
+	if(d_dim < 0){
+	  double td = meteorology_cal_dewpoint((p_dim<0?additional_param[0]:raw[p_dim]),raw[t_dim],raw[q_dim]);
+	  result = meteorology_cal_lift_condensation_level((p_dim<0?additional_param[0]:raw[p_dim]),raw[t_dim],td);
+	}
+	else{
+	  result = meteorology_cal_lift_condensation_level((p_dim<0?additional_param[0]:raw[p_dim]),raw[t_dim],raw[d_dim]);
+	}
+      }
+      else if(strcmp(to_calculate,"td")==0){
+	if(q_dim < 0){
+	  result = raw[d_dim];
+	}
+	else{
+	  result = meteorology_cal_dewpoint((p_dim<0?additional_param[0]:raw[p_dim]),raw[t_dim],raw[q_dim]);
+	}
+      }
+    }
+    else if(strcmp(to_calculate,"theta")==0){ //need t
+      int t_dim=-1, p_dim=-1;
+      for(i=0;i<ndim;i++){
+        if(strcmp(list[i],"p")==0){
+          p_dim = i;
+        }
+        else if(strcmp(list[i],"t")==0){
+          t_dim = i;
+        }
+      }
+
+      result = meteorology_cal_theta((p_dim<0?additional_param[0]:raw[p_dim]),raw[t_dim]);
+    }
+    else if(strcmp(to_calculate,"theta_e")==0){ //need t and q or t and td
+      int t_dim=-1, q_dim=-1, d_dim=-1, p_dim=-1;
+      for(i=0;i<ndim;i++){
+        if(strcmp(list[i],"p")==0){
+          p_dim = i;
+        }
+        else if(strcmp(list[i],"t")==0){
+          t_dim = i;
+        }
+        else if(strcmp(list[i],"q")==0){
+          q_dim = i;
+        }
+        else if(strcmp(list[i],"td")==0){
+          d_dim = i;
+        }
+      }
+
+      double td;
+      if(d_dim < 0){
+	td = meteorology_cal_dewpoint((p_dim<0?additional_param[0]:raw[p_dim]),raw[t_dim],raw[q_dim]);
+      }
+      else{
+	td = raw[d_dim];
+      }
+
+      result = meteorology_cal_theta_e((p_dim<0?additional_param[0]:raw[p_dim]),raw[t_dim],td);
+    }
+    else if(strcmp(to_calculate,"ws")==0 || strcmp(to_calculate,"wd")==0 || strcmp(to_calculate,"hwind")==0 || strcmp(to_calculate,"lwind")==0){
+      int u_dim = -1,v_dim = -1;
+      for(i=0;i<ndim;i++){
+	if(strcmp(list[i],"u")==0){
+	  u_dim=i;
+	}
+	else if(strcmp(list[i],"v")==0){
+	  v_dim=i;
+	}
+      }
+
+      if(strcmp(to_calculate,"ws")==0){
+	result = meteorology_uv_to_speed(raw[u_dim],raw[v_dim]);
+      }
+      else if(strcmp(to_calculate,"wd")==0){
+	result = meteorology_uv_to_dir(raw[u_dim],raw[v_dim]);
+      }
+      else{
+	double headwind,leftwind;
+
+	libjeff::flight_data_cal_head_and_cross_wind(additional_param[1],raw[u_dim],raw[v_dim],headwind,leftwind); 
+	if(strcmp(to_calculate,"hwind")==0){
+	  result = headwind;
+	}
+	else if(strcmp(to_calculate,"lwind")==0){
+	  result = leftwind;
+	}
+      }
+    }
+    else if(strcmp(to_calculate,"10ws")==0 || strcmp(to_calculate,"10wd")==0){
+      int u_dim = -1,v_dim = -1;
+      for(i=0;i<ndim;i++){
+	if(strcmp(list[i],"10u")==0){
+	  u_dim=i;
+	}
+	else if(strcmp(list[i],"10v")==0){
+	  v_dim=i;
+	}
+      }
+
+      if(strcmp(to_calculate,"10ws")==0){
+	result = meteorology_uv_to_speed(raw[u_dim],raw[v_dim]);
+      }
+      else{
+	result = meteorology_uv_to_dir(raw[u_dim],raw[v_dim]);
+      }
+    }
+    else if(strcmp(to_calculate,"100ws")==0 || strcmp(to_calculate,"100wd")==0){
+      int u_dim = -1,v_dim = -1;
+      for(i=0;i<ndim;i++){
+	if(strcmp(list[i],"100u")==0){
+	  u_dim=i;
+	}
+	else if(strcmp(list[i],"100v")==0){
+	  v_dim=i;
+	}
+      }
+
+      if(strcmp(to_calculate,"100ws")==0){
+	result = meteorology_uv_to_speed(raw[u_dim],raw[v_dim]);
+      }
+      else{
+	result = meteorology_uv_to_dir(raw[u_dim],raw[v_dim]);
+      }
+    }
+    else if(strcmp(to_calculate,"p")==0 || strcmp(to_calculate,"fl")==0){
+      int p_dim=-1;
+      for(i=0;i<ndim;i++){
+	if(strcmp(list[i],"p")==0){
+	  p_dim = i;
+	}
+      }
+
+      if(p_dim < 0){
+	if(strcmp(to_calculate,"p")==0){
+	  result = additional_param[0];
+	}
+	else{
+	  result = libjeff::meteorology_plv2fl(additional_param[0],1013.25,1);
+	}
+      }
+      else{
+	if(strcmp(to_calculate,"p")==0){
+	  result = raw[p_dim];
+	}
+	else{
+	  result = libjeff::meteorology_plv2fl(raw[p_dim],1013.25,1);
+	}
+      }
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+
+  namespace swim{
+    int parse_config(json_block* config,swim_config *&out){
+      json_block *temp = new json_block;
+      config->extract("Swim Config Version",temp);
+
+      if(out!=NULL){
+	delete out;
+      }
+
+      int error = _ERRORCODE_NOERROR;
+      if(temp->get_block_data()==NULL){
+	error = _ERRORCODE_SWIM_UNKNOWN_VERSION;
+      }
+
+      if(!error){
+	char *ctemp = NULL;
+	if(strcmp(remove_quote(temp->get_block_data(),ctemp),"v0")==0){
+	  out = new swim_config_v0;
+	  error = out->parse_config(config);
+	}
+	else if(strcmp(remove_quote(temp->get_block_data(),ctemp),"v1")==0){
+	  out = new swim_config_v1;
+	  error = out->parse_config(config);
+	}
+	else{
+	  error = _ERRORCODE_SWIM_UNKNOWN_VERSION;
+	}
+
+	if(ctemp!=NULL){
+	  delete [] ctemp;
+	}
+      }
+
+      delete temp;
+      return error;
+    }
+    char *generate_filename(char *nametag,char* prefix,date_time inittime,date_time valid_time,char *buff){
+      tags initTime("model run");
+      tags validTime("valid time");
+      tags filePrefix("file prefix");
+      tags fcstHr("fcst hr");
+      
+      strcpy(buff,nametag);
+      initTime.replace(buff,inittime);
+      validTime.replace(buff,valid_time);
+      filePrefix.replace(buff,prefix);
+      fcstHr.replace(buff,valid_time.numberOfHourFrom(inittime));
+      
+      return buff;
+    }
+    bool vertical_coordinate_match(libjeff::verticalCoordinateType layerType,char *surfacename){
+      if(layerType==libjeff::verticalCoordinateType::fl && strcmp(surfacename,"fl") == 0){
+	return true;
+      }
+      else if(layerType==libjeff::verticalCoordinateType::plv && strcmp(surfacename,"plv") == 0){
+	return true;
+      }
+      else{
+	return false;
+      }
+    }
+    bool vertical_coordinate_convertable(libjeff::verticalCoordinateType layerType,char *surfacename){
+      if(vertical_coordinate_match(layerType,surfacename)){
+	return true;
+      }
+      else if(layerType==libjeff::verticalCoordinateType::plv && strcmp(surfacename,"fl") == 0){
+	return true;
+      }
+      else if(layerType==libjeff::verticalCoordinateType::fl && strcmp(surfacename,"plv") == 0){
+	return true;
+      }
+      else{
+	return false;
+      }
+    }
+    double vertical_coordinate_conversion(libjeff::verticalCoordinateType layerType,char *surfacename,double in){
+      if(layerType==libjeff::verticalCoordinateType::plv && strcmp(surfacename,"fl") == 0){
+	return libjeff::meteorology_fl2plv(in,1013.25);
+      }
+      else if(layerType==libjeff::verticalCoordinateType::fl && strcmp(surfacename,"plv") == 0){
+	return libjeff::meteorology_plv2fl(in,1013.25,1);
+      }
+    }
+    bool is_2D_element(char *in){
+      bool results = false;
+
+      if(strcmp(in,"trop")==0 || strcmp(in,"ir1")==0 || strcmp(in,"ir3")==0 || strcmp(in,"10u")==0 || strcmp(in,"10v")==0 || strcmp(in,"10ws")==0 || strcmp(in,"10wd")==0 || strcmp(in,"100u")==0 || strcmp(in,"100v")==0 || strcmp(in,"100ws")==0 || strcmp(in,"100wd")==0){
+	results = true;
+      }
+
+      return results;
+    }
+    bool is_3D_element(char *in){
+      bool results = false;
+
+      if(strcmp(in,"u")==0 || strcmp(in,"v")==0 || strcmp(in,"t")==0 || strcmp(in,"q")==0 || strcmp(in,"rh")==0 || strcmp(in,"-8d")==0 || strcmp(in,"lcl")==0 || strcmp(in,"theta")==0 || strcmp(in,"theta_e")==0 || strcmp(in,"ti2")==0 || strcmp(in,"edr")==0 || strcmp(in,"p")==0 || strcmp(in,"ws")==0 || strcmp(in,"wd")==0 || strcmp(in,"hwind")==0 || strcmp(in,"lwind")==0){
+	results = true;
+      }
+
+      return results;
+    }
+    bool is_known_element(char *in){
+      return is_2D_element(in) || is_3D_element(in);
+    }
+  }
+}

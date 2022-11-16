@@ -1,0 +1,18 @@
+#include <cstring>
+
+#include "date_time.h"
+
+#define BUFFSIZE 4096
+
+namespace libjeff{
+  char *system_log_timestamp(char *out){
+    char *ctemp = new char [BUFFSIZE];
+    date_time systime; 
+    systime.set_now();
+    strcpy(out,"[");
+    strcat(out,systime.get_time("yyyy-mm-dd_hh:mm:ss",ctemp));
+    strcat(out,"]");
+    delete [] ctemp;
+    return out;
+  }
+}

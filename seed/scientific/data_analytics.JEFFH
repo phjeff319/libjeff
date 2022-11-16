@@ -1,0 +1,14 @@
+#ifndef DATAANALYTICS
+#define DATAANALYTICS
+namespace libjeff{
+  namespace data_analytics{
+    namespace radar{
+      int compute_mean(int ndata,radar_data* in,double dim_min,double dim_max,int nbin,int (*data_extract_and_filter)(radar_data* in,double &out),double *out);
+      int compute_ramp(radar_data* in,int nramp,int *loc,int *mag);
+    };
+
+
+  };
+};
+#endif
+find o

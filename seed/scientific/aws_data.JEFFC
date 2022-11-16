@@ -1,0 +1,879 @@
+#include <cmath>
+#include <cstring>
+
+#include "aws_data.h"
+#include "debug_mode.h"
+#include "error_code.h"
+#include "file_check.h"
+#include "meteorology.h"
+#include "physics_constants.h"
+#include "station_meta.h"
+#include "string_man.h"
+#include "tags.h"
+#include "tools.h"
+
+#define FILENAMEBUFFSIZE 4096
+
+aws_data_ind::aws_data_ind(){
+  station_info = NULL;
+  missing_value = -9999.;
+  slp = missing_value;
+  temp = missing_value;
+  dewpt = missing_value;
+  rh = missing_value;
+  windu = missing_value;
+  windv = missing_value;
+  pc = missing_value;
+  tc = missing_value;
+  vis = missing_value;
+  ts = missing_value;
+  rain = missing_value;
+}
+  
+aws_data_ind::aws_data_ind(const aws_data_ind &in){
+  *this = in;
+}
+
+void aws_data_ind::set_station_info(station_meta_data* station_info){
+  this->station_info = station_info;
+}
+void aws_data_ind::set_slp(const double& slp){
+  this->slp = slp;
+}
+void aws_data_ind::set_temp(const double& temp){
+  this->temp = temp;
+}
+void aws_data_ind::set_dewpt(const double& dewpt){
+  this->dewpt = dewpt;
+}
+void aws_data_ind::set_rh(const double& rh){
+  this->rh = rh;
+}
+void aws_data_ind::set_windu(const double& windu){
+  this->windu = windu;
+}
+void aws_data_ind::set_windv(const double& windv){
+  this->windv = windv;
+}
+void aws_data_ind::set_vis(const double& vis){
+  this->vis = vis;
+}
+void aws_data_ind::set_vis_cause(const int& vis_cause){
+  this->vis_cause = vis_cause;
+}
+void aws_data_ind::set_rain(const double& rain){
+  this->rain = rain;
+}
+void aws_data_ind::set_ts(const bool& ts){
+  this->ts = ts;
+}
+void aws_data_ind::set_obs_time(const date_time& obs_time){
+  this->obs_time = obs_time;
+}
+void aws_data_ind::set_pc(const double &pc){
+  this->pc = pc;
+}
+void aws_data_ind::set_tc(const double &tc){
+  this->tc = tc;
+}
+
+void aws_data_ind::set_pc(const aws_data_ind& aws){
+  if(this->slp > 0 && aws.get_slp() > 0){
+    this->pc = this->slp - aws.get_slp();
+  }
+  else{
+    this->pc=missing_value;
+  }
+}
+void aws_data_ind::set_tc(const aws_data_ind& aws){
+  if(this->temp > 0 && aws.get_temp() > 0){
+    this->tc = this->temp - aws.get_temp();
+  }
+  else{
+    this->tc=missing_value;
+  }
+}
+
+aws_data_ind &aws_data_ind::operator=(const aws_data_ind &in){
+  if(this == &in){
+    return *this;
+  }
+
+  this->set_station_info(in.get_station_info());
+  this->set_slp(in.get_slp());
+  this->set_temp(in.get_temp());
+  this->set_dewpt(in.get_dewpt());
+  this->set_rh(in.get_rh());
+  this->set_windu(in.get_windu());
+  this->set_windv(in.get_windv());
+  this->set_rain(in.get_rain());
+  this->set_vis(in.get_vis());
+  this->set_vis_cause(in.get_vis_cause());
+  this->set_ts(in.get_ts());
+  this->set_obs_time(in.get_obs_time());
+  this->set_pc(in.get_pc());
+  this->set_tc(in.get_tc());
+
+  return *this;
+}
+
+station_meta_data* aws_data_ind::get_station_info() const{
+  return this->station_info;
+}
+double aws_data_ind::get_slp() const{
+  return this->slp;
+}
+double aws_data_ind::get_temp() const{
+  return this->temp;
+}
+double aws_data_ind::get_dewpt() const{
+  return this->dewpt;
+}
+double aws_data_ind::get_rh() const{
+  return this->rh;
+}
+double aws_data_ind::get_windu() const{
+  return this->windu;
+}
+double aws_data_ind::get_windv() const{
+  return this->windv;
+}
+double aws_data_ind::get_rain() const{
+  return this->rain;
+}
+double aws_data_ind::get_vis() const{
+  return this->vis;
+}
+int aws_data_ind::get_vis_cause() const{
+  return this->vis_cause;
+}
+bool aws_data_ind::get_ts() const{
+  return this->ts;
+}
+date_time aws_data_ind::get_obs_time() const{
+  return this->obs_time;
+}
+double aws_data_ind::get_pc() const{
+  return this->pc;
+}
+double aws_data_ind::get_tc() const{
+  return this->tc;
+}
+double aws_data_ind::get_missing_value() const{
+  return this->missing_value;
+}
+int aws_data_ind::get_num_valid_element() const{
+  int result=0;
+  if(this->is_windu_valid()){
+    result++;
+  }
+  if(this->is_windv_valid()){
+    result++;
+  }
+  if(this->is_temp_valid()){
+    result++;
+  }
+  if(this->is_dewpt_valid()){
+    result++;
+  }
+  if(this->is_slp_valid()){
+    result++;
+  }
+  if(this->is_rh_valid()){
+    result++;
+  }
+
+  return result;
+}
+
+bool aws_data_ind::is_windu_valid() const{
+  return (this->windu>-990?1:0);
+}
+bool aws_data_ind::is_windv_valid() const{
+  return (this->windv>-990?1:0);
+}
+bool aws_data_ind::is_pc_valid() const{
+  return (this->pc>-900?1:0);
+}
+bool aws_data_ind::is_tc_valid() const{
+  return (this->tc>-900?1:0);
+}
+bool aws_data_ind::is_temp_valid() const{
+  return (this->temp>-900&&this->temp<3200?1:0);
+}
+bool aws_data_ind::is_dewpt_valid() const{
+  return (this->dewpt>-900&&this->dewpt<3200?1:0);
+}
+bool aws_data_ind::is_slp_valid() const{
+  return (this->slp>-900&&this->slp<3200?1:0);
+}
+bool aws_data_ind::is_rh_valid() const{
+  return (this->rh>-900?1:0);
+}
+bool aws_data_ind::is_rain_valid() const{
+  return (this->rain>-900?1:0);
+}
+char* aws_data_ind::to_little_r(int seq_num,char *buff) const{
+  char timebuff[20];
+  sprintf(buff,"%20.5f%20.5f%-40s%40s%-40s%-40s%20.5f%10i%10i%10i%10i%10i         F         F         F   -888888   -888888%20s%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i\n%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i\n-777777.00000      0-777777.00000      0-888888.00000      0-888888.00000      0-888888.00000      0-888888.00000      0-888888.00000      0-888888.00000      0-888888.00000      0-888888.00000      0\n%7i      0      0\n",
+	  this->get_station_info()->get_lat(),this->get_station_info()->get_lon(),this->get_station_info()->get_id(),this->get_station_info()->get_id(),"FM-12","SYNOP",this->get_station_info()->get_altitude(),1,-888888,-888888,seq_num,-888888,(this->get_obs_time()).get_time("yyyymmddhhmmss",timebuff),(this->is_slp_valid()?(this->get_slp())*100.:-888888.),0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,
+	  (this->is_slp_valid()?(this->get_slp())*100.:-888888.),0,0.,0,(this->is_temp_valid()?(this->get_temp()):-888888.),0,(this->is_dewpt_valid()?(this->get_dewpt()):-888888.),0,-888888.,0,-888888.,0,(this->is_windu_valid()?this->get_windu():-888888.),0,(this->is_windv_valid()?this->get_windv():-888888.),0,(this->is_rh_valid()?this->get_rh():-888888.),0,-888888.,0,
+this->get_num_valid_element()
+	  );
+  return buff;
+}
+char* aws_data_ind::to_METAR(char *buff) const{
+  strcpy(buff,"METAR ");
+  strcat(buff,this->get_station_info()->get_id());
+  strcat(buff," ");
+  char temp[600];
+  strcat(buff,this->get_obs_time().get_time("ddhhmm",temp));
+  strcat(buff,"Z AUTO ");
+
+  //wind group
+  if(this->is_windu_valid() && this->is_windv_valid()){
+    double angle = libjeff::meteorology_uv_to_dir(this->get_windu(), this->get_windv());
+    angle /= 10.;
+    int int_angle = ((int) round(angle))*10;
+    if(int_angle == 0){
+      int_angle = 360;
+    }
+    sprintf(temp,"%3.3d%2.2dMPS ",int_angle,(int) libjeff::meteorology_uv_to_speed(this->get_windu(), this->get_windv()));
+    strcat(buff,temp);
+  }
+  else{
+    strcat(buff,"/////MPS ");
+  }
+
+  //vis group
+  strcat(buff,"//// ");
+
+  //weather group
+  //nothing to do
+
+  //cloud group
+  strcat(buff,"NCD ");
+
+  //temperature and dew point group
+  if(this->is_temp_valid()){
+    int in_temp;
+    in_temp = (int) round (this->get_temp()-meteorology_C_to_K);
+    if(this->get_temp()>0){
+      sprintf(temp,"%2.2d/",in_temp);
+    }
+    else{
+      sprintf(temp,"M%2.2d/",-in_temp);
+    }
+    strcat(buff,temp);
+  }
+  else{
+    strcat(buff,"///");
+  }
+  
+  if(this->is_dewpt_valid()){
+    int in_temp;
+    in_temp = (int) round (this->get_dewpt()-meteorology_C_to_K);
+    if(this->get_dewpt()>0){
+      sprintf(temp,"%2.2d ",in_temp);
+    }
+    else{
+      sprintf(temp,"M%2.2d ",-in_temp);
+    }
+    strcat(buff,temp);
+  }
+  else{
+    strcat(buff,"// ");
+  }
+
+  //pressure group (QNH)
+  if(this->is_slp_valid()){
+    int in_slp;
+    in_slp = (int) floor (this->get_slp());
+    sprintf(temp,"Q%4.4d ",in_slp);
+    strcat(buff,temp); 
+  }
+  else{
+    strcat(buff,"Q//// ");
+  }
+
+  //end of the record
+  strcat(buff,"NOSIG=\n");
+
+  return buff;
+}
+
+aws_data::aws_data(){
+  num_data = 0;
+  aws_info = new station_meta;
+}
+aws_data::aws_data(const aws_data &in){
+  aws_info = new station_meta;
+  num_data = 0;
+  *this = in;
+}
+aws_data::~aws_data(){
+  this->destroy();
+  delete aws_info;
+}
+aws_data &aws_data::operator=(const aws_data &in){
+  if(this == &in){
+    return *this;
+  }
+
+  this->destroy();
+  this->num_data = in.get_num_data();
+  *(this->aws_info) = *(in.aws_info);
+  this->awsdata = new aws_data_ind [this->num_data];
+  int i;
+  for(i=0;i<this->num_data;i++){
+    this->awsdata[i] = in.awsdata[i];
+  }
+  
+  return *this;
+}
+void aws_data::destroy(){
+  if(num_data > 0){
+    delete [] awsdata;
+  }
+  num_data = 0;
+}
+
+void aws_data::read_aws_info(char *filename){
+  this->aws_info->read_file(filename);
+}
+
+void aws_data::read_metar(char *path_format,const date_time& yyyymm){
+  this->destroy();
+
+  tags year_mon("YYYYMM");
+  char *filename = new char [FILENAMEBUFFSIZE];
+  char *ctemp = new char [FILENAMEBUFFSIZE];
+  strcpy(filename,path_format);
+  year_mon.replace(filename,yyyymm.get_time("yyyymm",ctemp));
+
+  int length = libjeff::file_check_length(filename);
+  if(length > 0){
+    this->num_data = length;
+
+    this->awsdata = new aws_data_ind[this->num_data];
+
+    ifstream fin;
+    fin.open(filename);
+
+    char *ctemp2 = new char [2048];
+    char *ctemp4 = new char [2048];
+    char *ctemp3;
+    int itemp;
+
+    int i;
+    length = 0;
+    for(i=0;i<this->num_data;i++){
+      fin.getline(ctemp,2000,'\n');
+      
+      strcpy(ctemp2,ctemp);
+      ctemp3 = strstr(ctemp2," ");
+      if(ctemp3 != NULL){
+	ctemp3[0] = '\0';
+
+	//check if it is a METAR or SPECI
+	if(strcmp(ctemp2,"METAR")*strcmp(ctemp2,"SPECI") != 0){
+	  continue;
+	}
+
+	strcpy(ctemp2,ctemp);
+	ctemp3 = strstr(ctemp2," ");
+	ctemp3++;
+
+	strcpy(ctemp,ctemp3);
+      }
+      else{
+	continue;
+      }
+
+      strcpy(ctemp2,ctemp);
+      ctemp3 = strstr(ctemp2," ");
+      if(ctemp3 != NULL){
+	ctemp3[0] = '\0';
+
+	//check if it is a valid station code
+	if(this->aws_info->get_station_meta_data(ctemp2) != NULL){
+	  awsdata[length].set_station_info(this->aws_info->get_station_meta_data(ctemp2));
+	}
+	else{
+	  continue;
+	}
+
+	strcpy(ctemp2,ctemp);
+	ctemp3 = strstr(ctemp2," ");
+	ctemp3++;
+
+	strcpy(ctemp,ctemp3);
+      }
+      else{
+	continue;
+      }
+
+      strcpy(ctemp2,ctemp);
+      ctemp3 = strstr(ctemp2," ");
+      if(ctemp3 != NULL){
+	ctemp3[0] = '\0';
+
+	//check if it is a valid date_time string
+	date_time temp_time = yyyymm, temp_time2;
+	if(temp_time2.set_time(ctemp2) == 0){
+	  temp_time.set_time(temp_time.get_year(),temp_time.get_month(),temp_time2.get_day(),temp_time2.get_hour(),temp_time2.get_minute());
+	  awsdata[length].set_obs_time(temp_time);
+	}
+	else{
+	  continue;
+	}
+
+	strcpy(ctemp2,ctemp);
+	ctemp3 = strstr(ctemp2," ");
+	ctemp3++;
+
+	strcpy(ctemp,ctemp3);
+      }
+      else{
+	continue;
+      }
+
+      strcpy(ctemp2,ctemp);
+      ctemp3 = strstr(ctemp2," ");
+      if(ctemp3 != NULL){
+	ctemp3[0] = '\0';
+
+	//check if it is a valid wind string
+	if(is_all_digit(ctemp2,0,5)){
+	  if(ctemp2[5] == 'K' && ctemp2[6] == 'T'){ //kt
+	    strncpy(ctemp4,ctemp2,5);
+	    ctemp4[5] = '\0';
+	    itemp = atoi(ctemp4);
+	    awsdata[length].set_windu(libjeff::meteorology_sd_to_u(((double) (itemp%100))*kt_to_ms,((double) itemp/100)));
+	    awsdata[length].set_windv(libjeff::meteorology_sd_to_v(((double) (itemp%100))*kt_to_ms,((double) itemp/100)));
+	  }
+	}
+	else if(strncmp(ctemp2,"VRB",3)==0){
+	  awsdata[length].set_windu(0.);
+	  awsdata[length].set_windv(0.);
+	}
+	else{
+	  continue;
+	}
+
+	strcpy(ctemp2,ctemp);
+	ctemp3 = strstr(ctemp2," ");
+	ctemp3++;
+
+	strcpy(ctemp,ctemp3);
+      }
+      else{
+	continue;
+      }
+
+      strcpy(ctemp2,ctemp);
+      ctemp3 = strstr(ctemp2," ");
+      if(ctemp3 != NULL){
+	ctemp3[0] = '\0';
+
+	//check for extra wind group
+	if(strlen(ctemp2)==7 && ctemp2[3]=='V'){ // skip extra wind group
+	  strcpy(ctemp2,ctemp);
+	  ctemp3 = strstr(ctemp2," ");
+	  ctemp3++;
+	  
+	  strcpy(ctemp,ctemp3);
+
+	  strcpy(ctemp2,ctemp);
+	  ctemp3 = strstr(ctemp2," ");
+
+	  if(ctemp3 == NULL){
+	    continue;
+	  }
+	  else{
+	    ctemp3[0] = '\0';
+	  }
+	}
+
+	if(strcmp(ctemp2,"CAVOK")==0){
+	  awsdata[length].set_vis(9999.);
+	  awsdata[length].set_ts(0);
+	  awsdata[length].set_rain(0.);
+	}
+	else if(is_all_digit(ctemp2)){
+	  awsdata[length].set_vis(atof(ctemp2));
+
+	  ctemp3 = strstr(ctemp," ");
+	  ctemp3++;
+	  if(is_all_digit(ctemp3,0,4)){ //additional vis group
+	    strcpy(ctemp2,ctemp);
+	    ctemp3 = strstr(ctemp2," ");
+	    ctemp3++;
+	    strcpy(ctemp,ctemp3); //throw away the original vis group
+
+	    ctemp3 = strstr(ctemp," ");
+	    ctemp3++;
+	    while(ctemp3[0] =='R' && is_all_digit(ctemp3,1,3)){ //check for runway vis group
+	      strcpy(ctemp2,ctemp);
+	      ctemp3 = strstr(ctemp2," ");
+	      ctemp3++;
+	      strcpy(ctemp,ctemp3); //throw away the one group
+
+	      ctemp3 = strstr(ctemp," ");
+	      ctemp3++;
+	    }
+	  }
+	}
+	else{
+	  continue;
+	}
+
+	strcpy(ctemp2,ctemp);
+	ctemp3 = strstr(ctemp2," ");
+	ctemp3++;
+	strcpy(ctemp,ctemp3);
+      }
+      else{
+	continue;
+      }
+
+      strcpy(ctemp2,ctemp);
+      ctemp3 = strstr(ctemp2," ");
+      if(ctemp3 != NULL){ //weather group
+	ctemp3[0] = '\0';
+
+	if(strcmp(ctemp2,"VCTS")==0){
+	  awsdata[length].set_ts(0);
+	  awsdata[length].set_rain(0.);
+	}
+	else{
+	  if(strstr(ctemp2,"TS")!=NULL){
+	    awsdata[length].set_ts(1);
+	  }
+	  else{
+	    awsdata[length].set_ts(0);
+	  }
+
+	  if(strstr(ctemp2,"RA")!=NULL){
+	    awsdata[length].set_rain(1.);
+	  }
+	  else{
+	    awsdata[length].set_rain(0);
+	  }
+	}
+
+	if(strcmp(ctemp2,"HZ")==0){
+	  awsdata[length].set_vis_cause(1);
+	}
+	else if(strcmp(ctemp2,"BR")==0){
+	  awsdata[length].set_vis_cause(2);
+	}
+	else if(strcmp(ctemp2,"FG")==0){
+	  awsdata[length].set_vis_cause(3);
+	}
+
+	if(strcmp(ctemp2,"NSC")!=0 && !isdigit(ctemp2[0]) && ctemp2[0]!='M' ){
+	  strcpy(ctemp2,ctemp);
+	  ctemp3 = strstr(ctemp2," ");
+	  ctemp3++;
+	  strcpy(ctemp,ctemp3);
+	}
+      }
+      else{
+	awsdata[length].set_vis_cause(0);
+	continue;
+      }
+
+      strcpy(ctemp2,ctemp);
+      ctemp3 = strstr(ctemp2," ");
+      if(ctemp3 != NULL){ //cloud group (throw away)
+	ctemp3[0] = '\0';
+
+	while(!isdigit(ctemp2[0])){
+	  strcpy(ctemp2,ctemp);
+	  ctemp3 = strstr(ctemp2," ");
+	  if(ctemp3 == NULL){
+	    break;
+	  }
+	  ctemp3++;
+	  strcpy(ctemp,ctemp3);
+	  strcpy(ctemp2,ctemp);
+	}
+
+	if(ctemp3 == NULL){
+	  continue;
+	}
+      }
+      else{
+	continue;
+      }
+
+      strcpy(ctemp2,ctemp);
+      ctemp3 = strstr(ctemp2," ");
+      if(ctemp3 != NULL){ //temperature group
+	ctemp3[0] = '\0';
+	
+	if(strstr(ctemp2,"/")==NULL){
+	  continue;
+	}
+
+	if(ctemp2[0]=='M'){
+	  ctemp3 = ctemp2+1;
+
+	  strncpy(ctemp4,ctemp3,2);
+	  ctemp4[2] = '\0';
+
+	  awsdata[length].set_temp(-atof(ctemp4));
+	}
+	else{
+	  strncpy(ctemp4,ctemp2,2);
+	  ctemp4[2] = '\0';
+
+	  awsdata[length].set_temp(atof(ctemp4));
+	}
+
+	ctemp3 = strstr(ctemp2,"/") + 1;
+	strcpy(ctemp2,ctemp3);
+	
+	if(ctemp2[0]=='M'){
+	  ctemp3 = ctemp2+1;
+
+	  strncpy(ctemp4,ctemp3,2);
+	  ctemp4[2] = '\0';
+
+	  awsdata[length].set_dewpt(-atof(ctemp4));
+	}
+	else{
+	  strncpy(ctemp4,ctemp2,2);
+	  ctemp4[2] = '\0';
+
+	  awsdata[length].set_dewpt(atof(ctemp4));
+	}
+
+	strcpy(ctemp2,ctemp);
+	ctemp3 = strstr(ctemp2," ");
+	ctemp3++;
+	strcpy(ctemp,ctemp3);
+      }
+      else{
+	continue;
+      }
+
+      strcpy(ctemp2,ctemp);
+      ctemp3 = strstr(ctemp2," ");
+      if(ctemp3 != NULL){ //pressure group
+	ctemp3[0] = '\0';
+	
+	if(ctemp2[0] == 'Q'){
+	  ctemp3 = ctemp2 + 1;
+
+	  awsdata[length].set_slp(atof(ctemp3));
+	}
+	else{
+	  continue;
+	}
+      }
+      else{
+	continue;
+      }
+
+      if(strstr(ctemp,"RETS")!=NULL){
+	awsdata[length].set_ts(1);
+      }
+	
+      length++;
+    }
+    
+    delete [] ctemp2;
+
+    fin.close();
+
+    this->num_data = length;
+  }
+
+  delete [] filename;
+  delete [] ctemp;
+}
+
+int aws_data::read_hkaws_universal(char *path_format,const date_time& yyyymmdd,char *dirtimeformat){
+  if(libjeff::debug_setting::get_debug_mode_debug_log()){
+    std::cout << "Entered aws_data::read_hkaws_universal" << std::endl;
+  }
+  this->destroy();
+
+  int num_file,num_data, num_field;
+  tags dirtime("DIR TIME");
+  
+  char *pathname = new char [FILENAMEBUFFSIZE];
+  char *ctemp = new char [FILENAMEBUFFSIZE];
+  char **filelist;
+  
+  int i,j,k, invalid_data;
+  
+  strcpy(pathname,path_format);
+  dirtime.replace(pathname,yyyymmdd.get_time(dirtimeformat,ctemp));
+  
+  libjeff::file_check_list_item(pathname,filelist,num_file);
+  aws_data temp_data;
+  *(temp_data.get_aws_info()) = *(this->get_aws_info());
+  
+  char *filename = new char [FILENAMEBUFFSIZE];
+  std::ifstream fin;
+
+  char** fieldname;
+  date_time obs_time;
+  
+  for(i=0;i<num_file;i++){
+    temp_data.destroy();
+    strcpy(filename,pathname);
+    strcat(filename,"/");
+    strcat(filename,filelist[i]);
+
+    num_data = libjeff::file_check_length(filename)-1;
+    if(libjeff::debug_setting::get_debug_mode_debug_log()){
+      std::cout << "Reading file: " << filename << " Length: " << num_data << std::endl;
+    }
+    if(num_data>0){
+      invalid_data = 0;
+      temp_data.awsdata = new aws_data_ind [num_data];
+      temp_data.num_data = num_data;
+
+      fin.open(filename);
+      fin.getline(ctemp,FILENAMEBUFFSIZE);
+      if(libjeff::debug_setting::get_debug_mode_debug_log()){
+	std::cout << ctemp << std::endl;
+      }
+      num_field = string_count_pattern(ctemp," ");
+      fieldname = new char *[num_field];
+      for(k=0;k<num_field;k++){
+	fieldname[k] = new char [FILENAMEBUFFSIZE];
+	fieldname[k] = string_extract_field(ctemp," ",k,fieldname[k]);
+      }
+      
+      for(j=0;j<num_data;j++){
+	if(libjeff::debug_setting::get_debug_mode_debug_log()){
+	  std::cout << j << " " << invalid_data << " ";
+	}
+	for(k=0;k<num_field;k++){
+	  fin.getline(ctemp,FILENAMEBUFFSIZE,' ');
+	  if(libjeff::debug_setting::get_debug_mode_debug_log()){
+	    std::cout << ctemp << " ";
+	  }
+
+	  if(strcmp(fieldname[k],"YYYYMMDDHHNN")==0){
+	    obs_time.set_time(ctemp);
+	    temp_data.awsdata[j-invalid_data].set_obs_time(obs_time);
+	  }
+	  else if(strcmp(fieldname[k],"STNID")==0){
+	    if(temp_data.get_aws_info()->get_station_meta_data(ctemp)!=NULL){
+	      temp_data.awsdata[j-invalid_data].set_station_info(temp_data.get_aws_info()->get_station_meta_data(ctemp));
+	    }
+	    else{
+	      invalid_data++;
+	      continue;
+	    }
+	  }
+	  else if(strcmp(fieldname[k],"J1")==0){
+	    if(strcmp(ctemp,"32767.0")!=0){
+	      temp_data.awsdata[j-invalid_data].set_temp(atof(ctemp)*0.1+meteorology_C_to_K);
+	    }
+	    else{
+	      temp_data.awsdata[j-invalid_data].set_temp(temp_data.awsdata[j-invalid_data].get_missing_value());
+	    }
+	  }
+	  else if(strcmp(fieldname[k],"L1")==0){
+	    if(strcmp(ctemp,"32767.0")!=0){
+	      temp_data.awsdata[j-invalid_data].set_dewpt(atof(ctemp)*0.1+meteorology_C_to_K);
+	    }
+	    else{
+	      temp_data.awsdata[j-invalid_data].set_dewpt(temp_data.awsdata[j-invalid_data].get_missing_value());
+	    }
+	  }
+	  else if(strcmp(fieldname[k],"R1")==0){
+	    if(strcmp(ctemp,"32767.0")!=0){
+	      temp_data.awsdata[j-invalid_data].set_slp(atof(ctemp)*0.1+meteorology_C_to_K);
+	    }
+	    else{
+	      temp_data.awsdata[j-invalid_data].set_slp(temp_data.awsdata[j-invalid_data].get_missing_value());
+	    }
+	  }
+
+	}
+	fin.getline(ctemp,FILENAMEBUFFSIZE);
+	if(libjeff::debug_setting::get_debug_mode_debug_log()){
+	  std::cout << std::endl;
+	}
+      }
+      temp_data.num_data -= invalid_data;
+      
+      for(k=0;k<num_field;k++){
+	delete [] fieldname[k];
+      }
+      delete [] fieldname;
+      fin.close();
+
+      this->append(temp_data);
+    }
+  }
+  
+  delete [] pathname;
+  delete [] ctemp;
+  delete [] filename;
+  for(i=0;i<num_file;i++){
+    delete [] filelist[i];
+  }
+  if(num_file > 0){
+    delete [] filelist;
+  }
+  
+  if(libjeff::debug_setting::get_debug_mode_debug_log()){
+    std::cout << "Leaving aws_data::read_hkaws_universal" << std::endl;
+  }
+  return _ERRORCODE_NOERROR;
+}
+
+aws_data_ind* aws_data::get_data(char *id, date_time obs_time) const{
+  if(this->get_num_data()>0){
+    int i;
+    for(i=0;i<this->get_num_data();i++){
+      if(strcmp((awsdata[i].get_station_info())->get_id(),id)==0 && awsdata[i].get_obs_time() == obs_time){
+	return &awsdata[i];
+      }
+    }
+  }
+  return NULL;
+}
+aws_data_ind* aws_data::get_data(int index) const{
+  return &(this->awsdata[index]);
+}
+int aws_data::get_num_data() const{
+  return this->num_data;
+}
+
+station_meta* aws_data::get_aws_info() const{
+  return this->aws_info;
+}
+
+void aws_data::append(const aws_data &in){
+  if(libjeff::debug_setting::get_debug_mode_debug_log()){
+    std::cout << "Entered aws_data::append" << std::endl;
+  }
+  aws_data temp(*this);
+  this->destroy();
+
+  this->num_data = temp.get_num_data() + in.get_num_data();
+  this->awsdata = new aws_data_ind [this->num_data];
+  
+  int i;
+  for(i=0;i<temp.get_num_data();i++){
+    this->awsdata[i] = temp.awsdata[i];
+  }
+
+  for(i=0;i<in.get_num_data();i++){
+    this->awsdata[i+temp.get_num_data()] = in.awsdata[i];
+    this->awsdata[i+temp.get_num_data()].set_station_info(this->get_aws_info()->get_station_meta_data(in.awsdata[i].get_station_info()->get_id()));
+  }
+  if(libjeff::debug_setting::get_debug_mode_debug_log()){
+    std::cout << "Leaving aws_data::append" << std::endl;
+  }
+}

@@ -1,0 +1,14 @@
+###CUDA####include<cuda.h>
+#include"complex.h"
+#ifndef Liquid_water
+#define Liquid_water
+//-------------------
+//Frequency(1/T, not angular frequency omega) in unit of Hz
+//Wavelength in unit of cm
+//------------------- 
+###CPP### ###CUDA### ###HOST### ###DEVICE### complex liquid_water_epsilon_10GHz(double,double);
+###CPP### ###CUDA### ###HOST### ###DEVICE### void  liquid_water_epsilon_10GHz(double,int,double*,complex*);
+###CPP### ###CUDA### ###HOST### ###DEVICE### double liquid_water_density(double);
+###CUDA### ###GLOBAL### void g_liquid_water_epsilon_10GHz(int nstate,int nfre,double *in_temperature,double *frequency,complex *epsilon);
+###CUDA### ###GLOBAL### void g_liquid_water_density(int nstate,double *temperature,double *density);
+#endif

@@ -1,0 +1,390 @@
+#include<cmath>
+#include<cstdlib>
+#include<cuda.h>
+#include<iostream>
+
+#include"complex.h"
+#include"cuda_setting.h"
+#include"cuda_tools.h"
+#include"error_code.h"
+#include"grid_data_field.h"
+#include"liquid_water.h"
+#include"meteorology.h"
+#include"physics_constants.h"
+#include"rain_droplet.h"
+#include"scatterer.h"
+
+rain_droplet::rain_droplet(){
+  //default to be 8
+  this->create(8);
+  temperature_index= 1;
+  pressure_index = 0;
+  qvapor_index = 2;
+  height_index = -3;
+}
+rain_droplet::rain_droplet(int gauss_laguerre_order){
+  this->create(gauss_laguerre_order);
+  temperature_index= 1;
+  pressure_index = 0;
+  qvapor_index = 2;
+  height_index = -3;
+}
+rain_droplet::~rain_droplet(){
+  delete [] x0;
+  delete [] w0;
+  cudaFree(d_x0);
+  cudaFree(d_w0);
+}
+
+void rain_droplet::create(int order){
+  gauss_order = order;
+
+  this->x0 = new double [gauss_order];
+  this->w0 = new double [gauss_order];
+
+  gauss_laguerre_setup(gauss_order,x0,w0);
+
+  cudaMalloc((void**) &d_x0,gauss_order*sizeof(double));
+  cudaMalloc((void**) &d_w0,gauss_order*sizeof(double));
+
+  host2device();
+}
+void rain_droplet::gauss_laguerre_setup(int order,double *x0,double *w0){
+  switch(order){
+  case 8:
+    x0[0] = 0.170279632305101;
+    x0[1] = 0.9037017767993796;
+    x0[2] = 2.2510866298661307;
+    x0[3] = 4.266700170287664;
+    x0[4] = 7.045905402393443;
+    x0[5] = 10.75851601018114;
+    x0[6] = 15.740678641277924;
+    x0[7] = 22.86313173688924;
+
+    w0[0] = 0.3691885893416374;
+    w0[1] = 0.41878678081434045;
+    w0[2] = 0.17579498663717957;
+    w0[3] = 0.033343492261221;
+    w0[4] = 0.0027945362352262432;
+    w0[5] = 0.00009076508773366559;
+    w0[6] = 8.485746716272428e-7;
+    w0[7] = 1.0480011748716998e-9;
+    break;
+  case 12:
+    x0[0] = 0.1157221173580207;
+    x0[1] = 0.6117574845151306;
+    x0[2] = 1.5126102697764308;
+    x0[3] = 2.833751337743463;
+    x0[4] = 4.599227639418989;
+    x0[5] = 6.844525453116511;
+    x0[6] = 9.621316842453675;
+    x0[7] = 13.006054993313132;
+    x0[8] = 17.116855187460075;
+    x0[9] = 22.151090379415393;
+    x0[10] = 28.48796725098225;
+    x0[11] = 37.09912104445707;
+
+    w0[0] = 0.2647313710554429;
+    w0[1] = 0.3777592758731281;
+    w0[2] = 0.24408201131982726;
+    w0[3] = 0.09044922221178309;
+    w0[4] = 0.020102381154480937;
+    w0[5] = 0.0026639735418826816;
+    w0[6] = 0.0002032315926594093;
+    w0[7] = 8.365055856393223e-6;
+    w0[8] = 1.6684938765775538e-7;
+    w0[9] = 1.3423910304693435e-9;
+    w0[10] = 3.061601635010269e-12;
+    w0[11] = 8.148077467514429e-16;
+    break;
+    
+  case 16:
+    x0[0] = 0.08764941047892781;
+    x0[1] = 0.4626963289150805;
+    x0[2] = 1.1410577748312256;
+    x0[3] = 2.129283645098314;
+    x0[4] = 3.4370866338919144;
+    x0[5] = 5.078018614558754;
+    x0[6] = 7.070338534915554;
+    x0[7] = 9.438314335879891;
+    x0[8] = 12.214223369001036;
+    x0[9] = 15.441527368697958;
+    x0[10] = 19.180156857176314;
+    x0[11] = 23.51590569244947;
+    x0[12] = 28.578729745104837;
+    x0[13] = 34.583398700238405;
+    x0[14] = 41.94045264792765;
+    x0[15] = 51.701160339533416;
+
+    w0[0] = 0.20615171495780196;
+    w0[1] = 0.33105785495087253; 
+    w0[2] = 0.2657957776441702;
+    w0[3] = 0.13629693429688736;
+    w0[4] = 0.04732892869409396;
+    w0[5] = 0.01129990007934188;
+    w0[6] = 0.001849070944780178;
+    w0[7] = 0.00020427191583394921;
+    w0[8] = 0.000014844586869108705;
+    w0[9] = 6.828319368563422*pow(10.,-7);
+    w0[10] = 1.881024858158005*pow(10.,-8);
+    w0[11] = 2.862350259531547*pow(10.,-10);
+    w0[12] = 2.1270790149417254*pow(10.,-12);
+    w0[13] = 6.29796703869731*pow(10.,-15);
+    w0[14] = 5.050473701449076*pow(10.,-18);
+    w0[15] =  4.1614623705258914*pow(10.,-22);
+    break;
+/*
+  case 32:
+0.04448936583326701, 0.23452610951961889, 0.5768846293018826, \
+	1.0724487538179532, 1.7224087764414133, 2.528336706439655, \
+	3.492213272555494, 4.616456775916092, 5.903958444512119, \
+	7.358127165050296, 8.982938248183213, 10.783034231666829, \
+	12.763688964857902, 14.931292105442372, 17.291751033171355, \
+	19.857716412466964, 22.625676773875444, 25.65086742429771, \
+	28.829468047767573, 32.41917203887993, 36.06060172158218, \
+	40.26412399063552, 44.40942784006231, 49.26090866781584, \
+	54.32034175637284, 60.0893963910965, 65.95252310863468, \
+	72.6893604272623, 80.18687581322736, 88.73535890360766, \
+	98.82954439550095, 111.75139790692803
+
+0.10921834195238418, 0.21044310793877483, 0.23521322967030364, \
+	0.19590333597096343, 0.12998378630373095, 0.07057862378674189, \
+	0.03176091243673015, 0.011918214502515838, 0.0037388173316996584, \
+	0.0009808002902149946, 0.00021487496980255653, \
+	0.00003920240265004671, 5.934570260385159*pow(10.,-6), \
+	7.411857522207683*pow(10.,-7), 7.650990363858581*pow(10.,-8), \
+	6.275024048121856*pow(10.,-9), 4.294073442340363*pow(10.,-10), \
+	2.1329219112370858*pow(10.,-11), 1.0948582777061259*pow(10.,-12), \
+	3.494708352490543*pow(10.,-14), 8.78445451657057*pow(10.,-16), \
+	1.754409202718474*pow(10.,-17), 3.988790418489714*pow(10.,-19), \
+	1.6224112191954906*pow(10.,-21), 1.458872947639178*pow(10.,-23), \
+	4.482652681373317*pow(10.,-26), 1.4161343660843112*pow(10.,-28), \
+	1.8858783777124219*pow(10.,-31), 1.1896822767206718*pow(10.,-34), \
+	2.6684902051540635*pow(10.,-38), 1.338960946470406*pow(10.,-42), \
+	4.510540837915772*pow(10.,-48)
+    break;
+    */
+  default:
+    cout << "This order of Gauss-Laguerre Quadrature not currently supported." << endl;
+    exit(1);
+    break;
+  }
+}
+
+void rain_droplet::host2device(){
+  cudaMemcpy(d_x0,x0,gauss_order*sizeof(double),cudaMemcpyHostToDevice);
+  cudaMemcpy(d_w0,w0,gauss_order*sizeof(double),cudaMemcpyHostToDevice);
+}
+
+namespace bulkRainScheme{
+  __global__ void cal_kapairs(int nstate,int nfre,int norder,double *qmass,double *frequency,double *x0,double *ka);
+  __global__ void mie_coeff_sum2sigma(int nstate,int nfre,double* fre,double *sum_an,double *sum_bn,double *sigma);
+  __global__ void gauss_laguerre_multiply_weight(int norder,int nvalue,double *value,double *weight);
+  __global__ void gauss_laguerre_sum_up(int max_order,int nvalue,int cur_order,double *value);
+  __global__ void cal_norm_constant(int nlayer,int nfre,double *reflectivity,double *norm_constant);
+}
+
+
+bulk_rain_scheme::bulk_rain_scheme():rain_droplet(){
+}
+bulk_rain_scheme::bulk_rain_scheme(int gauss_laguerre_order):rain_droplet(gauss_laguerre_order){
+}
+bulk_rain_scheme::~bulk_rain_scheme(){
+}
+
+int bulk_rain_scheme::add_cross_section(double *frequency,int nfre,double *sigma){
+  if(qrain_index<0 || temperature_index<0 || data_field == NULL){
+    return _ERRORCODE_DATAYETTOBEINITIATED;
+  }
+  
+  double *h_fre, *h_qmass;
+  double *qmass;
+  double max_qmass, max_fre;
+
+  h_fre = new double [nfre];
+  h_qmass = new double [this->data_field->get_d_ngrid()];
+  cudaMemcpy(h_fre,frequency,nfre*sizeof(double),cudaMemcpyDeviceToHost);
+  cudaMalloc((void**) &qmass,this->data_field->get_d_ngrid()*sizeof(double));
+
+  (this->data_field)[qrain_index].get_data("device",qmass);
+  
+  //need to convert qrain to mass density
+  double *pressure, *temperature, *qvapor, *density;
+  cudaMalloc((void**) &pressure,this->data_field->get_d_ngrid()*sizeof(double));
+  cudaMalloc((void**) &temperature,this->data_field->get_d_ngrid()*sizeof(double));
+  cudaMalloc((void**) &qvapor,this->data_field->get_d_ngrid()*sizeof(double));
+  cudaMalloc((void**) &density,this->data_field->get_d_ngrid()*sizeof(double));
+
+  (this->data_field)[pressure_index].get_data("device",pressure);
+  (this->data_field)[temperature_index].get_data("device",temperature);
+  (this->data_field)[qvapor_index].get_data("device",qvapour);
+
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+  grid.x = (int) ceil((double) this->data_field->get_d_ngrid()/numthreads);
+  libjeff::meteorology_cal_density<<<grid,numthreads>>>(this->data_field->get_d_ngrid(),pressure,temperature,qvapor,density);
+  cuda_multiply<<<grid,numthreads>>>(this->data_field->get_d_ngrid(),qmass,density,qmass);
+  
+  cudaFree(qvapor);
+  cudaFree(density);
+  cudaFree(pressure);
+  
+  cudaMemcpy(h_qmass,qmass,this->data_field->get_d_ngrid()*sizeof(double),cudaMemcpyDeviceToHost);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy@add_cross_section@rain_droplet-cuda" << endl;
+
+  int i;
+  max_fre = h_fre[0];
+  max_qmass = h_qmass[0];
+
+  for(i=1;i<nfre;i++){
+    if(h_fre[i] > max_fre){
+      max_fre = h_fre[i];
+    }
+  }
+  for(i=1;i<this->data_field->get_d_ngrid();i++){
+    if(h_qmass[i]>max_qmass){
+      max_qmass = h_qmass[i];
+    }
+  }
+
+  delete [] h_fre;
+  delete [] h_qmass;
+
+  double lambda = libjeff::meteorology_marshall_palmer_dbz2lambda(max_qmass);
+  double max_arg = max_fre*pi/(phys_c*lambda)*x0[gauss_order-1];
+
+  int max_order = mie_wiscombe(max_arg) + 20; //need to start the generation of Bessel functions a few order away from what we are going to use
+
+  double *ka;
+  cudaMalloc((void **) &ka,this->data_field->get_d_ngrid()*nfre*gauss_order*sizeof(double));
+  complex *ref_index, *epsilon;
+  cudaMalloc((void **) &epsilon,this->data_field->get_d_ngrid()*nfre*sizeof(complex));
+  cudaMalloc((void **) &ref_index,this->data_field->get_d_ngrid()*nfre*gauss_order*sizeof(complex));
+
+  grid.x = (int) ceil((double) this->data_field->get_d_ngrid()*nfre*gauss_order/numthreads);
+  bulkRainScheme::cal_kapairs<<<grid,numthreads>>>(this->data_field->get_d_ngrid(),nfre,gauss_order,qmass,frequency,d_x0,ka);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cal_kapairs@add_cross_section@rain_droplet-cuda" << endl;
+
+  cudaFree(qmass);
+
+  grid.x = (int) ceil((double) this->data_field->get_d_ngrid()*nfre/numthreads);
+  g_liquid_water_epsilon_10GHz<<<grid,numthreads>>>(this->data_field->get_d_ngrid(),nfre,temperature,frequency,epsilon);
+  cuda_pow<<<grid,numthreads>>>(this->data_field->get_d_ngrid()*nfre,epsilon,0.5,epsilon);
+
+  cudaFree(temperature);
+
+  grid.x = (int) ceil((double) this->data_field->get_d_ngrid()*nfre*gauss_order/numthreads);
+  cuda_repeat_kernel<<<grid,threadsPerBlock>>>(this->data_field->get_d_ngrid()*nfre,gauss_order,epsilon,ref_index);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@align_ref@add_cross_section@rain_droplet-cuda" << endl;
+
+  cudaFree(epsilon);
+
+  cudaMalloc((void **) &an,(max_order+1)*this->data_field->get_d_ngrid()*nfre*gauss_order*sizeof(complex));
+  cudaMalloc((void **) &bn,(max_order+1)*this->data_field->get_d_ngrid()*nfre*gauss_order*sizeof(complex));
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMaslloc@add_cross_section@rain_droplet-cuda with size " << (max_order+1)*this->data_field->get_d_ngrid()*nfre*gauss_order*sizeof(complex) << endl;
+
+  mie_cal_mie_coeff_gpu(max_order,this->data_field->get_d_ngrid()*nfre*gauss_order,ka,ref_index,an,bn);
+  
+  cudaFree(ref_index);
+
+  double *temp_sigma,*sum_an,*sum_bn;
+  cudaMalloc((void **) &temp_sigma,this->data_field->get_d_ngrid()*nfre*gauss_order*sizeof(double));
+  cudaMalloc((void **) &sum_an,this->data_field->get_d_ngrid()*nfre*gauss_order*sizeof(double));
+  cudaMalloc((void **) &sum_bn,this->data_field->get_d_ngrid()*nfre*gauss_order*sizeof(double));
+
+  grid.x = (int) ceil(((double) this->data_field->get_d_ngrid()*nfre*gauss_order*2)/threadsPerBlock);
+
+  mie_coeff_sum_up_for_abs<<<grid,numthreads>>>(max_order,this->data_field->get_d_ngrid()*nfre*gauss_order,ka,an,bn,sum_an,sum_bn);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@mie_coeff_sum_up_for_ext@add_cross_section@rain_droplet-cuda" << endl;
+
+  grid.x = (int) ceil(((double) this->data_field->get_d_ngrid()*nfre*gauss_order)/threadsPerBlock);
+
+  bulkRainScheme::mie_coeff_sum2sigma<<<grid,threadsPerBlock>>>(this->data_field->get_d_ngrid()*gauss_order,nfre,frequency,sum_an,sum_bn,temp_sigma);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@mie_coeff_sum_to_extinction@add_cross_section@rain_droplet-cuda" << endl;
+
+  cudaFree(sum_an);
+  cudaFree(sum_bn);
+  cudaFree(ka);
+  cudaFree(an);
+  cudaFree(bn);
+
+  bulkRainScheme::gauss_laguerre_multiply_weight<<<grid,threadsPerBlock>>>(gauss_order,this->data_field->get_d_ngrid()*nfre,temp_sigma,d_w0);
+
+  int norder2 = pow(2.,((int) ceil(log((double) gauss_order)/log(2.))));
+  grid.x=(int) ceil(((double) this->data_field->get_d_ngrid()*nfre*norder2)/threadsPerBlock);
+  
+  i = norder2;
+  while(i > 1){
+    bulkRainScheme::gauss_laguerre_sum_up<<<numBlocks,threadsPerBlock>>>(gauss_order,this->data_field->get_d_ngrid()*nfre,i,temp_sigma);
+    i/=2;
+  }
+
+  double *norm_constant;
+  cudaMalloc((void**) &norm_constant,this->data_field->get_d_ngrid()*nfre*sizeof(double));
+
+  grid.x=(int) ceil(((double) this->data_field->get_d_ngrid()*nfre)/threadsPerBlock);
+  bulkRainScheme::cal_norm_constant<<<grid,threadsPerBlock>>>(this->data_field->get_d_ngrid(),nfre,reflectivity,norm_constant);
+  cuda_multiply<<<grid,threadsPerBlock>>>(this->data_field->get_d_ngrid()*nfre,temp_sigma,norm_constant,temp_sigma);
+  cuda_add<<<grid,threadsPerBlock>>>(this->data_field->get_d_ngrid()*nfre,sigma,temp_sigma);
+  
+  cudaFree(norm_constant);
+  cudaFree(temp_sigma);
+}
+
+namespace bulkRainScheme{
+  __global__ void cal_kapairs(int nstate,int nfre,int norder,double *qmass,double *frequency,double *x0,double *ka){
+    int i=blockDim.x*blockIdx.x + threadIdx.x;
+  //indexing (fastest -> slowest): nfre -> nstate -> gauss_order
+    int m=i/(nfre*nstate); //order index
+    int j=i%(nfre*nstate)/nfre; //state index
+    int k=i%nfre; //fre index
+    
+    if(m<norder){
+      double lambda=libjeff_cuda::meteorology_marshall_palmer_mass2lambda(qmass[j]);
+    
+      ka[i]=pi*frequency[k]*x0[m]/(phys_c*lambda);
+    }
+  }
+  __global__ void mie_coeff_sum2sigma(int nstate,int nfre,double* fre,double *sum_an,double *sum_bn,double *sigma){
+    int i = blockDim.x*blockIdx.x + threadIdx.x;
+    //indexing (fastest -> slowest): nfre -> nstate -> gauss_order
+    //int j = i/(nfre*norder); //layer index
+    int k = i%nfre; //fre index
+    //int m = i%norder; //order index
+    
+    if(i < nstate*nfre){
+      sigma[i] = (sum_an[i] + sum_bn[i])*pi*2./(4.*pi*pi*fre[k]*fre[k])*phys_c*phys_c;
+    }
+  }
+  __global__ void gauss_laguerre_multiply_weight(int norder,int nvalue,double *value,double *weight){
+    int i = blockDim.x*blockIdx.x + threadIdx.x;
+    //int j=i%nvalue; //value index
+    int k=i/nvalue; //order index
+    
+    if(k<norder){
+      value[i]*=weight[k];
+    }
+  }
+  __global__ void gauss_laguerre_sum_up(int max_gauss_order,int nvalue,int cur_order,double *value){
+    int i = blockDim.x*blockIdx.x + threadIdx.x;
+    int j=i%nvalue; //value index
+    int k=i/nvalue; //order index
+    
+    if(k<cur_order/2){
+      if(k+cur_order/2<max_gauss_order){
+	value[k*nvalue + j] += value[(k + cur_order/2)*nvalue + j];
+      }
+    }
+  }
+  __global__ void cal_norm_constant(int nlayer,int nfre,double *reflectivity,double *norm_constant){
+    int i = blockDim.x*blockIdx.x + threadIdx.x;
+    int j = i/nfre; //state index
+    //int k = i%nfre; //fre index
+    
+    if(j<nlayer){
+      double lambda=libjeff_cuda::meteorology_marshall_palmer_dbz2lambda(reflectivity[j]);
+      
+      norm_constant[i] = marshall_palmer_n/lambda;
+    }
+  }
+}

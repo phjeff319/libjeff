@@ -1,0 +1,66 @@
+#ifndef VERTICAL_PROFILE
+#define VERTICAL_PROFILE
+#include"grid_data.h"
+#include"grid_data_field.h"
+namespace libjeff{
+  using namespace libjeff;
+  class vertical_profile{
+  public:
+    vertical_profile();
+    ~vertical_profile();
+
+    int create(int nlevel);
+    int destroy();
+
+    inline void set_data(grid_data *in) {data_grid = in;}
+    int set_p_index(int in);
+    int set_t_index(int in);
+    int set_q_index(int in);
+    int set_u_index(int in);
+    int set_v_index(int in);
+    int set_vs_index(int in);
+    int set_default_index();
+
+    int set_pressure(double *in);
+    int set_temperature(double *in);
+    int set_qvapor(double *in);
+    int set_windu(double *in);
+    int set_windv(double *in);
+    int set_vertical_speed(double *in);
+
+    inline int get_p_index() const { return p_index;}
+    inline int get_t_index() const { return t_index;}
+    inline int get_q_index() const { return q_index;}
+    inline int get_u_index() const { return u_index;}
+    inline int get_v_index() const { return v_index;}
+    inline int get_vs_index() const { return vs_index;}
+
+    inline grid_data_field *get_pressure() const {return this->pressure;}
+    inline grid_data_field *get_temperature() const {return this->temperature;}
+    inline grid_data_field *get_qvapor() const {return this->qvapor;}
+    inline grid_data_field *get_windu() const {return this->windu;}
+    inline grid_data_field *get_windv() const {return this->windv;}
+    inline grid_data_field *get_vertical_speed() const {return this->vertical_speed;}
+
+    inline int get_nx() const {return (data_grid!=NULL?data_grid->get_nx():0);}
+    inline int get_ny() const {return (data_grid!=NULL?data_grid->get_ny():0);}
+    inline int get_nz() const {return (data_grid!=NULL?data_grid->get_nz():0);}
+    inline double get_z(int z_index) const {return data_grid->get_z(0,0,z_index);}
+
+    inline grid_data* get_data_grid() const {return data_grid;}
+    inline void set_data_grid(grid_data *in) {data_grid = in;}
+
+    int get_max_index() const;
+
+    int gen_ISA(int nlevel,double rh);
+
+    vertical_profile& operator=(const vertical_profile &in);
+
+  private:
+    grid_data_field *pressure, *temperature, *qvapor, *windu, *windv, *vertical_speed;
+    grid_data *data_grid;
+    int p_index, t_index, q_index, u_index, v_index, vs_index;
+    bool self_grid;
+  };
+}
+#endif

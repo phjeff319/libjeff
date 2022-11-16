@@ -1,0 +1,108 @@
+#ifndef FLIGHT_ROUTE
+#define FLIGHT_ROUTE
+
+#include "polygon.h"
+
+namespace libjeff{
+  class way_points{
+  public:
+    way_points();
+    ~way_points();
+
+    inline double* get_lonlat() const {return lonlat;}
+    inline char* get_name() const {return name;}
+    inline bool is_on_runway() const {return on_runway;}
+    inline void set_on_runway() {on_runway=true;}
+    inline void set_not_on_runway() {on_runway=false;}
+
+    way_points& operator=(const way_points& in);
+    bool operator==(const way_points& in);
+    
+  private:
+    double *lonlat;
+    char *name;
+    bool on_runway;
+  };
+  class way_points_list{
+  public:
+    way_points_list();
+    ~way_points_list();
+
+    int create(int num_way_points);
+    void destroy();
+
+    inline int get_num_way_points() const {return num_way_points;}
+
+    int read_way_points_list_csv(char* filename);
+
+    way_points* get_way_point_by_name(char *name);
+    way_points* get_way_point_by_lonlat(double* lonlat);
+    inline way_points* get_way_point(int index) {return points+index;}
+
+    way_points_list& operator=(const way_points_list& in);
+
+  private:
+    int num_way_points;
+    way_points* points;
+  };
+
+  class flight_route{
+  public:
+    flight_route();
+    ~flight_route();
+
+    int create(int num_way_points);
+    void destroy();
+
+    inline way_points_list* get_way_point_db() {return way_point_db;}
+    inline void set_way_point_db(way_points_list* in) {way_point_db = in;}
+    inline int get_num_way_points() const {return num_way_points_in_route;}
+    way_points* get_way_point(int index);
+    way_points* get_way_point(char *name);
+    inline void set_way_point(int index,way_points* in) {points[index] = in;}
+    inline char* get_route_name() {return route_name;}
+    inline int get_type() const {return type;}
+    inline void set_type(int in) {type = in;}
+    inline bool is_departure() const {return (type<0);}
+    inline bool is_arrival() const {return (type>0);}
+
+    flight_route& operator=(const flight_route& in);
+
+  private:
+    way_points_list* way_point_db;
+    int num_way_points_in_route;
+    way_points **points;
+    char* route_name;
+    int type; //+ve for arrival, -v for departure, 0 for passing
+  };
+
+  class flight_route_list{
+  public:
+    flight_route_list();
+    ~flight_route_list();
+
+    int create(int num_route);
+    void destroy();
+
+    inline int get_num_route() const {return num_route;}
+    
+    flight_route* get_route_by_name(char *name) const;
+    flight_route* get_route(int index) const;
+
+    inline way_points_list* get_way_point_db() const {return way_point_db;}
+    inline void set_way_point_db(way_points_list* in) {*way_point_db = *in;}
+    int add_route(int index,flight_route* to_add);
+    int delete_route(int index);
+
+    int read_route_file_csv(char* filename);
+
+    int extract_containing(const flight_route_list &list,int num_way_pt,char **way_pts);
+    int extract_containing(const flight_route_list &list,char *way_pts);
+
+  private:
+    way_points_list* way_point_db;
+    int num_route, allocated_size;
+    flight_route* route;
+  };
+}
+#endif

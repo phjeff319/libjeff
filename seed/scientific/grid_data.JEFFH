@@ -1,0 +1,162 @@
+#ifndef GRIDDATA
+#define GRIDDATA
+#include "date_time.h"
+#include "grid_codes.h"
+
+class grid_data{
+ public:
+  ###CPP### ###CUDA### ###HOST### grid_data();
+  ###CPP### ###CUDA### ###HOST### grid_data(int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### virtual ~grid_data();
+  
+  ###CPP### ###CUDA### ###HOST### virtual void destroy();
+  ###CUDA### ###HOST### virtual void destroy_gpu();
+  ###CPP### ###CUDA### ###HOST### virtual void create(int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### virtual void create(int nx,int ny,int nz,int ndim,double dummy1,double dummy2) = 0;
+  ###CPP### ###CUDA### ###HOST### virtual void create(int nx,int ny,int nz,int ndim,int *idummy,double* ddummy) = 0;
+  ###CUDA### ###HOST### virtual void create_gpu(int nx,int ny,int nz,int ndim);
+  ###CUDA### ###HOST### virtual void host2device() = 0;
+  ###CUDA### ###HOST### virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim) = 0;
+  ###CUDA### ###HOST### virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work) = 0;
+  ###CUDA### ###HOST### virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work,int nstream) = 0; //if nstream > 1, work must be pinned memory allocated by cudaMallocHost
+  ###CUDA### ###HOST### virtual void device2host() = 0;
+  ###CUDA### ###HOST### virtual void device2host(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim) = 0;
+  ###CUDA### ###HOST### int determine_nbatchxy(int& nbatch_x,int& nbatch_y,double total_memsize); //total_memsize is the memory need to put all the data
+  
+  ###CPP### ###CUDA### ###HOST### inline double *get_z() const {return this->z;}
+  ###CPP### ###CUDA### ###HOST### virtual double get_z(int ix,int iy,int iz) const = 0;
+  ###CPP### ###CUDA### ###HOST### virtual double get_z(double ix,double iy,double iz) const = 0;
+  ###CPP### ###CUDA### ###HOST### virtual double* get_z_address(int ix,int iy,int iz) const = 0;
+  ###CPP### ###CUDA### ###HOST### inline double *get_y() const {return this->y;}
+  ###CPP### ###CUDA### ###HOST### virtual double get_y(int ix,int iy,int iz) const = 0;
+  ###CPP### ###CUDA### ###HOST### virtual double get_y(double ix,double iy,double iz) const = 0;
+  ###CPP### ###CUDA### ###HOST### virtual double* get_y_address(int ix,int iy,int iz) const = 0;
+  ###CPP### ###CUDA### ###HOST### inline double *get_x() const {return this->x;}
+  ###CPP### ###CUDA### ###HOST### virtual double get_x(int ix,int iy,int iz) const = 0;
+  ###CPP### ###CUDA### ###HOST### virtual double get_x(double ix,double iy,double iz) const = 0;
+  ###CPP### ###CUDA### ###HOST### virtual double* get_x_address(int ix,int iy,int iz) const = 0;
+  ###CPP### ###CUDA### ###HOST### inline double *get_data() const {return this->grid1D;}
+  ###CPP### ###CUDA### ###HOST### double *get_data(int index,double *work) const;
+  ###CPP### ###CUDA### ###HOST### inline double *get_data(int index) const {return (this->grid1D + index*ndim);}
+  ###CPP### ###CUDA### ###HOST### virtual double *get_data(int ix,int iy,int iz) const = 0;
+  ###CPP### ###CUDA### ###HOST### virtual double *get_data4dim(int dim,double *work) const = 0;
+  ###CPP### ###CUDA### ###HOST### virtual float *get_data4dim(int dim,float *work) const = 0;
+  ###CPP### ###CUDA### ###HOST### inline int get_nx() const {return this->nx;}
+  ###CPP### ###CUDA### ###HOST### inline int get_ny() const {return this->ny;}
+  ###CPP### ###CUDA### ###HOST### inline int get_nz() const {return this->nz;}
+  ###CPP### ###CUDA### ###HOST### inline int get_ngrid() const {return this->nx*this->ny*this->nz;}
+  ###CPP### ###CUDA### ###HOST### inline int get_ndim() const {return this->ndim;}
+  
+  ###CUDA### ###HOST### inline double *get_d_x() const {return this->d_z;}
+  ###CUDA### ###HOST### inline double *get_d_y() const {return this->d_y;}
+  ###CUDA### ###HOST### inline double *get_d_z() const {return this->d_x;}
+  ###CUDA### ###HOST### virtual double *get_expanded_d_x(double *out) const = 0;  //out is assumed to be correctly allocated
+  ###CUDA### ###HOST### virtual double *get_expanded_d_y(double *out) const = 0;  //out is assumed to be correctly allocated
+  ###CUDA### ###HOST### virtual double *get_expanded_d_z(double *out) const = 0;  //out is assumed to be correctly allocated
+  ###CUDA### ###HOST### inline double *get_d_data() const {return this->d_grid1D;}
+  ###CUDA### ###HOST### inline int get_d_nx() const {return this->d_nx;}
+  ###CUDA### ###HOST### inline int get_d_ny() const {return this->d_ny;}
+  ###CUDA### ###HOST### inline int get_d_nz() const {return this->d_nz;}
+  ###CUDA### ###HOST### inline int get_d_ndim() const {return this->d_ndim;}
+  ###CUDA### ###HOST### inline int get_d_ngrid() const {return this->d_nx*this->d_ny*this->d_nz;}
+  
+  //assuming ording of (from fastest varying): z -> y -> x 
+  ###CPP### ###CUDA### ###HOST### virtual double* get_coordinate(int index,double *work) const = 0; 
+  ###CPP### ###CUDA### ###HOST### virtual double* get_coordinate(int ix,int iy,int iz,double *work) const = 0;
+  
+  ###CPP### ###CUDA### ###HOST### void set_data(double* indata);
+  ###CPP### ###CUDA### ###HOST### void set_data(float* indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_data4dim(int dim,double* indata) = 0;
+  ###CPP### ###CUDA### ###HOST### virtual void set_data4dim(int dim,float* indata) = 0;
+
+  ###CPP### ###CUDA### ###HOST### inline bool is_x_periodic() const {return isxperiodic;}
+  ###CPP### ###CUDA### ###HOST### inline bool is_y_periodic() const {return isyperiodic;}
+  ###CPP### ###CUDA### ###HOST### inline bool is_z_periodic() const {return iszperiodic;}
+
+  ###CPP### ###CUDA### ###HOST### inline void set_x_periodic() {isxperiodic = 1;}
+  ###CPP### ###CUDA### ###HOST### inline void unset_x_periodic() {isxperiodic = 0;}
+  ###CPP### ###CUDA### ###HOST### inline void set_y_periodic() {isyperiodic = 1;}
+  ###CPP### ###CUDA### ###HOST### inline void unset_y_periodic() {isyperiodic = 0;}
+  ###CPP### ###CUDA### ###HOST### inline void set_z_periodic() {iszperiodic = 1;}
+  ###CPP### ###CUDA### ###HOST### inline void unset_z_periodic() {iszperiodic = 0;}
+
+  ###CPP### ###CUDA### ###HOST### virtual void set_x_period(double in);
+  ###CPP### ###CUDA### ###HOST### virtual void set_y_period(double in);
+  ###CPP### ###CUDA### ###HOST### virtual void set_z_period(double in);
+  ###CPP### ###CUDA### ###HOST### inline double get_x_period() const {return this->x_period;}
+  ###CPP### ###CUDA### ###HOST### inline double get_y_period() const {return this->y_period;}
+  ###CPP### ###CUDA### ###HOST### inline double get_z_period() const {return this->z_period;}
+  
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(double *indata) = 0;
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(float *indata) = 0;
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(int ix,int iy,int iz,double x) = 0;
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(int ix,int iy,int iz,float x) = 0;
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(double *indata) = 0;
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(float *indata) = 0;
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(int ix,int iy,int iz,double y) = 0;
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(int ix,int iy,int iz,float y) = 0;
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(double *indata) = 0;
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(float *indata) = 0;
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(int ix,int iy,int iz,double z) = 0;
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(int ix,int iy,int iz,float z) = 0;
+  ###CPP### ###CUDA### ###HOST### void set_x(int index,double value);
+  ###CPP### ###CUDA### ###HOST### void set_y(int index,double value);
+  ###CPP### ###CUDA### ###HOST### void set_z(int index,double value);
+
+  ###CPP### ###CUDA### ###HOST### int count_num_data_with_metric(int dim_index,bool (*metric)(double in));
+  ###CPP### ###CUDA### ###HOST### double count_data_ratio_with_metric(int dim_index,bool (*metric)(double in));
+  ###CPP### ###CUDA### ###HOST### int* count_num_data_with_metric(int dim_index,bool* (*metric)(double in,int ntest,bool* out),int ntest,int *out);
+  ###CPP### ###CUDA### ###HOST### double* count_data_ratio_with_metric(int dim_index,bool* (*metric)(double in,int ntest,bool* out),int ntest,double *out);
+  
+  ###CPP### ###CUDA### ###HOST### virtual grid_data& operator=(const grid_data& in) = 0;
+
+  //###CPP### ###HOST### inline virtual int readWRF3NetCDF(char *filename, char *variableName,date_time *datatime,int ndim,int dim_index) {return readWRF3NetCDF(filename,variableName,NULL,datatime,ndim,dim_index); }
+  //###CPP### ###HOST### virtual int readWRF3NetCDF(char *filename, char *variableName,char *stagger,date_time *datatime,int ndim,int dim_index) = 0;
+  //###CPP### ###CUDA### ###HOST### virtual grid_data* read_hrit_data(char *filename) = 0;
+  //###CPP### ###CUDA### ###HOST### virtual grid_data* read_hs_data(char *filename) = 0;
+  //###CPP### ###CUDA### ###HOST### virtual int read_NHM_fortrain_binarydata(char *name_format,int nelements,char **elements,int nlevels,char **level_names) = 0;
+  //###CPP### ###CUDA### ###HOST### inline int read_NHM_fortrain_binarydata(char *name_format,int nelements,char **elements,int nlevels) {return read_NHM_fortrain_binarydata(name_format,nelements,elements,nlevels,NULL);}
+  
+  ###CPP### ###CUDA### ###HOST### int multiple_linear_interpolate_from(const grid_data* in);
+  ###CPP### ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(double x, double y, double z, double *temp) const = 0;
+  ###CPP### ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(double x, double y, double z, double *missing_value,double *temp) const = 0;
+  ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(int npt,double *x, double *y, double *z, double *temp) = 0;
+
+  ###CPP### ###CUDA### ###HOST### virtual double* multiple_cubic_interpolate(double x, double y, double z, double *temp) const = 0;
+
+  ###CPP### ###CUDA### ###HOST### virtual double* nearest_to(double x,double y,double z,double (*metric)(double *a,double *b),double *temp) const = 0;
+
+  ###CPP### ###CUDA### ###HOST### virtual int find_enclose(double &x,double &y,double &z,int *out) const = 0;
+
+  /*
+    grid_code: a unique code for each grid class
+           0: general_grid (abstract base class)
+        1000: regular_grid
+	1010: mercator_grid
+	1100: lambertConN_grid
+	1020: geos_grid
+	2000: mapTo2D_grid
+  */
+  ###CPP### ###CUDA### ###HOST### virtual inline int get_grid_code() const { return GRID_DATA_CODE; }
+  
+ protected:
+  ###CPP### ###CUDA### int nx, ny, nz, ndim;
+  ###CUDA### int d_nx, d_ny, d_nz, d_ndim;
+  ###CPP### ###CUDA### double *grid1D, *x, *y, *z;
+  ###CUDA### double *d_grid1D, *d_x, *d_y, *d_z;
+  
+  ###CPP### ###CUDA### bool isxperiodic, isyperiodic, iszperiodic;
+  ###CPP### ###CUDA### double x_period, y_period, z_period;
+ private:
+  //###HOST### int multiple_linear_interpolate_from(const grid_data& in);
+};
+
+int grid_data_allocation(int grid_code,grid_data *&inout);
+int grid_data_allocation(int grid_code,grid_data *&inout,int ndim);
+typedef void (*grid_allocator)(grid_data* &data_grid);
+grid_allocator grid_data_allocation(int grid_code);
+
+namespace libjeff{
+  ###CUDA###int determine_nbatchxy(int& nbatch_x,int& nbatch_y,int nx,int ny,int x_padding,int y_padding,double total_memsize);
+}
+#endif

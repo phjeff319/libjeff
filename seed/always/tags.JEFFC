@@ -1,0 +1,1110 @@
+#include<cctype>
+#include<cstdlib>
+#include<cstring>
+#include<iostream>
+using namespace std;
+
+#include"arithmetic.h"
+#include"date_time.h"
+#include"debug_mode.h"
+#include"error_code.h"
+#include"string_man.h"
+#include"tags.h"
+#include"tools.h"
+
+#define INITIALSIZE 100
+
+tags::tags(){
+  this->tag_name_len = 0;
+  this->tag_name = NULL;
+}
+tags::tags(char* in){
+  this->tag_name_len = 0;
+  this->tag_name = NULL;
+  this->create(strlen(in)+10);
+  strcpy(this->tag_name,in);
+}
+tags::~tags(){
+  this->destroy();
+}
+
+void tags::create(int tag_name_len){
+  this->destroy();
+
+  if(tag_name_len>0){
+    this->tag_name_len = tag_name_len;
+    this->tag_name = new char [this->tag_name_len];
+  }
+}
+void tags::create(char* tag_name){
+  this->set_name(tag_name);
+} 
+void tags::destroy(){
+  if(this->tag_name_len>0){
+    delete [] this->tag_name;
+  }
+  this->tag_name_len=0;
+}
+
+void tags::set_name(char *name){
+  this->create(strlen(name)+10);
+  strcpy(this->tag_name,name);
+}
+char *tags::get_name() const{
+  return tag_name;
+}
+bool tags::operator==(const tags &in) const{
+  if(strcmp(this->tag_name,in.tag_name)==0){
+    return true;
+  }
+  else{
+    return false;
+  }
+}
+tags& tags::operator=(const tags& in){
+  if(this == &in){
+    return *this;
+  }
+
+  this->destroy();
+  this->create(in.get_name());
+
+  return *this;
+}
+int tags::replace(char *replace_in,char *replace_to){
+  int error = _ERRORCODE_NOERROR;
+  char *first_tag = new char [strlen(replace_in)+10];
+  while(error == _ERRORCODE_NOERROR){
+    error = this->extract(replace_in,first_tag);
+    if(!error){
+      string_replace(replace_in,first_tag,replace_to);
+    }
+  }
+  delete [] first_tag;
+  return _ERRORCODE_NOERROR;
+}
+int tags::replace(char *replace_in,int replace_to){
+  int error = _ERRORCODE_NOERROR;
+  char *format = new char [strlen(replace_in)+10];
+  char *operation = new char [strlen(replace_in)+10];
+  char *first_tag = new char [strlen(replace_in)+10];
+  char *temp_replace_to = new char [strlen(replace_in)+10];
+  char *ctemp = new char [strlen(replace_in)+10];
+  while(error == 0){
+    error = this->extract(replace_in,first_tag);
+    if(!error){
+      this->extract_format(first_tag,format);
+      this->extract_operation(first_tag,operation);
+
+      if(atof(format)>0.){
+	sprintf(ctemp,"%s%sd","%",format);
+      }
+      else{
+	sprintf(ctemp,"%sd","%");
+      }
+
+      int itemp;
+      if(strcmp(operation,"")!=0){
+	libjeff::symbolic::operate::compute(operation,replace_to,itemp);
+      }
+      else{
+	itemp = replace_to;
+      }
+      sprintf(temp_replace_to,ctemp,itemp);
+
+      string_replace(replace_in,first_tag,temp_replace_to);
+    }
+  }
+  delete [] ctemp;
+  delete [] first_tag;
+  delete [] temp_replace_to;
+  delete [] format;
+  delete [] operation;
+
+  return _ERRORCODE_NOERROR;
+}
+int tags::replace(char *replace_in,double replace_to){
+  int error = _ERRORCODE_NOERROR;
+  char *format = new char [strlen(replace_in)+10];
+  char *operation = new char [strlen(replace_in)+10];
+  char *first_tag = new char [strlen(replace_in)+10];
+  char *temp_replace_to = new char [strlen(replace_in)+10];
+  char *ctemp = new char [strlen(replace_in)+10];
+  while(error == 0){
+    error = this->extract(replace_in,first_tag);
+    if(!error){
+      this->extract_format(first_tag,format);
+      this->extract_operation(first_tag,operation);
+      //std::cout << operation << std::endl;
+
+      if(atof(format)>0.){
+	sprintf(ctemp,"%s%sf","%",format);
+      }
+      else{
+	sprintf(ctemp,"%sf","%");
+      }
+
+      double dtemp;
+      if(strcmp(operation,"")!=0){
+	libjeff::symbolic::operate::compute(operation,replace_to,dtemp);
+      }
+      else{
+	dtemp = replace_to;
+      }
+      sprintf(temp_replace_to,ctemp,dtemp);
+
+      string_replace(replace_in,first_tag,temp_replace_to);
+      
+    }
+  }
+  delete [] ctemp;
+  delete [] first_tag;
+  delete [] temp_replace_to;
+  delete [] format;
+  delete [] operation;
+
+  return _ERRORCODE_NOERROR;
+}
+int tags::replace(char *replace_in,date_time replace_to){
+  int error = _ERRORCODE_NOERROR;
+  char *format = new char [strlen(replace_in)+10];
+  char *operation = new char [strlen(replace_in)+10];
+  char *first_tag = new char [strlen(replace_in)+10];
+  char *temp_replace_to = new char [strlen(replace_in)+10];
+  char *ctemp = new char [strlen(replace_in)+10];
+  while(error == 0){
+    error = this->extract_format(replace_in,format);
+    error = this->extract_operation(replace_in,operation);
+    if(!error){
+      this->extract(replace_in,first_tag); 
+      
+      date_time temp_time = replace_to;
+      //std::cout << ctemp << std::endl;
+      libjeff::symbolic::operate::compute(operation,replace_to,temp_time);
+      if(strlen(format)==0){
+	temp_time.get_time("yyyymmddhhmmss",temp_replace_to);
+      }
+      else{
+	temp_time.get_time(format,temp_replace_to);
+      }
+      string_replace(replace_in,first_tag,temp_replace_to);
+      
+    }
+  }
+  delete [] ctemp;
+  delete [] first_tag;
+  delete [] temp_replace_to;
+  delete [] format;
+  delete [] operation;
+
+  return _ERRORCODE_NOERROR;
+}
+int tags::insert_after(char *insert_to,char *to_insert){
+  int error = _ERRORCODE_NOERROR;
+  char *first_tag = new char [strlen(insert_to)+10];
+  char *cursor = insert_to;
+  while(error == _ERRORCODE_NOERROR){
+    error = this->extract(cursor,first_tag);
+    if(!error){
+      cursor = strstr(cursor,first_tag);
+      string_insert(cursor+strlen(first_tag),to_insert);
+      cursor += strlen(to_insert) + strlen(first_tag);
+    }
+  }
+
+  delete [] first_tag;
+  return error;
+}
+int tags::insert_after(char *insert_to,int to_insert){
+  int error = _ERRORCODE_NOERROR;
+  char *format = new char [strlen(insert_to)];
+  char *operation = new char [strlen(insert_to)];
+  char *first_tag = new char [strlen(insert_to)+10];
+  char *temp_to_insert = new char [strlen(insert_to)+10];
+  char *ctemp = new char [strlen(insert_to)+10];
+  char *cursor = insert_to;
+  while(error == 0){
+    error = this->extract(cursor,first_tag);
+    if(!error){
+      cursor = strstr(cursor,first_tag);
+      error = this->extract_format(first_tag,format);
+      error = this->extract_operation(first_tag,operation);
+      
+      if(atof(format)>0.){
+	sprintf(ctemp,"%s%sd","%",format);
+      }
+      else{
+	sprintf(ctemp,"%sd","%");
+      }
+
+      int itemp;
+      if(strcmp(operation,"")!=0){
+	libjeff::symbolic::operate::compute(operation,to_insert,itemp);
+      }
+      else{
+	itemp = to_insert;
+      }
+      sprintf(temp_to_insert,ctemp,itemp);
+
+
+      string_insert(cursor+strlen(first_tag),temp_to_insert);
+      cursor += strlen(temp_to_insert) + strlen(first_tag);
+      
+    }
+  }
+  delete [] ctemp;
+  delete [] first_tag;
+  delete [] temp_to_insert;
+  delete [] format;
+  delete [] operation;
+
+  return _ERRORCODE_NOERROR;
+}
+int tags::insert_after(char *insert_to,double to_insert){
+  int error = _ERRORCODE_NOERROR;
+  char *format = new char [strlen(insert_to)];
+  char *operation = new char [strlen(insert_to)];
+  char *first_tag = new char [strlen(insert_to)+10];
+  char *temp_to_insert = new char [strlen(insert_to)+10];
+  char *ctemp = new char [strlen(insert_to)+10];
+  char *cursor = insert_to;
+  while(error == 0){
+    error = this->extract(cursor,first_tag);
+    if(!error){
+      cursor = strstr(cursor,first_tag);
+      this->extract_format(first_tag,format);
+      this->extract_operation(first_tag,operation);
+      
+      if(atof(format)>0.){
+	sprintf(ctemp,"%s%sf","%",format);
+      }
+      else{
+	sprintf(ctemp,"%sf","%");
+      }
+
+      double dtemp;
+      if(strcmp(operation,"")!=0){
+	libjeff::symbolic::operate::compute(operation,to_insert,dtemp);
+      }
+      else{
+	dtemp = to_insert;
+      }
+      sprintf(temp_to_insert,ctemp,dtemp);
+
+
+      string_insert(cursor+strlen(first_tag),temp_to_insert);
+      cursor += strlen(temp_to_insert) + strlen(first_tag);
+      
+    }
+  }
+  delete [] ctemp;
+  delete [] first_tag;
+  delete [] temp_to_insert;
+  delete [] format;
+  delete [] operation;
+
+  return error;
+}
+int tags::insert_after(char *insert_to,date_time to_insert){
+  return _ERRORCODE_NOTIMPLEMENTED;
+}
+/*
+int tags::insert_before(char *insert_to,char *to_insert){
+  char *temp_tag = new char [tag_name_len+6+1];
+  //replace the standard tag
+  strcpy(temp_tag,"###");
+  strcat(temp_tag,tag_name);
+  strcat(temp_tag,"###");
+  char *ctemp = strstr(insert_to,temp_tag);
+
+  if(ctemp != NULL){
+    while(strstr(ctemp,temp_tag)!=NULL){
+      string_insert(ctemp,to_insert);
+      ctemp = strstr(ctemp,temp_tag) + strlen(temp_tag);
+    }
+  }
+  
+  //replace the tag with optional argument
+  strcpy(temp_tag,"###");
+  strcat(temp_tag,tag_name);
+  strcat(temp_tag,"%");
+  char *optional_tag;
+  char *temp_buff = new char [2048];
+  char *format = new char [2048];
+  ctemp = insert_to;
+  while(strstr(ctemp,temp_tag)!=NULL){
+    ctemp = strstr(ctemp,temp_tag);
+    if(strstr(ctemp+strlen(temp_tag),"###")!=NULL){
+      optional_tag = new char [strstr(ctemp+strlen(temp_tag),"###") - ctemp - strlen(temp_tag) + 1];
+      
+      strncpy(optional_tag,ctemp+strlen(temp_tag),strstr(ctemp+strlen(temp_tag),"###") - ctemp - strlen(temp_tag));
+      optional_tag[strstr(ctemp+strlen(temp_tag),"###") - ctemp - strlen(temp_tag)]='\0';
+      
+      if(is_all_digit(optional_tag)){
+	strcpy(temp_buff,"###");
+	strcat(temp_buff,tag_name);
+	strcat(temp_buff,"%");
+	strcat(temp_buff,optional_tag);
+	strcat(temp_buff,"###");
+	
+	string_insert(ctemp,to_insert);
+	ctemp = strstr(ctemp,temp_tag) + strlen(temp_buff);
+      }
+      else{
+	ctemp += strlen(temp_tag);
+      }
+      
+      delete [] optional_tag;
+    }
+    else{
+      ctemp += strlen(temp_tag);
+    }
+  }
+  
+  delete [] temp_buff;
+  delete [] format;
+  
+  delete [] temp_tag;
+
+  return _ERRORCODE_NOERROR;
+}
+*/
+int tags::insert_before(char *insert_to,char *to_insert){
+  int error = _ERRORCODE_NOERROR;
+  char *first_tag = new char [strlen(insert_to)+10];
+  char *cursor = insert_to;
+  while(error == 0){
+    error = this->extract(cursor,first_tag);
+    if(!error){
+      cursor = strstr(cursor,first_tag);
+
+      string_insert(cursor,to_insert);
+      cursor += strlen(to_insert) + strlen(first_tag);
+    }
+  }
+
+  delete [] first_tag;
+  return _ERRORCODE_NOERROR;
+}
+int tags::insert_before(char *insert_to,int to_insert){
+  int error = _ERRORCODE_NOERROR;
+  char *format = new char [strlen(insert_to)];
+  char *operation = new char [strlen(insert_to)];
+  char *first_tag = new char [strlen(insert_to)+10];
+  char *temp_to_insert = new char [strlen(insert_to)+10];
+  char *ctemp = new char [strlen(insert_to)+10];
+  char *cursor = insert_to;
+  while(error == 0){
+    error = this->extract(cursor,first_tag);
+    if(!error){
+      cursor = strstr(cursor,first_tag);
+      this->extract_format(first_tag,format);
+      this->extract_operation(first_tag,operation);
+      
+      if(atof(format)>0.){
+	sprintf(ctemp,"%s%sd","%",format);
+      }
+      else{
+	sprintf(ctemp,"%sd","%");
+      }
+
+      double itemp;
+      if(strcmp(operation,"")!=0){
+	libjeff::symbolic::operate::compute(operation,to_insert,itemp);
+      }
+      else{
+	itemp = to_insert;
+      }
+      sprintf(temp_to_insert,ctemp,itemp);
+
+      string_insert(cursor,temp_to_insert);
+      cursor += strlen(temp_to_insert) + strlen(first_tag);
+      
+    }
+  }
+  delete [] ctemp;
+  delete [] first_tag;
+  delete [] temp_to_insert;
+  delete [] format;
+  delete [] operation;
+
+  return  _ERRORCODE_NOERROR;
+  /*
+  char *temp_tag = new char [tag_name_len+6+1];
+  char *temp_to_insert = new char [2048];
+  //replace the standard tag
+  strcpy(temp_tag,"###");
+  strcat(temp_tag,tag_name);
+  strcat(temp_tag,"###");
+  sprintf(temp_to_insert,"%d",to_insert);
+  char *ctemp = strstr(insert_to,temp_tag);
+
+  while(strstr(ctemp,temp_tag)!=NULL){
+    string_insert(ctemp,temp_to_insert);
+    ctemp = strstr(ctemp,temp_tag) + strlen(temp_tag);
+  }
+  
+  //replace the tag with optional argument
+  strcpy(temp_tag,"###");
+  strcat(temp_tag,tag_name);
+  strcat(temp_tag,"%");
+  char *optional_tag;
+  ctemp = insert_to;
+  char *temp_buff = new char [2048];
+  char *format = new char [2048];
+  while(strstr(ctemp,temp_tag)!=NULL){
+    ctemp = strstr(ctemp,temp_tag);
+    if(strstr(ctemp+strlen(temp_tag),"###")!=NULL){
+      optional_tag = new char [strstr(ctemp+strlen(temp_tag),"###") - ctemp - strlen(temp_tag) + 1];
+      
+      strncpy(optional_tag,ctemp+strlen(temp_tag),strstr(ctemp+strlen(temp_tag),"###") - ctemp - strlen(temp_tag));
+      optional_tag[strstr(ctemp+strlen(temp_tag),"###") - ctemp - strlen(temp_tag)]='\0';
+      
+      if(is_all_digit(optional_tag)){
+	strcpy(temp_buff,"###");
+	strcat(temp_buff,tag_name);
+	strcat(temp_buff,"%");
+	strcat(temp_buff,optional_tag);
+	strcat(temp_buff,"###");
+	
+	int num_digit = atoi(optional_tag);
+	
+	sprintf(format,"%s%d.%dd","%",num_digit,num_digit);
+	sprintf(temp_to_insert,format,to_insert);
+	
+	
+	string_insert(ctemp,temp_to_insert);
+	ctemp = strstr(ctemp,temp_buff) + strlen(temp_buff);
+      }
+      else{
+	ctemp += strlen(temp_tag);
+      }
+      
+      delete [] optional_tag;
+    }
+    else{
+      ctemp += strlen(temp_tag);
+    }
+  }
+  
+  delete [] temp_buff;
+  delete [] format;
+
+  delete [] temp_tag;
+  delete [] temp_to_insert;
+
+  return _ERRORCODE_NOERROR;
+  */
+}
+/*
+int tags::insert_before(char *insert_to,double to_insert){
+  char *temp_tag = new char [tag_name_len+6+1];
+  char *temp_to_insert = new char [2048];
+  //replace the standard tag
+  strcpy(temp_tag,"###");
+  strcat(temp_tag,tag_name);
+  strcat(temp_tag,"###");
+  sprintf(temp_to_insert,"%f",to_insert);
+  char *ctemp = strstr(insert_to,temp_tag);
+
+  while(strstr(ctemp,temp_tag)!=NULL){
+    string_insert(ctemp,temp_to_insert);
+    ctemp = strstr(ctemp,temp_tag) + strlen(temp_tag);
+  }
+  
+  //replace the tag with optional argument
+  strcpy(temp_tag,"###");
+  strcat(temp_tag,tag_name);
+  strcat(temp_tag,"%");
+  char *optional_tag;
+  ctemp = insert_to;
+  char *temp_buff = new char [2048];
+  char *format = new char [2048];
+  while(strstr(ctemp,temp_tag)!=NULL){
+    ctemp = strstr(ctemp,temp_tag);
+    if(strstr(ctemp+strlen(temp_tag),"###")!=NULL){
+      optional_tag = new char [strstr(ctemp+strlen(temp_tag),"###") - ctemp - strlen(temp_tag) + 1];
+      
+      strncpy(optional_tag,ctemp+strlen(temp_tag),strstr(ctemp+strlen(temp_tag),"###") - ctemp - strlen(temp_tag));
+      optional_tag[strstr(ctemp+strlen(temp_tag),"###") - ctemp - strlen(temp_tag)]='\0';
+      
+      if(atof(optional_tag)>0.){
+	strcpy(temp_buff,"###");
+	strcat(temp_buff,tag_name);
+	strcat(temp_buff,"%");
+	strcat(temp_buff,optional_tag);
+	strcat(temp_buff,"###");
+	
+	sprintf(format,"%s%sf","%",optional_tag);
+	sprintf(temp_to_insert,format,to_insert);
+	
+	string_insert(ctemp,temp_to_insert);
+	ctemp = strstr(ctemp,temp_buff) + strlen(temp_buff);
+      }
+      else{
+	ctemp += strlen(temp_tag);
+      }
+      
+      delete [] optional_tag;
+    }
+    else{
+      ctemp += strlen(temp_tag);
+    }
+  }
+  
+  delete [] temp_buff;
+  delete [] format;
+
+
+  delete [] temp_tag;
+  delete [] temp_to_insert;
+
+  return _ERRORCODE_NOERROR;
+}
+*/
+int tags::insert_before(char *insert_to,double to_insert){
+  int error = _ERRORCODE_NOERROR;
+  char *format = new char [strlen(insert_to)];
+  char *operation = new char [strlen(insert_to)];
+  char *first_tag = new char [strlen(insert_to)+10];
+  char *temp_to_insert = new char [strlen(insert_to)+10];
+  char *ctemp = new char [strlen(insert_to)+10];
+  char *cursor = insert_to;
+  while(error == 0){
+    error = this->extract(cursor,first_tag);
+    if(!error){
+      cursor = strstr(cursor,first_tag);
+      this->extract_format(first_tag,format);
+      this->extract_operation(first_tag,operation);
+      
+      if(atof(format)>0.){
+	sprintf(ctemp,"%s%sf","%",format);
+      }
+      else{
+	sprintf(ctemp,"%sf","%");
+      }
+
+      double dtemp;
+      if(strcmp(operation,"")!=0){
+	libjeff::symbolic::operate::compute(operation,to_insert,dtemp);
+      }
+      else{
+	dtemp = to_insert;
+      }
+      sprintf(temp_to_insert,ctemp,dtemp);
+
+      string_insert(cursor,temp_to_insert);
+      cursor += strlen(temp_to_insert) + strlen(first_tag);
+    }
+  }
+  delete [] ctemp;
+  delete [] first_tag;
+  delete [] temp_to_insert;
+  delete [] format;
+  delete [] operation;
+
+  return _ERRORCODE_NOERROR;
+}
+int tags::insert_before(char *insert_to,date_time to_insert){
+  int error = _ERRORCODE_NOERROR;
+  char *format = new char [strlen(insert_to)+10];
+  char *operation = new char [strlen(insert_to)+10];
+  char *first_tag = new char [strlen(insert_to)+10];
+  char *temp_to_insert = new char [strlen(insert_to)+10];
+  char *ctemp = new char [strlen(insert_to)+10];
+  char *cursor = insert_to;
+  while(error == 0){
+    error = this->extract_format(cursor,format);
+    error = this->extract_operation(cursor,operation);
+    if(!error){
+      this->extract(insert_to,first_tag);
+      cursor = strstr(insert_to,first_tag);
+      
+      date_time temp_time = to_insert;
+      
+	//std::cout << ctemp << std::endl;
+      libjeff::symbolic::operate::compute(operation,to_insert,temp_time);
+      if(strlen(format)==0){
+	temp_time.get_time("yyyymmddhhmmss",temp_to_insert);
+      }
+      else{
+	temp_time.get_time(format,temp_to_insert);
+      }
+
+      string_insert(cursor,temp_to_insert);
+      cursor += strlen(temp_to_insert) + strlen(first_tag);
+      
+    }
+  }
+  delete [] ctemp;
+  delete [] first_tag;
+  delete [] temp_to_insert;
+  delete [] format;
+  delete [] operation;
+
+  return _ERRORCODE_NOERROR;
+  /*
+  char *temp_tag = new char [tag_name_len+6+1];
+  char *temp_to_insert = new char [2048];
+  //replace the standard tag
+  strcpy(temp_tag,"###");
+  strcat(temp_tag,tag_name);
+  strcat(temp_tag,"###");
+  char *ctemp = strstr(insert_to,temp_tag);
+  to_insert.get_time("yyyymmddhhmmss",temp_to_insert);
+
+  while(strstr(ctemp,temp_tag)!=NULL){
+    string_insert(ctemp,temp_to_insert);
+    ctemp = strstr(ctemp,temp_tag) + strlen(temp_tag);
+  }
+
+  //replace the tag with optional argument
+  strcpy(temp_tag,"###");
+  strcat(temp_tag,tag_name);
+  strcat(temp_tag,"%");
+  char *optional_tag;
+  ctemp = insert_to;
+  char *temp_buff = new char [2048];
+  while(strstr(ctemp,temp_tag)!=NULL){
+    ctemp = strstr(ctemp,temp_tag);
+    if(strstr(ctemp+strlen(temp_tag),"###")!=NULL){
+      optional_tag = new char [strstr(ctemp+strlen(temp_tag),"###") - ctemp - strlen(temp_tag) + 1];
+
+      strncpy(optional_tag,ctemp+strlen(temp_tag),strstr(ctemp+strlen(temp_tag),"###") - ctemp - strlen(temp_tag));
+      optional_tag[strstr(ctemp+strlen(temp_tag),"###") - ctemp - strlen(temp_tag)]='\0';
+
+      strcpy(temp_buff,"###");
+      strcat(temp_buff,tag_name);
+      strcat(temp_buff,"%");
+      strcat(temp_buff,optional_tag);
+      strcat(temp_buff,"###");
+      
+      to_insert.get_time(optional_tag,temp_to_insert);
+
+      string_insert(ctemp,temp_to_insert);
+      ctemp = strstr(ctemp,temp_buff) + strlen(temp_buff);
+
+      delete [] optional_tag;
+    }
+    else{
+      ctemp += strlen(temp_tag);
+    }
+  }
+
+  delete [] temp_tag;
+  delete [] temp_buff;
+  delete [] temp_to_insert;
+
+  return _ERRORCODE_NOERROR;
+  */
+}
+int tags::extract(char *whole_tag,char *out){
+  int nformat = 3;
+  char **ctemp = new char *[nformat];
+  int i;
+  for(i=0;i<nformat;i++){
+    ctemp[i] = new char [strlen(whole_tag)+1024];
+  }
+  
+  strcpy(ctemp[0],"###");
+  strcat(ctemp[0],this->tag_name);
+  strcat(ctemp[0],"###");
+
+  strcpy(ctemp[1],"###");
+  strcat(ctemp[1],this->tag_name);
+  strcat(ctemp[1],"%");
+
+  strcpy(ctemp[2],"###");
+  strcat(ctemp[2],this->tag_name);
+  strcat(ctemp[2],"|");
+
+  char *min_location = NULL;
+  for(i=0;i<nformat;i++){
+    char *location = strstr(whole_tag,ctemp[i]);
+    if(location != NULL){
+      if(min_location == NULL || location < min_location){
+	min_location = location;
+      }
+    }
+  }
+
+  if(min_location == NULL){
+    for(i=0;i<nformat;i++){
+      delete [] ctemp[i];
+    }
+    delete [] ctemp;
+    return _ERRORCODE_TAGNOTFOUND;
+  }
+  strcpy(out,min_location);
+
+  strcpy(ctemp[0],"###");
+  strcat(ctemp[0],this->tag_name);
+  strcpy(ctemp[0],out+strlen(ctemp[0]));
+  if(strstr(ctemp[0],"###")==NULL){
+    for(i=0;i<nformat;i++){
+      delete [] ctemp[i];
+    }
+    delete [] ctemp;
+    return _ERRORCODE_UNENDEDTAG;
+  }
+  *(strstr(out+3,"###")+3) = '\0';
+  for(i=0;i<nformat;i++){
+    delete [] ctemp[i];
+  }
+  delete [] ctemp;
+
+  return _ERRORCODE_NOERROR;
+}
+int tags::extract_format(char *whole_tag,char *out){ //need to include also the ### parts
+  char *ctemp = new char [strlen(whole_tag)+1];
+  int error = this->extract(whole_tag,ctemp);
+
+  if(error == _ERRORCODE_NOERROR){
+    ctemp[strlen(ctemp)-3]='\0';
+    if(strstr(ctemp,"%")==NULL){
+      strcpy(out,"");
+    }
+    else{
+      strcpy(out,strstr(ctemp,"%")+1);
+      if(strstr(out,"|")!=NULL){
+	*strstr(out,"|")='\0';
+      }
+    }
+  }
+  
+  delete [] ctemp;
+
+  return error;
+}
+int tags::extract_operation(char *whole_tag,char *out){ //need to include also the ### parts
+  char *ctemp = new char [strlen(whole_tag)+1];
+  int error = this->extract(whole_tag,ctemp);
+
+  if(error == _ERRORCODE_NOERROR){
+    ctemp[strlen(ctemp)-3]='\0';
+    if(strstr(ctemp,"|")==NULL){
+      strcpy(out,"");
+    }
+    else{
+      strcpy(out,strstr(ctemp,"|")+1);
+      if(strstr(out,"%")!=NULL){
+	*strstr(out,"%")='\0';
+      }
+    }
+  }
+  
+  delete [] ctemp;
+
+  return error;
+}
+
+namespace libjeff{
+  namespace data_names{
+    
+    known_tags::~known_tags(){
+      if(allocated_size > 0){
+	delete [] tag_list;
+      }
+      num_tag = 0;
+      allocated_size = 0;
+    }
+    int known_tags::regis(char *in){
+      tags* temp = new tags(in);
+      int error = known_tags::regis(temp);
+      delete temp;
+
+      return error;
+    }
+    int known_tags::regis(tags *in){
+      if(allocated_size == 0){
+	allocated_size = INITIALSIZE;
+	tag_list = new tags [allocated_size];
+      }
+      else if(num_tag == allocated_size){
+	tags* temp_list = new tags [allocated_size*2];
+	allocated_size*=2;
+	
+	int i;
+	for(i=0;i<num_tag;i++){
+	  temp_list[i] = tag_list[i];
+	}
+	delete [] tag_list;
+	tag_list = temp_list;
+      }
+      
+      tag_list[num_tag] = *in;
+      num_tag++;
+      
+      return _ERRORCODE_NOERROR;
+    }
+    bool known_tags::isknown(tags *in){
+      bool found = false;
+      
+      int i;
+      for(i=0;i<num_tag;i++){
+	if(*in == tag_list[i]){
+	  found = true;
+	  break;
+	}
+      }
+      
+      return found;
+    }
+    int known_tags::num_tag = 0;
+    int known_tags::allocated_size = 0;
+    tags* known_tags::tag_list = NULL;
+    
+    //forcing the compiler to interpret as function call.
+    int tp1 = known_tags::regis("position:longitude");
+    int tp2 = known_tags::regis("position:latitude");
+    int tp3 = known_tags::regis("position:fl");
+    int tww1 = known_tags::regis("wx_element:winds");
+    int tww2 = known_tags::regis("wx_element:windd");
+    int tww3 = known_tags::regis("wx_element:windu");
+    int tww4 = known_tags::regis("wx_element:windv");
+    int twt1 = known_tags::regis("wx_element:t");
+    int twt2 = known_tags::regis("wx_element:td");
+    int twq1 = known_tags::regis("wx_element:rh");
+    int twtu1 = known_tags::regis("wx_element:ti2");
+    int two1 = known_tags::regis("wx_element:trop");
+
+    char *extract_namespace(tags *in, char *&out){
+      if(out != NULL){
+	delete [] out;
+      }
+      out = NULL;
+
+      if(known_tags::isknown(in) ||strcmp(in->get_name(),"wx_element")==0 ){
+	out = new char [strlen(in->get_name())+10];
+	string_extract_field(in->get_name(),":",0,out);
+      }
+
+      return out;
+    }
+    char *extract_elements(tags *in, char *&out){
+      if(out != NULL){
+	delete [] out;
+      }
+      out = NULL;
+
+      if(known_tags::isknown(in)){
+	out = new char [strlen(in->get_name())+10];
+	string_extract_field(in->get_name(),":",1,out);
+      }
+
+      return out;
+    }
+  }
+}
+bool is_tag_balanced(char *in){
+  if(string_count_pattern(in,"###")%2==0){
+    return true;
+  }
+  else{
+    return false;
+  }
+}
+
+bool is_valid_tag(char *in){
+  if(strlen(in)<7){
+    return false;
+  }
+  else if(strncmp(in,"###",3)!=0){
+    return false;
+  }
+  else if(strncmp(in+strlen(in)-3,"###",3)!=0){
+    return false;
+  }
+  else{
+    char *ctemp = new char [strlen(in)];
+    strcpy(ctemp,in+3);
+    ctemp[strlen(ctemp)-3]='\0';
+    
+    bool result = true;
+    int i;
+    for(i=0;i<strlen(ctemp);i++){
+      if(!isalnum(ctemp[i]) && ctemp[i]!=' ' && ctemp[i]!='%' && ctemp[i]!='-' && ctemp[i]!='_' && ctemp[i]!='.'){
+	result = false;
+	break;
+      }
+    }
+    
+    delete [] ctemp;
+    return result;
+  }
+}
+char *get_tag_name(char *in,char *out){
+  if(!is_valid_tag(in)){
+    return NULL;
+  }
+  
+  strcpy(out,in+3);
+  out[strlen(out)-3]='\0';
+
+  if(strstr(out,"%")!=NULL){
+    *strstr(out,"%") = '\0';
+  }
+
+  return out;
+}
+char *get_tag_option(char *in,char *out){
+  if(!is_valid_tag(in)){
+    return NULL;
+  }
+  
+  if(strstr(in,"%")!=NULL){
+    strcpy(out,strstr(in,"%")+1);
+    *strstr(out,"###") = '\0';
+  }
+  else{
+    strcpy(out,"");
+  }
+
+  return out;
+}
+int list_tag(char *in,int &num_tags,tags *&tag_list){
+  if(tag_list!=NULL){
+    delete [] tag_list;
+  }
+  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+    std::cout << "Input of list_tag: " << in << std::endl;
+  }
+
+  num_tags = 0;
+  int count = string_count_pattern(in,"###");
+  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+    std::cout << "Pattern count: " << count << std::endl;
+  }
+  if(count%2!=0){
+    return _ERRORCODE_INPUTERROR;
+  }
+
+  num_tags = count/2;
+  tag_list = new tags [num_tags];
+
+  int i;
+  char *iterator = in;
+  for(i=0;i<num_tags;i++){
+    iterator = strstr(iterator,"###")+3;
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Iterator: " << iterator << std::endl;
+    }
+    char *ctemp;
+    int temp_len = strstr(iterator,"###") - iterator + 1;
+    ctemp = new char [temp_len];
+    strncpy(ctemp,iterator,temp_len-1);
+    ctemp[temp_len-1] = '\0';
+    if(strstr(ctemp,"%")!=NULL){
+      *strstr(ctemp,"%") = '\0';
+    }
+    if(strstr(ctemp,"|")!=NULL){
+      *strstr(ctemp,"|") = '\0';
+    }
+    tag_list[i].create(ctemp);
+    iterator = strstr(iterator,"###")+3;
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Iterator: " << iterator << std::endl;
+    }
+    delete [] ctemp;
+  }
+
+  return _ERRORCODE_NOERROR;
+}
+bool is_consistent_with_tags(char *to_check,char *name_format,int num_tags,tags *tag_list){
+  int length = strlen(to_check);
+
+  int i;
+  int error;
+  bool result = true;
+  char *format = new char [strlen(name_format)+1];
+  char *ctemp3 = new char [strlen(name_format)+1];
+  bool length_check_apply = true;
+  for(i=0;i<num_tags;i++){
+    char *ctemp = name_format;
+    do{
+      error = tag_list[i].extract_format(ctemp,format);
+      if(error == _ERRORCODE_NOERROR){
+	if(strcmp(format,"")==0 || strcmp(format,"h")==0 || strcmp(format,"Unix time")==0){
+	  length_check_apply = false;
+	  break;
+	}
+	tag_list[i].extract(ctemp,format);
+	ctemp = strstr(name_format,format) + strlen(format);
+      }
+
+    }while(error == _ERRORCODE_NOERROR && length_check_apply);
+  }
+
+  int *locations = new int [num_tags];
+  bool not_finish = false;
+  char *ctemp = name_format;
+  char *ctemp2 = to_check;
+  
+  int sum_length = 0;
+  int min_length;
+  int min_index;
+  do{
+    not_finish = false;
+    for(i=0;i<num_tags;i++){
+      error = tag_list[i].extract(ctemp,format);
+      if(error == _ERRORCODE_NOERROR){
+	locations[i] = strstr(ctemp,format) - ctemp;
+	not_finish = true;
+      }
+      else{
+	locations[i] = strlen(ctemp)+1;
+      }
+    }
+    
+    //std::cout << ctemp << " " << ctemp2 << std::endl;
+    if(not_finish){
+      min_length = strlen(ctemp)+1;
+      
+      for(i=0;i<num_tags;i++){
+	if(min_length > locations[i]){
+	  min_length = locations[i];
+	  min_index = i;
+	}
+      }
+	
+      if(length_check_apply){
+	tag_list[min_index].extract_format(ctemp,format);
+	sum_length += min_length;
+	if(is_number(format)){
+	  sum_length += (int) atof(format);
+	}
+	else{
+	  sum_length += strlen(format);
+	}
+      }
+      
+      tag_list[min_index].extract(ctemp,format);
+      strcpy(ctemp3,ctemp);
+      *strstr(ctemp3,format)='\0';
+      ctemp2 = strstr(ctemp2,ctemp3);
+      if(ctemp2 == NULL){
+	result = false;
+      }
+      else{
+	ctemp2 += strlen(ctemp3);
+      }
+      ctemp = strstr(ctemp,format) + strlen(format);
+    }
+  }while(not_finish && result);
+
+  if(result && strstr(ctemp2,ctemp)==NULL){
+    result = false;
+  }
+  if(length_check_apply){
+    sum_length += strlen(ctemp);
+    if(sum_length != length){
+      result = false;
+    }
+  }
+
+  delete [] format;
+  delete [] ctemp3;
+  delete [] locations;
+
+  return result;
+}

@@ -1,0 +1,61 @@
+#ifndef SSHINTERFACE
+#define SSHINTERFACE
+
+#include<sys/stat.h>
+
+#include <libssh/libssh.h>
+#include <libssh/sftp.h>
+
+namespace libjeff{
+  class ssh_interface{
+  public:
+    ssh_interface();
+    ssh_interface(char* hostname,char *username, char*password); //recommended since it would set the rest by default and then connect automatically
+    ssh_interface(char* hostname,char *username, char*password,int port); //recommended since it would set the rest by default and then connect automatically
+    ~ssh_interface();
+
+    int connect();
+    
+
+    void set_port(int ssh_port);
+    void set_hostname(char *hostname);
+    void set_username(char *username);
+    void set_password(char *password);
+    void set_pubkey_auth(bool on);
+    void set_verbosity(int verbosity);
+
+    void set(enum ssh_options_e options,const void* value); //not recommended if the same thing can be done with other routines
+
+    inline char *get_hostname() const {return hostname;}
+    inline char *get_username() const {return username;}
+    inline char *get_password() const {return password;}
+    inline int get_ssh_port() const {return ssh_port;}
+
+    inline bool is_connected() const {return connected;}
+
+    int sftp_get_file(char *filepath,char*&outbuff,size_t &fsize);
+    size_t sftp_get_file_size(char *filepath);
+    int sftp_list_item(const char* inpath,char ** &content,int &num_item); //please avoid directly calling this function. You should use the file_check_list_item instead
+    int sftp_create_dir(char *directory,mode_t mode);
+    int sftp_write_file(char *filepath,char* buff,size_t fsize,mode_t mode);
+
+  private:
+    void init();
+
+    int init(sftp_session *sftp);    
+
+    ssh_session *sshc;
+    ssh_channel *channel;
+    char *hostname;
+    char *username;
+    char *password; 
+    int ssh_port;
+    int pubkey_auth;
+    int verbosity;
+
+    bool connected;
+  };
+};
+
+
+#endif

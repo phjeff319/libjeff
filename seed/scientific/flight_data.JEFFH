@@ -1,0 +1,243 @@
+#ifndef FLIGHTDATA
+#define FLIGHTDATA
+#include "date_time.h"
+
+#include "file_handler.h"
+#include "timed_grid_data.h"
+
+const date_time MAX_FLIGHT_TIME(0,0,1);
+
+namespace libjeff{
+  struct frametype{
+    char name[10];
+    double length;
+    double wingspan;
+    double wingarea;
+  };
+
+  const frametype B773 = {"B773",73.86,60.93,427.8};
+  const frametype B773ER = {"B773ER",73.86,64.8,436.8};
+  const frametype unknown_frame = {"unknown",-1.,-1.,-1.};
+
+  class flight_data_pt{
+  public:
+    flight_data_pt();
+    flight_data_pt(const flight_data_pt &in);
+    ~flight_data_pt();
+    
+    inline double* get_latlon() const {return latlon;}
+    double* get_lonlat(double *out);
+    inline double get_flight_level() const {return flight_level;}
+    inline double get_geometric_height() const {return geometric_height;}
+    inline date_time get_time() const {return pt_time;}
+    inline double get_mach_no() const {return mach_no;}
+    inline double get_sat() const {return sat;}
+    inline double get_windu() const {return windu;}
+    inline double get_windv() const {return windv;}
+    inline double get_temperature() const {return temperature;}
+    inline double get_ti() const {return ti;}
+    inline double get_edr() const {return edr;}
+    inline double get_qv() const {return qv;}
+    inline double get_delta_g() const {return delta_g;}
+    inline double get_ground_speed() const {return ground_speed;}
+    inline double get_pressure() const {return pressure;}
+    inline double get_weight() const {return weight;}
+    inline double get_tas() const {return tas;}
+    inline double get_angle_of_attack() const {return angle_of_attack;}
+    inline double get_vertical_speed() const {return vertical_speed;}
+    inline double get_roll() const {return roll;}
+    inline double get_pitch() const {return pitch;}
+    inline double get_flap() const {return flap;}
+    inline double* get_fuelflow() const {return fuelflow;}
+    //inline double* get_aileron_angle() const {return aileron_angle;}
+    //inline double get_rudder_angle() const {return rudder_angle;}
+    //inline double* get_elevator_angle() const {return elevator_angle;}
+    inline int is_on_ground() const {return on_ground;}
+    inline int get_status() const {return error;}
+
+    double get(char *field) const;    
+
+    inline int get_frame_no() const {return frame_no;}
+    inline int get_frame_sec() const {return frame_sec;}
+    
+    void set_latlon(double *in);
+    void set_lonlat(double *in);
+    inline void set_flight_level(double in) {flight_level = in;}
+    inline void set_geometric_height(double in) {geometric_height = in;}
+    inline void set_time(date_time in) {pt_time = in;}
+    inline void set_mach_no(double in) {mach_no = in;}
+    inline void set_sat(double in) {sat = in;}
+    inline void set_edr(double in) {edr = in;}
+    inline void set_qv(double in) {qv = in;}
+    inline void set_delta_g(double in) {delta_g = in;}
+    inline void set_ground_speed(double in) {ground_speed = in;}
+    inline void set_windu(double in) {windu = in;}
+    inline void set_windv(double in) {windv = in;}
+    inline void set_temperature(double in) {temperature = in;}
+    inline void set_pressure(double in) {pressure = in;}
+    inline void set_weight(double in) {weight = in;}
+    inline void set_angle_of_attack(double in) {angle_of_attack = in;}
+    inline void set_vertical_speed(double in) {vertical_speed = in;}
+    inline void set_tas(double in) {tas = in;}
+    inline void set_pitch(double in) {pitch = in;}
+    inline void set_roll(double in) {roll = in;}
+    inline void set_flap(double in) {flap = in;}
+    inline void set_fuelflow(int index,double in) {fuelflow[index] = in;}
+
+    //void set_aileron_angle(double *in);
+    //void set_rudder_angle(double in);
+    //void set_elevator_angle(double *in);
+
+    inline void set_frame_no(int in) {frame_no = in;}
+    inline void set_frame_sec(int in) {frame_sec = in;}
+    inline void set_is_on_ground(int in) {on_ground = in;}
+    inline void set_status(int in) {error = in;}
+
+    void set(char *field,double value);
+
+    flight_data_pt& operator=(const flight_data_pt& in);
+    
+  private:
+    date_time pt_time;
+    int frame_no, frame_sec;
+    double ground_speed;
+    double delta_g;
+    double *latlon;
+    double flight_level;
+    double geometric_height;
+    double mach_no;
+    double sat;
+    double windu, windv, temperature, ti, edr, qv;
+    double pressure;
+    double weight;
+    //double aileron_angle[4];
+    //double rudder_angle;
+    //double elevator_angle[2];
+    double tas,vertical_speed,angle_of_attack,pitch,roll,flap;
+    int on_ground; //1 for on ground, 0 for in air, -1 for unknown
+    int error;
+    double* fuelflow; //[0] for left, [1] for right
+  };
+
+  class flight_data{
+  public:
+    flight_data();
+    flight_data(const flight_data &in);
+    ~flight_data();
+
+    void destroy();
+    int create(int n_pt);
+
+    inline flight_data_pt* get_data_pt(int index) const {return data_pt+index;}
+    flight_data_pt* get_data_pt(date_time pt_time) const;
+    flight_data_pt* get_data_pt(date_time pt_time,date_time tolerance) const;
+    int get_index(date_time pt_time) const;
+    int get_index(date_time pt_time,date_time tolerance) const;
+    inline int get_num_data_pt() const {return n_data_pt;}
+    inline char* get_remarks() const {return remarks;}
+    inline char* get_t_address() const {return tAddr;}
+    double get_duration() const;
+    inline frametype get_frame() const {return frame;}
+
+    int get_max_frame_sf() const;
+    int get_data_frequency() const;
+
+    inline void set_frame(const frametype in) { frame = in;}
+
+    void set_remarks(char *in);
+    void set_t_address(char *in);
+
+    bool is_t_address_set() const;
+    int check() const; //return 0 if no suspicious data
+
+    flight_data& operator=(const flight_data& in);
+    flight_data operator+=(const flight_data& in);
+
+    int read_flight_plan_csv(char *filename);
+    int read_NRL_csv_with_case_number(char *file_path,char *casenumber,date_time (*read_date_func)(char* path,char* filename));
+    int read_NRL_csv_with_flight_num_and_date(char *file_path,char *nameformat,char *flight_number,date_time init_date,char *dateformat,char* aircrafttype); //use ###flight number###, ###date###, ###aircraft type###, ###seq_no### and ###suffix### in name_format, aircrafttype is optional and can be set to NULL
+    int read_NRL_csv(char *file_path,char *name_format,date_time init_date,char* aircrafttype); //use ###aircraft type###, ###seq_no### and ###suffix### in name_format, aircrafttype is optional and can be set to NULL
+    //int read_raw_QAR_append_NRL_csv(char *file_path,char *raw_qar_filename,char *nrl_name_format); //use ###seq_no### and ###suffix### in nrl_name_format
+    int read_CXKA_QAR_csv(char *file_path,char *nameformat,char *flight_number,date_time init_date,char *dateformat,char* aircrafttype); //use ###flight number###, ###date###, ###aircraft type###, ###seq_no### and ###suffix### in name_format, aircrafttype is optional and can be set to NULL
+    int read_CXKA_QAR_csv_with_NRL(char *file_path,char *nameformat_raw,char *nrl_file_path,char *nameformat_nrl,char *flight_number,date_time init_date,char *dateformat,char* aircrafttype, char *nrl_suffix); //use ###flight number###, ###date###, ###aircraft type###, ###seq no### and ###suffix### in name_format, aircrafttype is optional and can be set to NULL
+    int read_CXKA_QAR_frametype(char *file_path,char *nameformat,char *flight_number,date_time init_date,char *dateformat);
+    int read_FR24_csv(char *filename);
+
+    int parse_flight_plan_json(json_block *in,char *master_key, char *latlon_key,char *time_key, char *fl_key);
+    int parse_amdar_arinc(char *amdar_string,date_time obs_end_date);
+
+    int flag_islands();
+
+    int check_time();
+    int check_latlon();
+
+    int fill_missing_by_interpolate();
+    int fill_missing_by_interpolate(char *field);
+    double interpolate_to(char *field,date_time intime) const;
+    double interpolate_to(char *field,date_time intime,int &fg) const;
+    int qc(bool autocorrect); //return false if not problem with QC or problem fixed; return true if QC failed and cannot fix the problem.
+
+    int remove_error_data();
+    int remove_ground_data();
+
+    int match_and_append(int num_flight_data,const flight_data* in,bool (*match_function)(const libjeff::flight_data &a,const libjeff::flight_data &b));
+    void append(const flight_data& in);
+    void append(const flight_data_pt *in);
+    int insert(int index_to_insert,const flight_data_pt *in);
+    int cal_ground_speed();
+    int cal_ground_speed(date_time interval);
+
+    double *get_location(date_time intime,double *location);
+    double get_direction(date_time intime);
+    void write4NCAR_insituturb(ostream &cout) const;
+
+    int resample(const flight_data& in,int frequency);
+
+    int expand_allocation(int new_size);
+
+  private:
+    int allocated_size;
+    int n_data_pt;
+    flight_data_pt *data_pt;
+    char *remarks;
+    char *tAddr;
+    frametype frame;
+  };
+
+  int format_callsign(char *in,char *format,char *out);
+  namespace flightData{
+    int read_bufr(char *filename,int &num_flight_data,libjeff::flight_data_pt* &out,bool (*quality_check)(flight_data_pt* test_pt));
+  }
+  namespace amdar{
+    int extract_arinc_de_data_format(char *&amdar_string,double *latlon,int &hh,int &mm, int &altitude, double &t, double &ws, double &wd, int &rollflag, double &qv, int &nturb, double* &meanturb,double *&maxturb); //if extraction is successful, the subroutine will advance the pointer in by 37+4*nturb bytes
+    int extract_arinc_a_data_format(char *&amdar_string, int &altitude, double &t, double &ws, double &wd, int &rollflag, double &qv); //if extraction is successful, the subroutine will advance the pointer in by 19 bytes
+    int extract_arinc_a_data_format(char *&amdar_string, double *latlon, int &altitude, double &t, double &ws, double &wd, int &rollflag, double &qv); //if extraction is successful, the subroutine will advance the pointer in by 32 bytes
+
+    int extract_ddhhmm(char* &in,int &dd,int &hh,int &mm);  //if extraction is successful, the subroutine will advance the pointer in by 6 bytes
+    int extract_hhmm(char* &in,int &hh,int &mm);  //if extraction is successful, the subroutine will advance the pointer in by 4 bytes
+    int extract_latlon(char* &in,double *latlon);  //if extraction is successful, the subroutine will advance the pointer in by 13 bytes
+    int extract_altitude(char* &in,int &altitude);  //if extraction is successful, the subroutine will advance the pointer in by 4 bytes
+    int extract_t(char *&in,double &t); //if extraction is successful, the subroutine will advance the pointer in by 4 bytes
+    int extract_wxelement(char *&in,double &t,double &ws,double &wd); //if extraction is successful, the subroutine will advance the pointer in by 10 bytes
+    int extract_qv(char *&in,double &qv); //if extraction is successful, the subroutine will advance the pointer in by 4 bytes
+    int extract_turb(char *&in,int &nturb,double* &meanturb,double *&maxturb); //if extraction is successful, the subroutine will advance the pointer in by 1+4*nturb bytes
+    date_time get_date_from_filename(char *filename);
+  }
+}
+ostream &operator<<(ostream &cout, libjeff::flight_data in);
+date_time read_date_from_QAR_csv(char* path,char* casenumber);
+date_time read_date_from_QAR_csv(char* filename);
+libjeff::flight_data* read_adsb_json_cat21(char *filename,int &num_flight_data,libjeff::flight_data* &append_to);
+libjeff::flight_data* read_adsb_json_cat21(char *dirs_format,date_time from_time,date_time to_time,char *dir_time_format,int &num_flight_data,libjeff::flight_data* &out);  //will append to out, please use ###DIR TIME### in the dirs_format
+libjeff::flight_data* read_CX_EDR_json(char *filename,char* EDRtype,int &num_flight_data,libjeff::flight_data* &append_to);
+int read_CX_EDR_json(char *dirs_format,date_time from_time,date_time to_time,char *dir_time_format,char *filename_format,char* EDRtype,int &num_flight_data,libjeff::flight_data* &out);  //will append to out, please use ###DIR TIME### in the dirs_format. filename_format acts as a filter and can be set to NULL. If filename_format contains the tag ###filetime###, this subroutine would be able to sort the files during read with the time
+int regroup_flight_data(int &num_flight_data,libjeff::flight_data* &inout);
+int sort_flightdata(int nflight_data,libjeff::flight_data* in); //sort between different elements in the array of flight_data
+int sort_flightdata(libjeff::flight_data* in); //sort data in in[0]
+bool is_t_address_match(const libjeff::flight_data &a,const libjeff::flight_data &b);
+bool is_call_sign_match(const libjeff::flight_data &a,const libjeff::flight_data &b);
+bool is_t_address_and_call_sign_match(const libjeff::flight_data &a,const libjeff::flight_data &b);
+namespace flight_data_funct{
+  void setequal(char *a,char *b);
+}
+#endif

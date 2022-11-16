@@ -1,0 +1,17 @@
+#ifndef string_man
+#define string_man
+void itoa(int,char*);
+void itoa(int,int,char*);
+bool string_throwaway(char*,char*,char*,char*);
+bool string_get_before(char *in,char *out,char *delim1);
+bool string_get_between(char *in,char *out,char *delim1,char *delim2);
+bool string_check_pattern(char*,char*);
+int string_count_pattern(char *to_count,char *pattern);
+int string_count_continuous_pattern(char *to_count,char *pattern);
+void string_replace(char* toReplace, char *replaceFrom, char *replaceTo); 
+void string_reverse(char *input,char *output);
+char *string_insert(char *insert_to,char *to_insert);
+char *string_extract_field(char* buff,char *deliminator,int field_num,char* output); //field_num = 0 for first field
+double *string_extract_lonlat(char *buff,double *out);
+int *string_extract_lonlat(char *buff,int *out);
+#endif

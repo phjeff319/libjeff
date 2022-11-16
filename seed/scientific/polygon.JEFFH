@@ -1,0 +1,55 @@
+#ifndef POLYGON
+#define POLYGON
+#include<iostream>
+using namespace std;
+
+namespace libjeff{
+  template <class vertice_type> class polygon{
+  public:
+    polygon();
+    polygon(const polygon<vertice_type>& in);
+    ~polygon();
+
+    int create(int num_vertices);
+    int destroy();
+
+    inline int get_num_vertices() const {return num_vertices;}
+    vertice_type* get_vertices(int index) const;
+
+    int add_vertex(int location,vertice_type *vertex);
+    int delete_vertex(int location);
+
+    char *toGeoJson(char* &out) const;
+
+    int parse(char *in);
+
+    void remove_duplicate_vertices();
+
+    void make_right_hand();
+    void make_left_hand();
+    void reverse();
+
+    polygon &operator=(const polygon &in);
+
+    bool is_closed() const;
+    bool is_opened() const;
+    bool is_right_hand() const;
+
+    int open();
+    int close();
+
+    void check_short_segment(double threshold,char *remarks); //remarks is optional and can be set to NULL
+
+  private:
+    int allocated_size;
+    int num_vertices;
+    vertice_type **vertices;
+  };
+
+  int parse_mulit_polygon(char *in,int &npolygon,polygon<double>*& out);
+}
+ostream &operator<<(ostream &output, libjeff::polygon<double> in);
+ostream &operator<<(ostream &output, libjeff::polygon<int> in);
+//template class libjeff::polygon<int>;
+//template class libjeff::polygon<double>;
+#endif

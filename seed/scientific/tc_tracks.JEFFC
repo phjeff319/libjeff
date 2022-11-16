@@ -1,0 +1,450 @@
+#include<fstream>
+
+#include"tc_tracks.h"
+
+#include"earth.h"
+#include"error_code.h"
+#include"file_check.h"
+#include"sorting.h"
+#include"verification.h"
+
+tc_track::tc_track(){
+  valid_time = NULL;
+  track_pts = NULL;
+  num_track_pt = 0;
+}
+tc_track::tc_track(const tc_track &in){
+  valid_time = NULL;
+  track_pts = NULL;
+  num_track_pt = 0;
+
+  *this = in;
+}
+tc_track::~tc_track(){
+  this->destroy();
+}
+
+int tc_track::create(int num_track_pt){
+  if(num_track_pt<=0){
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+  this->destroy();
+  
+  this->num_track_pt = num_track_pt;
+  int i;
+  valid_time = new date_time [num_track_pt];
+  track_pts = new double *[num_track_pt];
+  for(i=0;i<num_track_pt;i++){
+    track_pts[i] = new double [2];
+    track_pts[i][0] = -999.9;
+    track_pts[i][1] = -999.9;
+  }
+
+  return _ERRORCODE_NOERROR;
+}
+void tc_track::destroy(){
+  if(num_track_pt > 0){
+    int i;
+    for(i=0;i<num_track_pt;i++){
+      delete [] track_pts[i];
+    }
+    delete [] track_pts;
+    delete [] valid_time;
+  }
+  num_track_pt = 0;
+}
+int tc_track::read_best_track_files(char *filename){
+  int nline = libjeff::file_check_length(filename);
+  if(nline <= 0){
+    return _ERRORCODE_FILEREADERROR;
+  }
+
+  this->create(nline);
+
+  int i;
+  char *ctemp = new char [4096];
+
+  std::ifstream fin;
+
+  fin.open(filename);
+
+  for(i=0;i<nline;i++){
+    fin.getline(ctemp,100,'\t');
+    fin.getline(ctemp,100,'\t');
+    valid_time[i].set_time(ctemp);
+
+    fin.getline(ctemp,100,'\t');
+    fin >>  track_pts[i][0] >> track_pts[i][1];
+    track_pts[i][0] *= 0.1; 
+    track_pts[i][1] *= 0.1;
+    fin.getline(ctemp,100,'\n');
+  }
+
+  fin.close();
+
+  return _ERRORCODE_NOERROR;
+}
+tc_track& tc_track::operator=(const tc_track& in){
+  if(this == &in){
+    return *this;
+  }
+
+  this->create(in.get_num_track_pt());
+  int i,j;
+  for(i=0;i<in.get_num_track_pt();i++){
+    this->valid_time[i] = in.get_valid_time()[i];
+    for(j=0;j<2;j++){
+      this->track_pts[i][j] = (in.get_track_pts())[i][j];
+    }
+  }
+
+  return *this;
+}
+
+model_tc_track::model_tc_track():tc_track(){
+}
+model_tc_track::~model_tc_track(){
+  tc_track::destroy();
+}
+model_tc_track::model_tc_track(const model_tc_track &in){
+  *this = in;
+}
+int model_tc_track::read_f3_track_files(char *filename){
+  int nline = libjeff::file_check_length(filename);
+  if(nline <= 0){
+    return _ERRORCODE_FILEREADERROR;
+  }
+
+  this->create(nline);
+  int i,itemp;
+  char *ctemp = new char [4096];
+
+  std::ifstream fin;
+
+  fin.open(filename);
+
+  for(i=0;i<nline;i++){
+    fin.getline(ctemp,10,' ');
+    fin.getline(ctemp,100,' ');
+    model_init_time.set_time(ctemp);
+
+    fin >> itemp;
+ 
+    fin.getline(ctemp,10,' ');
+    fin.getline(ctemp,100,' ');
+    valid_time[i].set_time(ctemp);
+    fin >>  track_pts[i][0] >> track_pts[i][1];
+    fin.getline(ctemp,100,'\n');
+  }
+
+  int n_valid_data = 0;
+  for(i=0;i<nline;i++){
+    if(track_pts[i][0] < -90. || track_pts[i][0] > 90. || track_pts[i][1] < -360. || track_pts[i][1] > 360.){
+      break;
+    }
+    else if(i!=0 && libjeff::earth_latlon2dist(track_pts[i],track_pts[i-1]) > 1000*1000.){
+      break;
+    }
+    else{
+      n_valid_data++;
+    }
+  }
+
+  for(i=n_valid_data;i<nline;i++){
+    delete [] track_pts[i];
+  }
+  num_track_pt = n_valid_data;
+
+  fin.close();
+
+  delete [] ctemp;
+  return _ERRORCODE_NOERROR;
+}
+model_tc_track& model_tc_track::operator=(const model_tc_track& in){
+  if(this == &in){
+    return *this;
+  }
+
+  this->create(in.get_num_track_pt());
+  int i,j;
+  for(i=0;i<in.get_num_track_pt();i++){
+    this->valid_time[i] = in.get_valid_time()[i];
+    for(j=0;j<2;j++){
+      this->track_pts[i][j] = (in.get_track_pts())[i][j];
+    }
+  }
+  this->model_init_time = in.get_model_init_time();
+
+  return *this;
+}
+
+void tc_track_sort_model_init_time_setequal(char *a,char *b){
+  *((model_tc_track*) b)=*((model_tc_track*) a);
+}
+bool tc_track_sort_model_init_time_isless(char *a,char *b){
+  return ((model_tc_track*) b)->get_model_init_time() > ((model_tc_track*) a)->get_model_init_time();
+}
+
+int tc_track_sort_model_init_time(int ntrack,model_tc_track *tracks){
+  if(ntrack <= 0){
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+  general_sort(ntrack,sizeof(model_tc_track),(char *) tracks,tc_track_sort_model_init_time_setequal,tc_track_sort_model_init_time_isless);
+  
+
+  return _ERRORCODE_NOERROR;
+}
+
+int tc_track_form_homogeneous_set(int nmodel,int *num_fcst,model_tc_track **original,int *output_num_fcst,model_tc_track **output){
+  int i,j,k;
+
+  int *temp_num_fcst = new int [nmodel];
+  model_tc_track **temp_tracks = new model_tc_track* [nmodel];
+
+  for(i=0;i<nmodel;i++){
+    temp_num_fcst[i] = num_fcst[i];
+    temp_tracks[i] = new model_tc_track [temp_num_fcst[i]];
+    for(j=0;j<temp_num_fcst[i];j++){
+      temp_tracks[i][j] = original[i][j];
+    }
+  }
+
+  bool common;
+  bool found;
+  for(i=0;i<temp_num_fcst[0];i++){
+    common = true;
+    for(j=1;j<nmodel;j++){
+      found = false;
+      for(k=0;k<temp_num_fcst[j];k++){
+	if(temp_tracks[0][i].get_model_init_time() == temp_tracks[j][k].get_model_init_time()){
+	  found = true;
+	  break;
+	}
+      }
+
+      if(!found){
+	common = false;
+	break;
+      }
+    }
+
+    if(!common){
+      temp_tracks[0][i].destroy();
+    }
+  }
+
+  for(j=1;j<nmodel;j++){
+    for(k=0;k<temp_num_fcst[j];k++){
+      found = false;
+      for(i=0;i<temp_num_fcst[0];i++){
+	if(temp_tracks[0][i].get_model_init_time() == temp_tracks[j][k].get_model_init_time() && temp_tracks[0][i].get_num_track_pt() > 0){
+	  found = true;
+	  break;
+	}
+      }
+
+      if(!found){
+	temp_tracks[j][k].destroy();
+      }
+    }
+  }
+
+  for(i=0;i<nmodel;i++){
+    output_num_fcst[i] = 0;
+    for(j=0;j<temp_num_fcst[i];j++){
+      if(temp_tracks[i][j].get_num_track_pt() > 0){
+	output_num_fcst[i]++;
+      }
+    }
+  }
+
+  for(i=0;i<nmodel;i++){
+    if(output[i] != NULL){
+      delete [] output[i];
+    }
+  }
+
+  int count;
+  for(i=0;i<nmodel;i++){
+    output[i] = new model_tc_track [output_num_fcst[i]];
+    
+    count = 0;
+    for(j=0;j<temp_num_fcst[i];j++){
+      if(temp_tracks[i][j].get_num_track_pt() > 0){
+	output[i][count] = temp_tracks[i][j];
+	count++;
+      }
+    }
+  }
+
+  for(i=0;i<nmodel;i++){
+    delete [] temp_tracks[i];
+  }
+  delete [] temp_tracks;
+  delete [] temp_num_fcst;
+
+  return _ERRORCODE_NOERROR;
+}
+int tc_track_create_ensemble_by_simple_average(int nmodel,int num_fcst,model_tc_track **ensemble_from,model_tc_track *ensemble_track,int n_fcst_hr,date_time delta_hour){ //assming homogeneous dataset
+  int i,j,k,m,n;
+  for(i=0;i<num_fcst;i++){
+    ensemble_track[i].create(n_fcst_hr);
+
+    ensemble_track[i].set_model_init_time(ensemble_from[0][i].get_model_init_time());
+
+    for(j=0;j<n_fcst_hr;j++){
+      (ensemble_track[i].get_valid_time())[j] = ensemble_track[i].get_model_init_time() + date_time(0,0,0,j*delta_hour.get_hour(),0,0);
+    }
+  }
+
+  int count;
+  for(i=0;i<num_fcst;i++){
+    for(j=0;j<n_fcst_hr;j++){
+      count = 0;
+      for(k=0;k<nmodel;k++){
+	for(m=0;m<num_fcst;m++){
+	  if(ensemble_track[i].get_model_init_time() == ensemble_from[k][m].get_model_init_time()){
+	    for(n=0;n<ensemble_from[k][m].get_num_track_pt();n++){
+	      if((ensemble_track[i].get_valid_time())[j] == (ensemble_from[k][m].get_valid_time())[n]){
+		if(ensemble_from[k][m].get_track_pts()[n][0] >= -90. && ensemble_from[k][m].get_track_pts()[n][0] <= 90. && ensemble_from[k][m].get_track_pts()[n][1] >= -180. && ensemble_from[k][m].get_track_pts()[n][1] <= 180.){
+		  if(count==0){
+		    ensemble_track[i].get_track_pts()[j][0] = ensemble_from[k][m].get_track_pts()[n][0];
+		    ensemble_track[i].get_track_pts()[j][1] = ensemble_from[k][m].get_track_pts()[n][1];
+		  }
+		  else{
+		    ensemble_track[i].get_track_pts()[j][0] += ensemble_from[k][m].get_track_pts()[n][0];
+		    ensemble_track[i].get_track_pts()[j][1] += ensemble_from[k][m].get_track_pts()[n][1];
+		  }
+		  count++;
+		}
+	      }
+	    }
+	  }
+	}
+      }
+
+      if(count > 0){
+	ensemble_track[i].get_track_pts()[j][0] /= count;
+	ensemble_track[i].get_track_pts()[j][1] /= count;
+      }
+      else{
+	ensemble_track[i].get_track_pts()[j][0] = -999.9;
+	ensemble_track[i].get_track_pts()[j][1] = -999.9;
+      }
+    }
+  }
+
+  return _ERRORCODE_NOERROR;
+}
+int tc_track_create_ensemble_by_motion_vector(int nmodel,int num_fcst,model_tc_track **ensemble_from,model_tc_track *ensemble_track,int n_fcst_hr,date_time delta_hour){
+  int i,j,k,m,n,p;
+  for(i=0;i<num_fcst;i++){
+    ensemble_track[i].create(n_fcst_hr);
+
+    ensemble_track[i].set_model_init_time(ensemble_from[0][i].get_model_init_time());
+
+    for(j=0;j<n_fcst_hr;j++){
+      (ensemble_track[i].get_valid_time())[j] = ensemble_track[i].get_model_init_time() + date_time(0,0,0,j*delta_hour.get_hour(),0,0);
+    }
+  }
+
+  int count;
+  for(i=0;i<num_fcst;i++){ //initial position by simple averaging
+    count = 0;
+    j=0;
+    for(k=0;k<nmodel;k++){
+      for(m=0;m<num_fcst;m++){
+	if(ensemble_track[i].get_model_init_time() == ensemble_from[k][m].get_model_init_time()){
+	  n=0;
+	  if(ensemble_from[k][m].get_track_pts()[n][0] >= -90. && ensemble_from[k][m].get_track_pts()[n][0] <= 90. && ensemble_from[k][m].get_track_pts()[n][1] >= -180. && ensemble_from[k][m].get_track_pts()[n][1] <= 180.){
+	    if(count==0){
+	      ensemble_track[i].get_track_pts()[j][0] = ensemble_from[k][m].get_track_pts()[n][0];
+	      ensemble_track[i].get_track_pts()[j][1] = ensemble_from[k][m].get_track_pts()[n][1];
+	    }
+	    else{
+	      ensemble_track[i].get_track_pts()[j][0] += ensemble_from[k][m].get_track_pts()[n][0];
+	      ensemble_track[i].get_track_pts()[j][1] += ensemble_from[k][m].get_track_pts()[n][1];
+	    }
+	    count++;
+	  }
+	}
+      }
+    }
+    if(count > 0){
+      ensemble_track[i].get_track_pts()[0][0] /= count;
+      ensemble_track[i].get_track_pts()[0][1] /= count;
+    }
+    else{
+      ensemble_track[i].get_track_pts()[0][0] = -999.9;
+      ensemble_track[i].get_track_pts()[0][1] = -999.9;
+    }
+  }
+
+  double motion_vector[2];
+  for(i=0;i<num_fcst;i++){//motion vector computation
+    for(j=1;j<n_fcst_hr;j++){
+      count = 0;
+      motion_vector[0] = 0.;
+      motion_vector[1] = 0.;
+      for(k=0;k<nmodel;k++){
+	for(m=0;m<num_fcst;m++){
+	  if(ensemble_track[i].get_model_init_time() == ensemble_from[k][m].get_model_init_time()){
+	    for(p=0;p<ensemble_from[k][m].get_num_track_pt();p++){
+	      if((ensemble_track[i].get_valid_time())[j-1] == (ensemble_from[k][m].get_valid_time())[p]){
+		//std::cout << "found " << p << " " << ensemble_from[k][m].get_num_track_pt() << endl;
+		break;
+	      }
+	    }
+
+	    for(n=0;n<ensemble_from[k][m].get_num_track_pt();n++){
+	      if((ensemble_track[i].get_valid_time())[j] == (ensemble_from[k][m].get_valid_time())[n]){
+		if(p<ensemble_from[k][m].get_num_track_pt() && ensemble_from[k][m].get_track_pts()[n][0] >= -90. && ensemble_from[k][m].get_track_pts()[n][0] <= 90. && ensemble_from[k][m].get_track_pts()[n][1] >= -180. && ensemble_from[k][m].get_track_pts()[n][1] <= 180. && ensemble_from[k][m].get_track_pts()[p][0] >= -90. && ensemble_from[k][m].get_track_pts()[p][0] <= 90. && ensemble_from[k][m].get_track_pts()[p][1] >= -180. && ensemble_from[k][m].get_track_pts()[p][1] <= 180.){
+		  //std::cout << "found " << n << " " << ensemble_from[k][m].get_num_track_pt() << " " << count << endl;
+		  if(count==0){
+		    motion_vector[0] = ensemble_from[k][m].get_track_pts()[n][0] - ensemble_from[k][m].get_track_pts()[p][0];
+		    motion_vector[1] = ensemble_from[k][m].get_track_pts()[n][1] - ensemble_from[k][m].get_track_pts()[p][1];
+		  }
+		  else{
+		    motion_vector[0] += ensemble_from[k][m].get_track_pts()[n][0] - ensemble_from[k][m].get_track_pts()[p][0];
+		    motion_vector[1] += ensemble_from[k][m].get_track_pts()[n][1] - ensemble_from[k][m].get_track_pts()[p][1];
+		  }
+		  count++;
+		}
+		break;
+	      }
+	    }
+	  }
+	}
+      }
+
+      if(count > 0){
+	motion_vector[0] /= count;
+	motion_vector[1] /= count;
+
+	ensemble_track[i].get_track_pts()[j][0] = motion_vector[0] + ensemble_track[i].get_track_pts()[j-1][0];
+	ensemble_track[i].get_track_pts()[j][1] = motion_vector[1] + ensemble_track[i].get_track_pts()[j-1][1];
+      }
+      else{
+	ensemble_track[i].get_track_pts()[j][0] = -999.9;
+	ensemble_track[i].get_track_pts()[j][1] = -999.9;
+      }
+    }
+  }
+  
+  return _ERRORCODE_NOERROR;
+}
+
+ostream &operator<<(ostream &cout, tc_track track){
+  int i;
+  for(i=0;i<track.get_num_track_pt();i++){
+    cout << track.get_valid_time()[i] << '\t' << track.get_track_pts()[i][0] << '\t' << track.get_track_pts()[i][1] << endl;
+  }
+  return cout;
+}
+ostream &operator<<(ostream &cout, model_tc_track track){
+  int i;
+  for(i=0;i<track.get_num_track_pt();i++){
+    cout << track.get_model_init_time() << '\t' << track.get_valid_time()[i] << '\t' << track.get_track_pts()[i][0] << '\t' << track.get_track_pts()[i][1] << endl;
+  }
+  return cout;
+}

@@ -1,0 +1,61 @@
+#ifndef FLIGHTDATAANALYTICS
+#define FLIGHTDATAANALYTICS
+
+#include "flight_data.h"
+#include "flight_route.h"
+#include "polygon.h"
+
+namespace libjeff{
+  class runway{
+  public:
+    runway(const polygon<double>& in);
+    runway(double lon0,double lat0,double lon1,double lat1,double lon2,double lat2,double lon3,double lat3);
+    ~runway();
+
+    bool isset() const;
+
+    int set(double lon0,double lat0,double lon1,double lat1,double lon2,double lat2,double lon3,double lat3);
+
+    bool is_on_runway(double* lonlat) const;
+    bool is_along_runway(double* lonlat,double dir) const;
+    double get_direction() const;
+
+  private:
+    polygon<double> corners;
+  };
+
+  const runway VHHH07L(113.89806,22.31065,113.92975,22.32085,113.92957,22.32136,113.89787,22.31115);
+  const runway VHHH07R(113.89954,22.29640,113.93293,22.30715,113.93275,22.30769,113.89936,22.29691);
+  const runway VHHH25L(113.93293,22.30715,113.89954,22.29640,113.89936,22.29691,113.93275,22.30769);
+  const runway VHHH25R(113.92975,22.32085,113.89806,22.31065,113.89787,22.31115,113.92957,22.32136);
+
+  bool is_on_known_runway(double *lonlat);
+
+  flight_data_pt* flight_data_get_landing_pt(const flight_data* in);
+  flight_data_pt* flight_data_get_takeoff_pt(const flight_data* in);
+  //flight_data_pt* flight_data_get_goaround_pt(const flight_data* in,int nth_goaround);
+
+  double flight_data_cal_ground_speed(const flight_data_pt* pt1,const flight_data_pt* pt2);
+  double *flight_data_cal_ground_speed(const flight_data* in,double *out);
+  double flight_data_cal_direction(const flight_data_pt* from,const flight_data_pt* to);
+
+  void flight_data_cal_head_and_cross_wind(double direction,double u,double v,double &head,double &cross); 
+  //head: +ve for wind from head to tail
+  //cross: +ve for wind from left to right (so that vector cross product head x cross = vertical upward)
+
+  char* flight_data_landing_runway(const flight_data* in,char *out_runway);
+  char* flight_data_takeoff_runway(const flight_data* in,char *out_runway);
+  //these two function return the name of the runway if the flight data landed/tookoff at a known runway
+  //return "unknown runway" if the flight data landed/tookoff but the runway is unknow
+  //return nil is no takeoff/landing found
+  bool flight_data_is_landing(const flight_data *in);
+  bool flight_data_is_takeoff(const flight_data *in);
+
+  namespace flight_route_recognition{
+    double cal_flight_route_score(flight_route* route,const flight_data* to_score,int num_weight,int *weight_pt,double *weight); //weight is relative. All points are weighted 1, except for points listed in "weight_pt" which are weighted at "weight". if "weight_pt" is negative, it is counted from the end of the route
+    double* cal_flight_route_list_score(const flight_route_list& list,const flight_data* to_recognize,int num_weight,int *weight_pt,double *weight,double *out); //Calculate the scores of matching the flight data to a list of flight route. weight is relative. All points are weighted 1, except for points listed in "weight_pt" which are weighted at "weight". if "weight_pt" is negative, it is counted from the end of the route.
+    flight_route* way_point_scoring(const flight_route_list& list,const flight_data* to_recognize,int num_weight,int *weight_pt,double *weight,double tolerance); //Flight route recognition based on finding the flight route with weighted min score. weight is relative. All points are weighted 1, except for points listed in "weight_pt" which are weighted at "weight". if "weight_pt" is negative, it is counted from the end of the route. If the weighted min score is larger than tolerance, return NULL (unrecognized)
+    int way_point_scoring(const flight_route_list &list,flight_data* to_recognize,int num_fix_pt,char **fix_pt,flight_route_list& out); //fix_pt can be NULL if num_fix_pt = 0
+  }
+}
+#endif

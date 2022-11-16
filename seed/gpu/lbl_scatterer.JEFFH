@@ -1,0 +1,25 @@
+#include<cuda.h>
+#include"scatterer.h"
+
+#ifndef LBLSCATTERER
+#define LBLSCATTERER
+class lbl_scatterer : public scatterer{
+ public:
+  lbl_scatterer();
+  ~lbl_scatterer();
+  virtual int host2device() = 0;
+  virtual int add_cross_section(double *frequency,int nfre,double *sigma) = 0;
+  virtual void init() = 0;
+  virtual void init(char *parm_file) = 0;
+
+  virtual int set_data_field_index(char *fieldname,int in) = 0;
+  virtual int get_data_field_index(char *fieldname) const = 0;
+
+ protected:
+  int nline;
+  int nparam;
+  char *parm_file;
+  double *wk, *d_wk;
+  double *as, *d_as;
+};
+#endif

@@ -1,0 +1,1314 @@
+#include<cmath>
+#include<cstdio>
+#include<cstring>
+#include<netcdf>
+#include<sys/time.h>
+
+#include "debug_mode.h"
+#include "error_code.h"
+#include "file_check.h"
+#include "file_handler.h"
+#include "grib_tools.h"
+#include "grid_codes.h"
+#include "meteorology.h"
+#include "model_data.h"
+#include "physics_constants.h"
+#include "tags.h"
+#include "tools.h"
+
+const double matching_tolerance = 0.01;
+
+model_data::model_data():timed_grid_data(){
+  init_time=NOTIME;
+}
+model_data::~model_data(){
+  timed_grid_data::destroy();
+}
+
+int model_data::set_init_time(const date_time& in){
+  init_time = in;
+  return _ERRORCODE_NOERROR;
+}
+date_time model_data::get_init_time() const{
+  return init_time;
+}
+int model_data::read_grib_data(char *filename,int nvar,char **variable,int *dim_index,int nlevel,char **levels,int *level_index,date_time validtime,int time_index,char *lat_res,char *lon_res,char *from_lat,char *to_lat,char *from_lon,char *to_lon){
+  if((this->get_data_grid())[time_index]->get_nx() <= 0 || (this->get_data_grid())[time_index]->get_ny() <= 0 || (this->get_data_grid())[time_index]->get_nz() <= 0 || (this->get_data_grid())[time_index]->get_ndim() <= 0){
+    return _ERRORCODE_DATAYETTOBEINITIATED;
+  } 
+
+  int nsize = (this->get_data_grid())[time_index]->get_nx() * (this->get_data_grid())[time_index]->get_ny();
+  double *temp_data = new double [nsize];
+
+  int final_error = _ERRORCODE_NOERROR;
+  int i,j,error;
+  int k,m;
+  double missing;
+  //(this->get_data_time())[time_index] = validtime;
+  for(i=0;i<nvar;i++){
+    for(j=0;j<nlevel;j++){
+      //cout << j << " " << i << endl;
+      error = grib_tools_get_rec_with_levels_variables(filename,levels[j],variable[i],validtime,lat_res,lon_res,from_lat,to_lat,from_lon,to_lon,nsize,temp_data,missing);
+      if(error == _ERRORCODE_NOERROR){
+	for(k=0;k<(this->get_data_grid())[time_index]->get_nx();k++){
+	  for(m=0;m<(this->get_data_grid())[time_index]->get_ny();m++){
+	    if(temp_data[(this->get_data_grid())[time_index]->get_nx()*m+k] == missing){
+	      ((this->get_data_grid())[time_index]->get_data(k,m,level_index[j]))[dim_index[i]] = missing_value;
+	    }
+	    else{
+	      ((this->get_data_grid())[time_index]->get_data(k,m,level_index[j]))[dim_index[i]] = temp_data[(this->get_data_grid())[time_index]->get_nx()*m+k];
+	    }
+	  }
+	}
+      }
+      else{
+	cout << "Warning! Cannot find the grib data for " << (levels[j]!=NULL?levels[j]:"{no_level}") << " " << variable[i] << endl;
+	final_error = error;
+      }
+    }
+  }
+
+  delete [] temp_data;
+
+  return error;
+}
+int model_data::read_grib_data(char *filename,int nvar,char **variable,int *dim_index,int nlevel,char **levels,int *level_index,date_time validtime,int time_index,int num_param,char **param_name,char **param_value){
+  libjeff::print_trace(1,"model_data::read_grib_data(char *filename,int nvar,char **variable,int *dim_index,int nlevel,char **levels,int *level_index,date_time validtime,int time_index,int num_param,char **param_name,char **param_value)");
+  if((this->get_data_grid())[time_index]->get_nx() <= 0 || (this->get_data_grid())[time_index]->get_ny() <= 0 || (this->get_data_grid())[time_index]->get_nz() <= 0 || (this->get_data_grid())[time_index]->get_ndim() <= 0){
+    return _ERRORCODE_DATAYETTOBEINITIATED;
+  } 
+  struct timeval blksttime, blkendtime;
+  if(libjeff::debug_setting::get_debug_mode_timing()){
+    gettimeofday(&blksttime,NULL);
+  }
+
+  /*
+  int nsize = (this->get_data_grid())[time_index]->get_nx() * (this->get_data_grid())[time_index]->get_ny();
+  double *temp_data = new double [nsize];
+  */
+  int *nsize = new int [nvar*nlevel];
+  double **temp_data = new double *[nvar*nlevel];
+
+  int final_error = _ERRORCODE_NOERROR;
+  int i,j,*error = new int [nvar*nlevel];
+  int k,m;
+  double missing;
+  struct timeval secsttime, secendtime;
+  //(this->get_data_time())[time_index] = validtime;
+
+  char **levels1D = new char *[nvar*nlevel];
+  char **variable1D = new char *[nvar*nlevel];
+  for(i=0;i<nvar;i++){
+    for(j=0;j<nlevel;j++){
+      if(levels[j]!=NULL){
+	levels1D[i*nlevel+j] = new char [strlen(levels[j])+10];
+	strcpy(levels1D[i*nlevel+j],levels[j]);
+      }
+      else{
+	levels1D[i*nlevel+j]=NULL;
+      }
+
+      variable1D[i*nlevel+j] = new char [strlen(variable[i])+10];
+      strcpy(variable1D[i*nlevel+j],variable[i]);
+
+      nsize[i*nlevel+j] = (this->get_data_grid())[time_index]->get_nx() * (this->get_data_grid())[time_index]->get_ny();
+      temp_data[i*nlevel+j] = new double [nsize[i*nlevel+j]];
+    }
+  }
+
+  if(libjeff::debug_setting::get_debug_mode_timing()){
+    gettimeofday(&secsttime,NULL);
+  }
+  error = grib_tools_get_rec_with_levels_variables(filename,nvar*nlevel,levels1D,variable1D,validtime,num_param,param_name,param_value,nsize,temp_data,missing,error);
+  if(libjeff::debug_setting::get_debug_mode_timing()){
+    gettimeofday(&secendtime,NULL);
+    std::cout << "Time taken for reading a grib entry: " << (secendtime.tv_sec - secsttime.tv_sec) + (secendtime.tv_usec - secsttime.tv_usec)/1.e6 << "s" << endl;
+  }
+  //#pragma omp parallel for default(shared) private(j,error,k,m)
+  for(i=0;i<nvar;i++){
+    //#pragma omp parallel for default(shared) private(error,k,m)
+    for(j=0;j<nlevel;j++){
+      //cout << j << " " << i << endl;
+      /*
+      if(libjeff::debug_setting::get_debug_mode_timing()){
+	gettimeofday(&secsttime,NULL);
+      }
+      */
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "Level: " << (levels[j]==NULL?"no level":levels[j]) << " variable: " << variable[i] << " error code: " << error[i*nlevel+j] << std::endl;
+      }
+
+      // error = grib_tools_get_rec_with_levels_variables(filename,levels[j],variable[i],validtime,num_param,param_name,param_value,nsize,temp_data,missing);
+      /*
+      if(libjeff::debug_setting::get_debug_mode_timing()){
+	gettimeofday(&secendtime,NULL);
+	std::cout << "Time taken for reading a grib entry: " << (secendtime.tv_sec - secsttime.tv_sec) + (secendtime.tv_usec - secsttime.tv_usec)/1.e6 << "s" << endl;
+      }
+      */
+      if(error[i*nlevel+j] == _ERRORCODE_NOERROR){
+#pragma omp parallel for default(shared) private(k,m)
+	for(k=0;k<(this->get_data_grid())[time_index]->get_nx();k++){
+	  //#pragma omp parallel for default(shared) 
+	  for(m=0;m<(this->get_data_grid())[time_index]->get_ny();m++){
+	    if(temp_data[i*nlevel+j][(this->get_data_grid())[time_index]->get_nx()*m+k] == missing){
+	      ((this->get_data_grid())[time_index]->get_data(k,m,level_index[j]))[dim_index[i]] = missing_value;
+	    }
+	    else{
+	      ((this->get_data_grid())[time_index]->get_data(k,m,level_index[j]))[dim_index[i]] = temp_data[i*nlevel+j][(this->get_data_grid())[time_index]->get_nx()*m+k];
+	    }
+	  }
+	}
+      }
+      else{
+	if(libjeff::debug_setting::get_debug_mode_warning()){
+	  cout << "Warning! Cannot find the grib data for " << (levels[j]!=NULL?levels[j]:"{no_level}") << " " << variable[i] << " " << validtime << endl;
+	}
+	final_error = error[i*nlevel+j];
+      }
+    }
+  }
+
+   for(i=0;i<nvar;i++){
+    for(j=0;j<nlevel;j++){
+      if(levels1D[i*nlevel+j] != NULL){
+	delete [] levels1D[i*nlevel+j];
+      }
+      delete [] variable1D[i*nlevel+j];
+      delete [] temp_data[i*nlevel+j];
+    }
+  }
+
+  delete [] levels1D;
+  delete [] variable1D;
+  delete [] temp_data;
+  delete [] error;
+  delete [] nsize;
+
+  if(libjeff::debug_setting::get_debug_mode_timing()){
+    gettimeofday(&blkendtime,NULL);
+    std::cout << "Time taken: " << (blkendtime.tv_sec - blksttime.tv_sec) + (blkendtime.tv_usec - blksttime.tv_usec)/1.e6 << "s" << endl;
+  }
+  libjeff::print_trace(0,"model_data::read_grib_data(char *filename,int nvar,char **variable,int *dim_index,int nlevel,char **levels,int *level_index,date_time validtime,int time_index,int num_param,char **param_name,char **param_value)");
+
+  return final_error;
+}
+
+/*
+int model_data::read_netCDF_coordinate_sys(char *filename,int ndim,char **variable_names){
+  int error_flag = _ERRORCODE_NOERROR;
+  int i,j,k,m;
+  
+  int ncid, *dimid;
+  long nx, ny, nz, nkind;
+
+  nc_open(filename,NC_NOWRITE,&ncid);
+
+  return error_flag;
+}
+*/
+int model_data::read_netCDF_data(char *filename,int st_time_index,int end_time_index,char *xdimname,char *ydimname,char *zdimname,char *xname,char *yname,char *zname,int nvariable,char **variable_names,int *dim_index){
+  return this->read_netCDF_data(filename,st_time_index,end_time_index,xdimname,ydimname,zdimname,xname,yname,zname,false,nvariable,variable_names,dim_index);
+}
+int model_data::read_netCDF_data(char *filename,int st_time_index,int end_time_index,char *xdimname,char *ydimname,char *zdimname,char *xname,char *yname,char *zname,bool innermostright,int nvariable,char **variable_names,int *dim_index){
+  if(this->get_num_data_time() <= 0){
+    return _ERRORCODE_DATAYETTOBEINITIATED;
+  }
+
+  if(st_time_index != end_time_index){
+    return _ERRORCODE_NOTIMPLEMENTED;
+  }
+
+  int error_flag = _ERRORCODE_NOERROR;
+  int i,j,k,m;
+  
+  netCDF::NcFile *datafile;
+  try{
+    datafile = new netCDF::NcFile(filename,netCDF::NcFile::read);
+  }
+  catch(netCDF::exceptions::NcException e){
+    return _ERRORCODE_FILENOTFOUND;
+  }
+
+  netCDF::NcVar *xvar = NULL, *yvar = NULL, *zvar=NULL;
+  netCDF::NcDim xdim,ydim,zdim;
+  int nx=1,ny=1,nz=1;
+  if(xdimname != NULL && xname != NULL){
+    xvar = new netCDF::NcVar;
+    *xvar = datafile->getVar(xname);
+    xdim = datafile->getDim(xdimname);
+    nx = xdim.getSize();
+  }
+  if(ydimname != NULL && yname != NULL){
+    yvar = new netCDF::NcVar;
+    *yvar = datafile->getVar(yname);
+    ydim = datafile->getDim(ydimname);
+    ny = ydim.getSize();
+  }
+  if(zdimname != NULL && zname != NULL){
+    zvar = new netCDF::NcVar;
+    *zvar = datafile->getVar(zname);
+    zdim = datafile->getDim(zdimname);
+    nz = zdim.getSize();
+  }
+
+  netCDF::NcVar readVar;
+
+  if(this->get_data_grid()[st_time_index]->get_nx() <= 0){
+    int max_dim = max(nvariable,dim_index) + 1;
+    this->get_data_grid()[st_time_index]->create(nx,ny,nz,max_dim);
+
+    int *itemp;
+    float *ftemp;
+    double *dtemp;
+    dtemp = new double [nx*ny*nz];
+    if(xdimname != NULL && xname != NULL){
+      if(xvar->getType() == NC_FLOAT){
+	ftemp = new float [nx*ny*nz];
+	
+	xvar->getVar(ftemp);
+	for(i=0;i<nx*ny*nz;i++){
+	  dtemp[i] = ftemp[i];
+	}
+	
+	delete [] ftemp;
+      }
+      else if(xvar->getType() == NC_DOUBLE){
+	xvar->getVar(dtemp);
+      }
+      else if(xvar->getType() == NC_INT){
+	itemp = new int [nx*ny*nz];
+	
+	xvar->getVar(itemp);
+	for(i=0;i<nx*ny*nz;i++){
+	  dtemp[i] = itemp[i];
+	}
+	
+	delete [] itemp;
+      }
+      else{
+	error_flag = _ERRORCODE_NOTIMPLEMENTED;
+      }
+      this->set_x(dtemp);
+    }
+
+    if(ydimname != NULL && yname != NULL){
+      if(yvar->getType() == NC_FLOAT){
+	ftemp = new float [nx*ny*nz];
+	
+	yvar->getVar(ftemp);
+	for(i=0;i<nx*ny*nz;i++){
+	  dtemp[i] = ftemp[i];
+	}
+	
+	delete [] ftemp;
+      }
+      else if(yvar->getType() == NC_DOUBLE){
+	yvar->getVar(dtemp);
+      }
+      else if(yvar->getType() == NC_INT){
+	itemp = new int [nx*ny*nz];
+	
+	yvar->getVar(itemp);
+	for(i=0;i<nx*ny*nz;i++){
+	  dtemp[i] = itemp[i];
+	}
+	
+	delete [] itemp;
+      }
+      else{
+	error_flag = _ERRORCODE_NOTIMPLEMENTED;
+      }
+      this->set_y(dtemp);
+    }
+
+    if(zdimname != NULL && zname != NULL){
+      if(zvar->getType() == NC_FLOAT){
+	ftemp = new float [nx*ny*nz];
+	
+	zvar->getVar(ftemp);
+	for(i=0;i<nx*ny*nz;i++){
+	  dtemp[i] = ftemp[i];
+	}
+	
+	delete [] ftemp;
+      }
+      else if(zvar->getType() == NC_DOUBLE){
+	zvar->getVar(dtemp);
+      }
+      else if(zvar->getType() == NC_INT){
+	itemp = new int [nx*ny*nz];
+	
+	zvar->getVar(itemp);
+	for(i=0;i<nx*ny*nz;i++){
+	  dtemp[i] = itemp[i];
+	}
+	
+	delete [] itemp;
+      }
+      else{
+	error_flag = _ERRORCODE_NOTIMPLEMENTED;
+      }
+      this->set_z(dtemp);
+    }
+
+    delete [] dtemp;
+  }
+  else if(this->get_data_grid()[st_time_index]->get_nx() != nx || this->get_data_grid()[st_time_index]->get_ny() != ny || (this->get_data_grid()[st_time_index]->get_grid_code() != REGULAR_GRID_CODE && this->get_data_grid()[st_time_index]->get_nz() != nz) || this->get_data_grid()[st_time_index]->get_nz() > nz){
+    error_flag = _ERRORCODE_DATAINCONSISTENCE;
+  }
+
+  int *mapping =  new int [nz];
+  if(!error_flag && this->get_data_grid()[st_time_index]->get_grid_code() == REGULAR_GRID_CODE && nz > 1){
+    for(i=0;i<nz;i++){
+      mapping[i] = -1;
+    }
+
+    int *itemp;
+    float *ftemp;
+    double *dtemp;
+    dtemp = new double [nz];
+
+    if(zvar->getType() == NC_FLOAT){
+      ftemp = new float [nz];
+
+      zvar->getVar(ftemp);
+      for(i=0;i<nz;i++){
+	dtemp[i] = ftemp[i];
+      }
+
+      delete [] ftemp;
+    }
+    else if(zvar->getType() == NC_DOUBLE){
+      zvar->getVar(dtemp);
+    }
+    else if(zvar->getType() == NC_INT){
+      itemp = new int [nz];
+
+      zvar->getVar(itemp);
+      for(i=0;i<nz;i++){
+	dtemp[i] = itemp[i];
+      }
+
+      delete [] itemp;
+    }
+    else{
+      error_flag = _ERRORCODE_NOTIMPLEMENTED;
+    }
+    
+    bool *matched = new bool [this->get_data_grid()[st_time_index]->get_nz()];
+    for(j=0;j<this->get_data_grid()[st_time_index]->get_nz();j++){
+      matched[j] = false;
+    }
+
+    for(i=0;i<nz;i++){
+      for(j=0;j<this->get_data_grid()[st_time_index]->get_nz();j++){
+	if(fabs(dtemp[i] - this->get_data_grid()[st_time_index]->get_z(0,0,j)) < matching_tolerance){
+	  mapping[i] = j;
+	  matched[j] = true;
+	  break;
+	}
+      }
+    }
+
+    for(j=0;j<this->get_data_grid()[st_time_index]->get_nz();j++){
+      if(!matched[j]){
+	error_flag = _ERRORCODE_DATANOTENOUGH;
+      }
+    }
+
+    delete [] matched;
+    delete [] dtemp;
+  }
+  else{
+    for(i=0;i<nz;i++){
+      mapping[i] = i;
+    }
+  }
+
+  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+    std::cout << "Z mapping" << std::endl;
+    for(i=0;i<nz;i++){
+      std::cout << i << " " << mapping[i] << std::endl;
+    }
+  }
+
+  if(!error_flag){
+    int *itemp;
+    float *ftemp;
+    double *dtemp;
+
+    int xorder,yorder,zorder=-1;
+    if(zvar != NULL){
+      zorder = 0;
+    }
+    if(yvar != NULL){
+      yorder = zorder+1;
+    }
+    else{
+      yorder = zorder;
+    }
+    if(xvar != NULL){
+      xorder = yorder+1;
+    }
+
+    //int *data_size = new int [3];
+    int indices[3];
+    //int xyzsize[3];
+    //int xyzindex[3];
+    //int xyzorder[3];
+    int orderindex = 0;
+    //for(i=nvariable-1;i>=0;i--){
+    for(i=0;i<nvariable;i++){
+      itemp = NULL;
+      ftemp = NULL;
+      dtemp = NULL;
+      readVar = datafile->getVar(variable_names[i]);
+      int ndim = readVar.getDimCount();
+      
+      //int* dim_order = new int [ndim];
+      int *data_size = new int [(ndim>2?ndim:3)];
+      int *reorder_data_size = new int [(ndim>2?ndim:3)];
+      int *xyzorder = new int [(ndim>2?ndim:3)];
+      int *xyzindex = new int [(ndim>2?ndim:3)];
+      /*
+      for(j=0;j<3;j++){
+	xyzindex[j] = -1;
+	xyzsize[j] = 1;
+	xyzorder[j] = -1;
+      }
+      */
+      for(j=0;j<(ndim>2?ndim:3);j++){
+	data_size[j] = 1;
+	xyzorder[j] = -1;
+	xyzindex[j] = -1;
+      }
+      for(j=0;j<ndim;j++){
+	xyzorder[j] = j;
+	xyzindex[j] = j;
+      }
+
+      bool xfound = false, yfound = false, zfound = false;
+      orderindex = 0;
+      //int count = 0;
+
+      for(j=0;j<ndim;j++){
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  for(k=0;k<ndim;k++){
+	    std::cout << xyzorder[k] << " " << data_size[k] << std::endl;
+	  }
+	}
+
+	//dim_order[j] = -1;
+	if(xvar != NULL && xdim==readVar.getDim(j)){
+	  //dim_order[j] = 0;
+	  //xyzsize[0] = readVar.getDim(j).getSize();
+	  xyzindex[0] = orderindex;
+	  
+	  for(k=0;k<ndim;k++){
+	    if(xyzorder[k] == xorder){
+	      break;
+	    }
+	  }
+	  /*
+	  xyzorder[k] = xyzorder[ndim-j];
+	  xyzorder[ndim-j] = xorder;
+	  */
+	  
+	  xyzorder[k] = xyzorder[j];
+	  xyzorder[j] = xorder;
+	  
+	  //xyzorder[j] = xorder;
+	  xfound = true;
+	  //data_size[j] = readVar.getDim(j).getSize();
+	  //xyzorder[orderindex] = j;
+	}
+	else if(yvar != NULL && ydim==readVar.getDim(j)){
+	  //dim_order[j] = 1;
+	  //xyzsize[1] = readVar.getDim(j).getSize();
+	  xyzindex[1] = orderindex;
+	  
+	  for(k=0;k<ndim;k++){
+	    if(xyzorder[k] == yorder){
+	      break;
+	    }
+	  }
+	  /*
+	  xyzorder[k] = xyzorder[ndim-j];
+	  xyzorder[ndim-j] = yorder;
+	  */
+	  xyzorder[k] = xyzorder[j];
+	  xyzorder[j] = yorder;
+	  
+	  //xyzorder[j] = yorder;
+	  yfound = true;
+	  //data_size[orderindex] = readVar.getDim(j).getSize();
+	  //xyzorder[orderindex] = j;
+	}
+	else if(zvar != NULL && zdim==readVar.getDim(j)){
+	  //dim_order[j] = 2;
+	  //xyzsize[2] = readVar.getDim(j).getSize();
+	  xyzindex[2] = orderindex;
+	  
+	  for(k=0;k<ndim;k++){
+	    if(xyzorder[k] == zorder){
+	      break;
+	    }
+	  }
+	  /*
+	  xyzorder[k] = xyzorder[ndim-j];
+	  xyzorder[ndim-j] = zorder;
+	  */
+	  
+	  xyzorder[k] = xyzorder[j];
+	  xyzorder[j] = zorder;
+	  
+	  //xyzorder[j] = zorder;
+	  zfound = true;
+	  //data_size[orderindex] = readVar.getDim(j).getSize();
+	  //xyzorder[orderindex] = j;
+	}
+	/*
+	else{
+	  if(readVar.getDim(j).getSize() > 1){
+	    error_flag = _ERRORCODE_NOTIMPLEMENTED;
+	  }
+	}
+	*/
+	orderindex++;
+	data_size[j] = readVar.getDim(j).getSize();
+      }
+
+      if(xvar != NULL && yvar != NULL && zvar != NULL){
+	/*
+	 for(j=0;j<ndim;j++){
+	   if(dim_order[j] == -1){
+	     error_flag = _ERRORCODE_FILEREADERROR;
+	   }
+	 }
+	*/
+	if(!xfound || !yfound || !zfound){
+	  error_flag = _ERRORCODE_FILEREADERROR;
+	}
+      }
+      
+      if(!error_flag){
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "XYZ ordering and size:" << std::endl;
+	  /*
+	  std::cout << xyzindex[0] << " " << xyzorder[0] << " " << xyzsize[0] << std::endl;
+	  std::cout << xyzindex[1] << " " << xyzorder[1] << " " << xyzsize[1] << std::endl;
+	  std::cout << xyzindex[2] << " " << xyzorder[2] << " " << xyzsize[2] << std::endl;
+	  */
+	  std::cout << xyzindex[0] << " " << xyzindex[1] << " " << xyzindex[2] << std::endl;
+	  //std::cout << "inverse XYZ ordering and size:" << std::endl;
+	  for(j=0;j<ndim;j++){
+	    std::cout << xyzorder[j] << " " << data_size[j];
+	    if(j<3){
+	      std::cout << " " << data_size[xyzindex[j]];
+	    }
+	    std::cout << std::endl;
+	  }
+	}
+
+	int *reordering = new int [ndim];
+	if(innermostright){
+	  for(j=0;j<ndim;j++){
+	    //reordering[xyzorder[j]] = j;
+	    //reordering[j] = ndim - 1 - xyzorder[j];
+	    reordering[ndim-1-j] = xyzorder[j];
+	    reorder_data_size[ndim-1-j] = data_size[j];
+	  }
+	}
+	else{
+	  for(j=0;j<ndim;j++){
+	    reordering[j] = xyzorder[j];
+	    reorder_data_size[j] = data_size[j];
+	  } 
+	}
+
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  for(j=0;j<ndim;j++){
+	    std::cout << "Reordering: " << j << " " << reordering[j] << " " << reorder_data_size[j] << " " << reorder_data_size[xyzindex[j]] << " " << data_size[xyzindex[j]] << std::endl;
+	  }
+	}
+
+	size_t nxyz = 1;
+	for(j=0;j<ndim;j++){
+	  nxyz *= data_size[j];
+	}
+
+	if(readVar.getType() == NC_FLOAT){
+	  ftemp = new float [nxyz];
+	  float *ftemp2 = new float [nxyz];
+	  
+	  readVar.getVar(ftemp);
+	  error_flag = reorder(ndim,ftemp,ftemp2,reorder_data_size,reordering);
+	  if(libjeff::debug_setting::get_debug_mode_debug_check() && error_flag){
+	    std::cout << "Error check find issues. Reordering failed." << std::endl;
+	  }
+	  
+	  for(indices[0]=0;indices[0]<(xyzindex[0]>=0?data_size[xyzindex[0]]:1);indices[0]++){
+	    for(indices[1]=0;indices[1]<(xyzindex[1]>=0?data_size[xyzindex[1]]:1);indices[1]++){
+	      for(indices[2]=0;indices[2]<(xyzindex[2]>=0?data_size[xyzindex[2]]:1);indices[2]++){
+		if(mapping[indices[2]] >= 0){
+		  this->get_data_grid()[st_time_index]->get_data(indices[0],indices[1],mapping[indices[2]])[dim_index[i]] = ftemp2[(indices[0]*(xyzindex[1]>=0?data_size[xyzindex[1]]:1) + indices[1])*(xyzindex[2]>=0?data_size[xyzindex[2]]:1) + indices[2]];
+		  //this->get_data_grid()[st_time_index]->get_data(indices[0],indices[1],mapping[indices[2]])[dim_index[i]] = ftemp2[(indices[0]*1441+indices[1])*11+indices[2]];
+		}
+	      }
+	    }
+	  }
+
+	  delete [] ftemp2;
+	  delete [] ftemp;
+	}
+	else if(readVar.getType() == NC_DOUBLE){
+	  dtemp = new double [nxyz];
+	  double *dtemp2 = new double [nxyz];
+
+	  readVar.getVar(dtemp);
+	  error_flag = reorder(ndim,dtemp,dtemp2,reorder_data_size,reordering);
+	  if(libjeff::debug_setting::get_debug_mode_debug_check() && error_flag){
+	    std::cout << "Error check find issues. Reordering failed." << std::endl;
+	  }
+	  
+	  for(indices[0]=0;indices[0]<(xyzindex[0]>=0?data_size[xyzindex[0]]:1);indices[0]++){
+	    for(indices[1]=0;indices[1]<(xyzindex[1]>=0?data_size[xyzindex[1]]:1);indices[1]++){
+	      for(indices[2]=0;indices[2]<(xyzindex[2]>=0?data_size[xyzindex[2]]:1);indices[2]++){
+		if(mapping[indices[2]] >= 0){
+		  this->get_data_grid()[st_time_index]->get_data(indices[0],indices[1],mapping[indices[2]])[dim_index[i]] = dtemp2[(indices[0]*(xyzindex[1]>=0?data_size[xyzindex[1]]:1) + indices[1])*(xyzindex[2]>=0?data_size[xyzindex[2]]:1) + indices[2]];
+		}
+	      }
+	    }
+	  }
+
+	  delete [] dtemp2;
+	  /*
+	  for(indices[0]=0;indices[0]<data_size[0];indices[0]++){
+	    for(indices[1]=0;indices[1]<data_size[1];indices[1]++){
+	      for(indices[2]=0;indices[2]<data_size[2];indices[2]++){
+		if(mapping[indices[dim_order[2]]] >= 0){
+		  this->get_data_grid()[st_time_index]->get_data(indices[dim_order[0]],indices[dim_order[1]],mapping[indices[dim_order[2]]])[dim_index[i]] = dtemp[(indices[0]*data_size[1] + indices[1])*data_size[2] + indices[2]];
+		}
+	      }
+	    }
+	  }
+	  */
+	  delete [] dtemp;
+	}
+	else if(readVar.getType() == NC_INT){
+	  itemp = new int [nxyz];
+	  int *itemp2 = new int [nxyz];
+	  
+	  readVar.getVar(itemp);
+	  error_flag = reorder(ndim,itemp,itemp2,reorder_data_size,reordering);
+	  if(libjeff::debug_setting::get_debug_mode_debug_check() && error_flag){
+	    std::cout << "Error check find issues. Reordering failed." << std::endl;
+	  }
+
+	  for(indices[0]=0;indices[0]<(xyzindex[0]>=0?data_size[xyzindex[0]]:1);indices[0]++){
+	    for(indices[1]=0;indices[1]<(xyzindex[1]>=0?data_size[xyzindex[1]]:1);indices[1]++){
+	      for(indices[2]=0;indices[2]<(xyzindex[2]>=0?data_size[xyzindex[2]]:1);indices[2]++){
+		if(mapping[indices[2]] >= 0){
+		  this->get_data_grid()[st_time_index]->get_data(indices[0],indices[1],mapping[indices[2]])[dim_index[i]] = itemp2[(indices[0]*(xyzindex[1]>=0?data_size[xyzindex[1]]:1) + indices[1])*(xyzindex[2]>=0?data_size[xyzindex[2]]:1) + indices[2]];
+		}
+	      }
+	    }
+	  }
+	  /*
+	  for(indices[0]=0;indices[0]<data_size[0];indices[0]++){
+	    for(indices[1]=0;indices[1]<data_size[1];indices[1]++){
+	      for(indices[2]=0;indices[2]<data_size[2];indices[2]++){
+		if(mapping[indices[dim_order[2]]] >= 0){
+		  this->get_data_grid()[st_time_index]->get_data(indices[dim_order[0]],indices[dim_order[1]],mapping[indices[dim_order[2]]])[dim_index[i]] = itemp[(indices[0]*data_size[1] + indices[1])*data_size[2] + indices[2]];
+		}
+	      }
+	    }
+	  }
+	  */
+	  delete [] itemp2;
+	  delete [] itemp;
+	}
+	else{
+	  error_flag = _ERRORCODE_NOTIMPLEMENTED;
+	}
+
+	delete [] reordering;
+      }
+	//delete [] dim_order;
+
+
+      if(error_flag){
+	break;
+      }
+      delete [] xyzorder;
+      delete [] data_size;
+      delete [] xyzindex;
+      delete [] reorder_data_size;
+    }
+  }
+
+  delete [] mapping;
+
+  if(xvar != NULL){
+    delete xvar;
+  }
+  if(yvar != NULL){
+    delete yvar;
+  }
+  if(zvar != NULL){
+    delete zvar;
+  }
+  delete datafile;
+
+  return error_flag;
+}
+int model_data::read_nusdasdump_fortran_binary(char *name_format,char *time_format,int ntime,date_time *valid_time,int *time_index,int nelements,char **elements,int *dim_index,int nlevels,char **level_names,int *level_index,int datafile_index,void (*allocation)(grid_data* &data_grid),int *allocation_idummy,double *allocation_ddummy){
+  //This function will perform memory allocation only if data_grid was not allocated.
+  int error;
+  int i,j,k,m,n,p;
+  bool reallocation=false;
+  int ndim = -1,nz = -1;
+  if(this->get_num_data_time()==0){
+    if(allocation != NULL){
+      int numtime = time_index[0];
+      for(i=1;i<ntime;i++){
+	if(time_index[i] > numtime){
+	  numtime = time_index[i];
+	}
+      }
+      numtime++;
+      //cout << "Memory allocation for 4D data." << endl;
+      error = this->create(numtime,allocation);
+      if(error!=_ERRORCODE_NOERROR){
+	return error;
+      }
+    }
+    else{
+      return _ERRORCODE_INPUTERROR;
+    }
+  }
+
+  if((this->get_data_grid())[0]->get_ndim() == 0){
+    reallocation = true;
+
+    ndim = dim_index[0];
+    for(i=1;i<nelements;i++){
+      if(dim_index[i] > ndim){
+	ndim = dim_index[i];
+      }
+    }
+    ndim++;
+
+    nz = level_index[0];
+    for(i=0;i<nlevels;i++){
+      if(level_index[i] > nz){
+	nz = level_index[i];
+      }
+    }
+    nz++;
+  }
+
+  int temp_nx, temp_ny;
+
+  char *filename = new char [4096];
+  char *ctemp = new char [4096];
+  libjeff::file_handler *file = NULL;
+  float *ftemp;
+  int count = 0;
+  for(i=0;i<nelements;i++){
+    for(j=0;j<nlevels;j++){
+      for(k=0;k<ntime;k++){
+	gen_model_data_filenames(name_format,time_format,valid_time,k,elements,i,level_names,j,filename);
+	//cout << filename << endl;
+
+	openfile(file,filename);
+	//cout << "file opened." << endl;
+	if(file->get_error()==0){
+	  read_fortran_binary_line(file,1,&temp_nx,"big");
+	  read_fortran_binary_line(file,1,&temp_ny,"big");
+	  //cout << temp_nx << " " << temp_ny << endl;
+
+	  if(count == 0){
+	    if((reallocation || (this->get_data_grid())[time_index[k]]->get_nx() != temp_nx || (this->get_data_grid())[time_index[k]]->get_ny() != temp_ny)){// && count==0){
+	      //cout << "Memory allocation needed." << endl;
+	      if(nz < 0){
+		nz = (this->get_data_grid())[time_index[k]]->get_nz();
+	      }
+	      if(ndim < 0){
+		ndim = (this->get_data_grid())[time_index[k]]->get_ndim();
+	      }
+	    //allocation of memory
+	      for(m=0;m<this->get_num_data_time();m++){
+		(this->get_data_grid())[m]->create(temp_nx,temp_ny,nz,ndim,allocation_idummy,allocation_ddummy);
+	      }
+	    }
+	    count++;
+	    ftemp = new float[temp_nx*temp_ny];
+	    //cout << ftemp << endl;
+
+	    read_fortran_binary_line(file,temp_nx*temp_ny,ftemp,"big");
+	    reorder_from_nhm(temp_nx,temp_ny,ftemp);
+	    for(n=0;n<temp_nx;n++){
+	      for(p=0;p<temp_ny;p++){
+		for(m=0;m<this->get_num_data_time();m++){
+		  (this->get_data_grid())[m]->set_y(n,p,0,ftemp[n*temp_ny+p]);
+		}
+	      }
+	    }
+	    read_fortran_binary_line(file,temp_nx*temp_ny,ftemp,"big");
+	    reorder_from_nhm(temp_nx,temp_ny,ftemp);
+	    if(ftemp[(temp_nx-1)*temp_ny] < ftemp[0]){
+	      for(n=0;n<temp_nx;n++){
+		for(p=0;p<temp_ny;p++){
+		  if(ftemp[n*temp_ny+p]>=180.){
+		    ftemp[n*temp_ny+p]-=360.;
+		  }
+		}
+	      }
+	    }
+
+	    for(n=0;n<temp_nx;n++){
+	      for(p=0;p<temp_ny;p++){
+		for(m=0;m<this->get_num_data_time();m++){
+		  (this->get_data_grid())[m]->set_x(n,p,0,ftemp[n*temp_ny+p]);
+		}
+	      }
+	    }
+	  }
+	  else{
+	    if((this->get_data_grid())[time_index[k]]->get_nx() != temp_nx || (this->get_data_grid())[time_index[k]]->get_ny() != temp_ny){
+	      cout << "Files inconsistence." << endl;
+	      delete file;
+	      delete [] filename;	  
+	      delete [] ctemp;
+	      delete [] ftemp;
+	      
+	      return _ERRORCODE_FILESINCONSISTENCE;
+	    }
+	    //cout << ftemp << endl;
+
+	    read_fortran_binary_line(file,temp_nx*temp_ny,ftemp,"big");
+	    read_fortran_binary_line(file,temp_nx*temp_ny,ftemp,"big");
+	  }
+
+	  //cout << "reading data" << endl;
+	  for(n=0;n<datafile_index;n++){
+	    read_fortran_binary_line(file,temp_nx*temp_ny,ftemp,"big");
+	  }
+	  read_fortran_binary_line(file,temp_nx*temp_ny,ftemp,"big");
+	  reorder_from_nhm(temp_nx,temp_ny,ftemp);
+	  for(n=0;n<temp_nx;n++){
+	    for(m=0;m<temp_ny;m++){
+	      ((this->get_data_grid())[time_index[k]]->get_data(n,m,level_index[j]))[dim_index[i]] = ftemp[n*temp_ny+m];
+	    }
+	  }
+	}
+	else if(file->get_error()==_ERRORCODE_FILENOTFOUND){
+	  cout << "file not found" << endl;
+	}
+	file->close();
+	//cout << "file closed." << endl;
+
+	delete file;
+	file = NULL;
+      }
+    }
+  }
+
+  delete [] ftemp;
+  delete [] filename;	  
+  delete [] ctemp;
+
+  return _ERRORCODE_NOERROR;
+}
+int model_data::write_NetCDF(int ncid,size_t *chunks,int nvar,int *dims,int *nvar_attribute,char ****var_attributes,int **type){
+  int error = _ERRORCODE_NOERROR;
+  if(this->get_num_data_time()<=0){
+    return _ERRORCODE_DATAYETTOBEINITIATED;
+  }
+
+  int i,j,k,m;
+  for(i=0;i<nvar;i++){
+    if(dims[i]<0 || dims[i]>=(this->get_data_grid())[0]->get_ndim()){
+      error = _ERRORCODE_INPUTOUTOFRANGE;
+    }
+  }
+
+  int xyz_dimids[3];
+  if((this->get_data_grid())[0]->get_grid_code() == REGULAR_GRID_CODE){
+    int *varid = new int [nvar];
+    int long_id, lat_id;
+    error = nc_def_dim(ncid,"Longitude",(this->get_data_grid())[0]->get_nx(),xyz_dimids);
+    error = nc_def_dim(ncid,"Latitude",(this->get_data_grid())[0]->get_ny(),xyz_dimids+1);
+    error = nc_def_dim(ncid,"Vertical Level",(this->get_data_grid())[0]->get_nz(),xyz_dimids+2);
+
+    nc_def_var(ncid,"Longitude",NC_DOUBLE,1,xyz_dimids,&long_id);
+    nc_def_var(ncid,"Latitude",NC_DOUBLE,1,xyz_dimids+1,&lat_id);
+    /*
+    std::cout << (this->get_data_grid())[0]->get_nx() << " x " << (this->get_data_grid())[0]->get_ny() << " x " << (this->get_data_grid())[0]->get_nz() << std::endl;
+    */
+    
+    for(i=0;i<nvar&&error==_ERRORCODE_NOERROR;i++){
+      error = nc_def_var(ncid,var_attributes[i][0][0],(type==NULL||type[i]==NULL?NC_DOUBLE:(*type[i])),3,xyz_dimids,varid+i);
+      if(error) return error;
+      if(chunks!=NULL){
+	error=nc_def_var_chunking(ncid,varid[i],0,chunks);
+	error=nc_def_var_deflate(ncid,varid[i],NC_SHUFFLE,1,1);
+      }
+
+      for(j=1;j<nvar_attribute[i];j++){
+	error=nc_put_att_text(ncid,varid[i],var_attributes[i][j][0],strlen(var_attributes[i][j][1])+1,var_attributes[i][j][1]);
+      }
+    }
+
+    error = nc_enddef(ncid);
+    double *dtemp = new double [(this->get_data_grid())[0]->get_nx()];
+    for(i=0;i<(this->get_data_grid())[0]->get_nx();i++){
+      dtemp[i] = this->get_data_grid()[0]->get_x(i,0,0);
+    }
+    error=nc_put_var_double(ncid,long_id,dtemp);
+    delete [] dtemp;
+    
+    dtemp = new double [(this->get_data_grid())[0]->get_ny()];
+    for(i=0;i<(this->get_data_grid())[0]->get_ny();i++){
+      dtemp[i] = this->get_data_grid()[0]->get_y(0,i,0);
+    }
+    error=nc_put_var_double(ncid,lat_id,dtemp);
+    delete [] dtemp;
+
+    for(i=0;i<nvar&&error==_ERRORCODE_NOERROR;i++){
+      if(type==NULL || type[i]==NULL){
+	double *dtemp = new double [(this->get_data_grid())[0]->get_ngrid()];
+	
+	for(j=0;j<(this->get_data_grid())[0]->get_nx();j++){
+	  for(k=0;k<(this->get_data_grid())[0]->get_ny();k++){
+	    for(m=0;m<(this->get_data_grid())[0]->get_nz();m++){
+	      dtemp[(j*this->get_data_grid()[0]->get_ny()+k)*this->get_data_grid()[0]->get_nz()+m] = (this->get_data_grid()[0]->get_data(j,k,m))[dims[i]];
+	    }
+	  }
+	}
+	
+	error=nc_put_var_double(ncid,varid[i],dtemp);
+	if(error) return error;
+	
+	delete [] dtemp;
+      }
+      else if(*(type[i]) == NC_FLOAT){
+	float *ftemp = new float [(this->get_data_grid())[0]->get_ngrid()];
+	
+	for(j=0;j<(this->get_data_grid())[0]->get_nx();j++){
+	  for(k=0;k<(this->get_data_grid())[0]->get_ny();k++){
+	    for(m=0;m<(this->get_data_grid())[0]->get_nz();m++){
+	      ftemp[(j*this->get_data_grid()[0]->get_ny()+k)*this->get_data_grid()[0]->get_nz()+m] = (this->get_data_grid()[0]->get_data(j,k,m))[dims[i]];
+	    }
+	  }
+	}
+	
+	error=nc_put_var_float(ncid,varid[i],ftemp);
+	
+	delete [] ftemp;
+      }
+    }
+
+    delete [] varid;
+  }
+  else{
+    error = _ERRORCODE_NOTIMPLEMENTED;
+  }
+
+  return error;
+}
+
+char* gen_model_data_filenames(char *name_format,char *time_format,date_time *valid_time,int time_index,char **elements,int element_index,char **level_names,int level_index,char* filename){
+  tags element_tag("element");
+  tags level_tag("level");
+  tags time_tag("validtime");
+
+  strcpy(filename,name_format);
+  element_tag.replace(filename,elements[element_index]);
+  if(level_names==NULL){
+    level_tag.replace(filename,level_index+1);
+  }
+  else{
+    level_tag.replace(filename,level_names[level_index]);
+  }
+  char *ctemp = new char [4096];
+  time_tag.replace(filename,valid_time[time_index].get_time(time_format,ctemp));
+  delete [] ctemp;
+  
+  return filename;
+}
+bool check_nusdasdump_fortran_binary_exist(char *name_format,char *time_format,int ntime,date_time *valid_time,int nelements,char **elements,int nlevels,char **level_names){
+  int all_exist = true;
+
+  int i,j,k;
+  
+  char *filename = new char [4096];
+  for(i=0;i<nelements;i++){
+    for(j=0;j<nlevels;j++){
+      for(k=0;k<ntime;k++){
+	gen_model_data_filenames(name_format,time_format,valid_time,k,elements,i,level_names,j,filename);
+	
+	if(!libjeff::file_check_exist(filename)){
+	  strcat(filename,".bz2");
+	  if(!libjeff::file_check_exist(filename)){
+	    delete [] filename;
+	    return false;
+	  }
+	}
+      }
+    }
+  }
+  delete [] filename;
+  
+  return all_exist;
+}
+
+int model_data_copy(model_data& from,model_data& to,int from_index,int to_index)
+{
+  if((from.get_num_data_time() != to.get_num_data_time())){
+    return _ERRORCODE_DATAINCONSISTENCE;
+  }
+  int i,j,k,m;
+
+  for(i=0;i<from.get_num_data_time();i++){
+    if(((from.get_data_grid())[i]->get_nx() != (to.get_data_grid())[i]->get_nx()) || ((from.get_data_grid())[i]->get_ny() != (to.get_data_grid())[i]->get_ny()) ||  ((from.get_data_grid())[i]->get_nz() != (to.get_data_grid())[i]->get_nz())){
+      return _ERRORCODE_DATAINCONSISTENCE;
+    }
+
+    for(j=0;j<(from.get_data_grid())[i]->get_nx();j++){
+      for(k=0;k<(from.get_data_grid())[i]->get_ny();k++){
+	for(m=0;m<(from.get_data_grid())[i]->get_nz();m++){
+	  (to.get_data_grid())[i]->get_data(j,k,m)[to_index]= (from.get_data_grid())[i]->get_data(j,k,m)[from_index];
+	}
+      }
+    }
+  }
+
+  return _ERRORCODE_NOERROR;
+}
+
+int convert_data_degreeC2degreeK(model_data& modeldata,int t_dim_index,bool (*is_missing)(double)){
+  return convert_data_offsetby(modeldata,t_dim_index,meteorology_C_to_K,is_missing);
+}
+int convert_data_offsetby(model_data& modeldata,int dim_index,double value,bool (*is_missing)(double)){
+  int i,j,k,m;
+
+  for(i=0;i<modeldata.get_num_data_time();i++){
+    for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+      for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	  if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[dim_index])){
+	    (modeldata.get_data_grid())[i]->get_data(j,k,m)[dim_index]+=value;
+	  }
+	}
+      }
+    }
+  }
+  return _ERRORCODE_NOERROR;
+}
+int convert_data_scaleby(model_data& modeldata,int dim_index,double scale,bool (*is_missing)(double)){
+  int i,j,k,m;
+
+  for(i=0;i<modeldata.get_num_data_time();i++){
+    for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+      for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	  if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[dim_index])){
+	    (modeldata.get_data_grid())[i]->get_data(j,k,m)[dim_index]*=scale;
+	  }
+	}
+      }
+    }
+  }
+  return _ERRORCODE_NOERROR;
+}
+int convert_data_rh2qvapor(model_data& modeldata,int t_dim_index,int rh_dim_index,int p_dim_index,bool (*is_missing)(double)){
+  if(p_dim_index < -3){
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+
+  int i,j,k,m;
+  switch(p_dim_index){
+  case -3:
+    for(i=0;i<modeldata.get_num_data_time();i++){
+      for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+	for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	  for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	    if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[rh_dim_index])){
+	      (modeldata.get_data_grid())[i]->get_data(j,k,m)[rh_dim_index]*=0.01*libjeff::meteorology_cal_mixing_ratio((modeldata.get_data_grid())[i]->get_z(j,k,m),(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]);
+	    }
+	  }
+	}
+      }
+    }
+    break;
+  case -2:
+    for(i=0;i<modeldata.get_num_data_time();i++){
+      for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+	for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	  for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	    if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[rh_dim_index])){
+	      (modeldata.get_data_grid())[i]->get_data(j,k,m)[rh_dim_index]*=0.01*libjeff::meteorology_cal_mixing_ratio((modeldata.get_data_grid())[i]->get_y(j,k,m),(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]);
+	    }
+	  }
+	}
+      }
+    }
+    break;
+  case -1:
+    for(i=0;i<modeldata.get_num_data_time();i++){
+      for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+	for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	  for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	    if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[rh_dim_index])){
+	      (modeldata.get_data_grid())[i]->get_data(j,k,m)[rh_dim_index]*=0.01*libjeff::meteorology_cal_mixing_ratio((modeldata.get_data_grid())[i]->get_x(j,k,m),(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]);
+	    }
+	  }
+	}
+      }
+    }
+    break;
+  default:
+    for(i=0;i<modeldata.get_num_data_time();i++){
+      for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+	for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	  for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	    if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[rh_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[p_dim_index])){
+	      (modeldata.get_data_grid())[i]->get_data(j,k,m)[rh_dim_index]*=0.01*libjeff::meteorology_cal_mixing_ratio((modeldata.get_data_grid())[i]->get_data(j,k,m)[p_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]);
+	    }
+	  }
+	}
+      }
+    }
+    break;
+  }
+
+  return _ERRORCODE_NOERROR;
+}
+int convert_data_qvapor2rh(model_data& modeldata,int t_dim_index,int q_dim_index,int p_dim_index,bool (*is_missing)(double)){
+  if(p_dim_index < -3){
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+
+  int i,j,k,m;
+  switch(p_dim_index){
+  case -3:
+    for(i=0;i<modeldata.get_num_data_time();i++){
+      for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+	for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	  for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	    if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[q_dim_index])){
+	      (modeldata.get_data_grid())[i]->get_data(j,k,m)[q_dim_index]/=0.01*libjeff::meteorology_cal_mixing_ratio((modeldata.get_data_grid())[i]->get_z(j,k,m),(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]);
+	    }
+	  }
+	}
+      }
+    }
+    break;
+  case -2:
+    for(i=0;i<modeldata.get_num_data_time();i++){
+      for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+	for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	  for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	    if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[q_dim_index])){
+	      (modeldata.get_data_grid())[i]->get_data(j,k,m)[q_dim_index]/=0.01*libjeff::meteorology_cal_mixing_ratio((modeldata.get_data_grid())[i]->get_y(j,k,m),(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]);
+	    }
+	  }
+	}
+      }
+    }
+    break;
+  case -1:
+    for(i=0;i<modeldata.get_num_data_time();i++){
+      for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+	for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	  for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	    if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[q_dim_index])){
+	      (modeldata.get_data_grid())[i]->get_data(j,k,m)[q_dim_index]/=0.01*libjeff::meteorology_cal_mixing_ratio((modeldata.get_data_grid())[i]->get_x(j,k,m),(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]);
+	    }
+	  }
+	}
+      }
+    }
+    break;
+  default:
+    for(i=0;i<modeldata.get_num_data_time();i++){
+      for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+	for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	  for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	    if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[q_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[p_dim_index])){
+	      (modeldata.get_data_grid())[i]->get_data(j,k,m)[q_dim_index]/=0.01*libjeff::meteorology_cal_mixing_ratio((modeldata.get_data_grid())[i]->get_data(j,k,m)[p_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]);
+	    }
+	  }
+	}
+      }
+    }
+    break;
+  }
+
+  return _ERRORCODE_NOERROR;
+}
+int convert_data_dp2qvapor(model_data& modeldata,int t_dim_index,int dp_dim_index,int p_dim_index,bool (*is_missing)(double)){
+  if(p_dim_index < -3){
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+
+  int i,j,k,m;
+  switch(p_dim_index){
+  case -3:
+    for(i=0;i<modeldata.get_num_data_time();i++){
+      for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+	for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	  for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	    if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[dp_dim_index])){
+	      (modeldata.get_data_grid())[i]->get_data(j,k,m)[dp_dim_index]=libjeff::meteorology_cal_mixing_ratio((modeldata.get_data_grid())[i]->get_z(j,k,m),(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[dp_dim_index]);
+	    }
+	  }
+	}
+      }
+    }
+    break;
+  case -2:
+    for(i=0;i<modeldata.get_num_data_time();i++){
+      for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+	for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	  for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	    if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[dp_dim_index])){
+	      (modeldata.get_data_grid())[i]->get_data(j,k,m)[dp_dim_index]=libjeff::meteorology_cal_mixing_ratio((modeldata.get_data_grid())[i]->get_y(j,k,m),(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[dp_dim_index]);
+	    }
+	  }
+	}
+      }
+    }
+    break;
+  case -1:
+    for(i=0;i<modeldata.get_num_data_time();i++){
+      for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+	for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	  for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	    if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[dp_dim_index])){
+	      (modeldata.get_data_grid())[i]->get_data(j,k,m)[dp_dim_index]=libjeff::meteorology_cal_mixing_ratio((modeldata.get_data_grid())[i]->get_x(j,k,m),(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[dp_dim_index]);
+	    }
+	  }
+	}
+      }
+    }
+    break;
+  default:
+    for(i=0;i<modeldata.get_num_data_time();i++){
+      for(j=0;j<(modeldata.get_data_grid())[i]->get_nx();j++){
+	for(k=0;k<(modeldata.get_data_grid())[i]->get_ny();k++){
+	  for(m=0;m<(modeldata.get_data_grid())[i]->get_nz();m++){
+	    if(!is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[dp_dim_index]) && !is_missing((modeldata.get_data_grid())[i]->get_data(j,k,m)[p_dim_index])){
+	      (modeldata.get_data_grid())[i]->get_data(j,k,m)[dp_dim_index]=libjeff::meteorology_cal_mixing_ratio((modeldata.get_data_grid())[i]->get_data(j,k,m)[p_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[t_dim_index],(modeldata.get_data_grid())[i]->get_data(j,k,m)[dp_dim_index]);
+	    }
+	  }
+	}
+      }
+    }
+    break;
+  }
+
+  return _ERRORCODE_NOERROR;
+}

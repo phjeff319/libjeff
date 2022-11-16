@@ -1,0 +1,52 @@
+#ifndef TIMEDGRIDDATA
+#define TIMEDGRIDDATA
+#include "date_time.h"
+#include "grid_data.h"
+
+class timed_grid_data{
+ public:
+  timed_grid_data();
+  ~timed_grid_data();
+
+  ###CPP### ###CUDA### ###HOST### int create(int num_data_time,void (*allocation)(grid_data* &data_grid));
+  ###CPP### ###CUDA### ###HOST### void destroy();
+
+  ###CPP### ###CUDA### ###HOST### inline int get_num_data_time() const {return num_data_time;}
+
+  ###CPP### ###CUDA### ###HOST### void set_x(int ix,int iy,int iz,double x);
+  ###CPP### ###CUDA### ###HOST### void set_y(int ix,int iy,int iz,double y);
+  ###CPP### ###CUDA### ###HOST### void set_z(int ix,int iy,int iz,double z);
+
+  ###CPP### ###CUDA### ###HOST### int set_x(double *x);
+  ###CPP### ###CUDA### ###HOST### int set_y(double* y);
+  ###CPP### ###CUDA### ###HOST### int set_z(double* z);
+
+  ###CPP### ###CUDA### ###HOST### void set_x_periodic();
+  ###CPP### ###CUDA### ###HOST### void unset_x_periodic();
+  ###CPP### ###CUDA### ###HOST### void set_y_periodic();
+  ###CPP### ###CUDA### ###HOST### void unset_y_periodic();
+  ###CPP### ###CUDA### ###HOST### void set_z_periodic();
+  ###CPP### ###CUDA### ###HOST### void unset_z_periodic();
+
+  ###CPP### ###CUDA### ###HOST### void set_x_period(double in);
+  ###CPP### ###CUDA### ###HOST### void set_y_period(double in);
+  ###CPP### ###CUDA### ###HOST### void set_z_period(double in);
+
+  ###CPP### ###CUDA### ###HOST### void set_data_grid(grid_data** in);
+  ###CPP### ###CUDA### ###HOST### inline grid_data** get_data_grid() const {return data_grid;}
+  ###CPP### ###CUDA### ###HOST### int set_data_time(date_time *in);
+  ###CPP### ###CUDA### ###HOST### inline date_time* get_data_time() const {return data_time;}
+
+  ###CPP### ###CUDA### ###HOST### int multiple_linear_interpolate_from(const timed_grid_data* in);
+  ###CPP### ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(date_time vtime,double x, double y, double z, double *temp);
+  ###CPP### ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(date_time vtime,double x, double y, double z, double *missing,double *temp);
+
+ protected:
+  int num_data_time;
+  date_time *data_time;
+  grid_data **data_grid;
+  double missing_value;
+
+};
+
+#endif

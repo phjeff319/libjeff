@@ -1,0 +1,42 @@
+#ifndef MODELDATA
+#define MODELDATA
+#include "timed_grid_data.h"
+
+class model_data : public timed_grid_data{
+ public:
+  model_data();
+  ~model_data();
+
+  int set_init_time(const date_time& in);
+  date_time get_init_time() const;
+
+  int read_grib_data(char *filename,int nvar,char **variable,int *dim_index,int nlevel,char **levels,int *level_index,date_time validtime,int time_index,char *lat_res,char *lon_res,char *from_lat,char *to_lat,char *from_lon,char *to_lon);
+  //int read_netCDF_coordinate_sys(char *filename,int ndim,char **variable_names);
+  int read_grib_data(char *filename,int nvar,char **variable,int *dim_index,int nlevel,char **levels,int *level_index,date_time validtime,int time_index,int num_param,char **param_name,char **param_value);
+  int read_netCDF_data(char *filename,int st_time_index,int end_time_index,char *xdimname,char *ydimname,char *zdimname,char *xname,char *yname,char *zname,int nvariable,char **variable_names,int *dim_index);
+  int read_netCDF_data(char *filename,int st_time_index,int end_time_index,char *xdimname,char *ydimname,char *zdimname,char *xname,char *yname,char *zname,bool innermostright,int nvariable,char **variable_names,int *dim_index);
+  int read_nusdasdump_fortran_binary(char *name_format,char *time_format,int ntime,date_time *valid_time,int *time_index,int nelements,char **elements,int *dim_index,int nlevels,char **level_names,int *level_index,int datafile_index,void (*allocation)(grid_data* &data_grid),int *allocation_idummy,double *allocation_ddummy);
+
+  int write_NetCDF(int ncid,size_t *chunks,int nvar,int *dims,int *nvar_attribute,char ****var_attributes,int **type); //chunks can be set to NULL to turn off; nvar cannot be larger than ndims; var_attributes[i][0][0] is the name of variable; var_attributes[i][j][0] is the names of attribute for the variable and var_attributes[i][j][1] is the value of the attribute; type[i] can be set to NULL to store in original precision
+
+ private:
+  date_time init_time;
+};
+
+char* gen_model_data_filenames(char *name_format,char *time_format,date_time *valid_time,int time_index,char **elements,int element_index,char **level_names,int level_index,char* filename);
+bool check_nusdasdump_fortran_binary_exist(char *name_format,char *time_format,int ntime,date_time *valid_time,int nelements,char **elements,int nlevels,char **level_names);
+
+int model_data_copy(model_data& from,model_data& to,int from_index,int to_index);
+
+int convert_data_degreeC2degreeK(model_data& modeldata,int t_dim_index,bool (*is_missing)(double));
+int convert_data_offsetby(model_data& modeldata,int dim_index,double value,bool (*is_missing)(double));
+int convert_data_scaleby(model_data& modeldata,int dim_index,double scale,bool (*is_missing)(double));
+
+//For functions below, assume the model data in pressure coordinate if p_dim_index set to -ve; -1 for x as pressure coordinate, -2 for y and -3 for z
+int convert_data_rh2qvapor(model_data& modeldata,int t_dim_index,int rh_dim_index,int p_dim_index,bool (*is_missing)(double)); 
+int convert_data_qvapor2rh(model_data& modeldata,int t_dim_index,int q_dim_index,int p_dim_index,bool (*is_missing)(double)); 
+int convert_data_dp2qvapor(model_data& modeldata,int t_dim_index,int dp_dim_index,int p_dim_index,bool (*is_missing)(double)); 
+
+
+
+#endif

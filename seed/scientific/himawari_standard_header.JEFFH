@@ -1,0 +1,177 @@
+#ifndef HIMAWARISTANDARDHEADER
+#define HIMAWARISTANDARDHEADER
+#include<stdint.h>
+
+struct himawari_standard_basic_header{
+  uint8_t header_type;
+  uint16_t header_length;
+  uint16_t total_numer_of_header;
+  uint8_t byte_order;
+  char satellite[16];
+  char center_name[16];
+  char obs_area[4];
+  char other_info[2];
+  uint16_t obs_timeline;
+  double obs_st_time;
+  double obs_end_time;
+  double file_create_time;
+  unsigned int total_header_len;
+  unsigned int total_data_len;
+  uint8_t qc_flag1;
+  uint8_t qc_flag2;
+  uint8_t qc_flag3;
+  uint8_t qc_flag4;
+  char file_format_ver[32];
+  char file_name[128];
+  char spare[40];
+} __attribute__((packed));;
+
+struct himawari_standard_data_header{
+  uint8_t header_type;
+  uint16_t header_length;
+  uint16_t num_bits;
+  uint16_t num_column;
+  uint16_t num_lines;
+  uint8_t compression;
+  char spare[40];
+} __attribute__((packed));;
+
+struct himawari_standard_projection_info_header{
+  uint8_t header_type;
+  uint16_t header_length;
+  double sat_lon;
+  uint32_t cfac;
+  uint32_t lfac;
+  float coff;
+  float loff;
+  double dist2earth_center;
+  double earth_equator_radius;
+  double earth_polar_radius;
+  double earth_param1;
+  double earth_param2;
+  double earth_param3;
+  double coeff_sd;
+  uint16_t resampling_type;
+  uint16_t resampling_size;
+  char spare[40];
+} __attribute__((packed));;
+
+struct himawari_standard_navigation_info_header{
+  uint8_t header_type;
+  uint16_t header_length;
+  double navigation_info_time;
+  double ssp_lat;
+  double ssp_lon;
+  double dist2earth_center;
+  double nadir_lat;
+  double nadir_lon;
+  double sun_posit[3];
+  double moon_posit[3];
+  char spare[40];
+} __attribute__((packed));;
+
+struct himawari_standard_calibration_info_header{
+  uint8_t header_type;
+  uint16_t header_length;
+  uint16_t band_no;
+  double wavelength;
+  uint16_t num_bits_per_pixal;
+  uint16_t error_value;
+  uint16_t outside_scan_value;
+  double conversion_gain;
+  double conversion_count;
+} __attribute__((packed));;
+
+struct himawari_standard_IR_calibration_info_header : himawari_standard_calibration_info_header {
+  double coeff0_I2T;
+  double coeff1_I2T;
+  double coeff2_I2T;
+  double coeff0_T2I;
+  double coeff1_T2I;
+  double coeff2_T2I;
+  double c;
+  double h;
+  double k;
+  char spare[40];
+} __attribute__((packed));;
+
+struct himawari_standard_vis_nir_calibration_info_header : himawari_standard_calibration_info_header  {
+  double coeff_radiance2albedo;
+  char spare[104];
+} __attribute__((packed));;
+
+struct himawari_standard_intercalibration_info_header{
+  uint8_t header_type;
+  uint16_t header_length;
+  double gsscs_coeff_const;
+  double gsics_coeff_slop;
+  double gsics_coeff_quadra;
+  double bias;
+  double bias_sigma;
+  double standard_scene_radiance;
+  double gsics_correction_sttime;
+  double gsics_correction_endtime;
+  float gsics_radiance_uplimit;
+  float gsics_radiance_lowlimit;
+  char gsics_filename[128];
+  char spare[56];
+} __attribute__((packed));;
+
+struct himawari_standard_segment_info_header{
+  uint8_t header_type;
+  uint16_t header_length;
+  uint8_t num_seg;
+  uint8_t seg_no;
+  uint16_t seg_first_line_no;
+  char spare[40];
+} __attribute__((packed));;
+
+struct himawari_standard_navigation_correction_info{
+  uint16_t line_number;
+  float column_shift_amount;
+  float line_shift_amount;
+} __attribute__((packed));;
+
+struct himawari_standard_navigation_correction_info_header{
+  uint8_t header_type;
+  uint16_t header_length;
+  float center_column_rotation;
+  float center_line_rotation;
+  double rotation_corr;
+  uint16_t num_corr;
+  himawari_standard_navigation_correction_info *corr_info;
+  char spare[40];
+} __attribute__((packed));;
+
+struct himawari_standard_observation_time_info{
+  uint16_t line_num;
+  double obs_time;
+} __attribute__((packed));;
+
+struct himawari_standard_observation_time_info_header{
+  uint8_t header_type;
+  uint16_t header_length;
+  uint16_t num_obstime;
+  himawari_standard_observation_time_info *obs_time_info;
+  char spare[40];
+} __attribute__((packed));;
+
+struct himawari_standard_error_info{
+  uint16_t line_num;
+  uint16_t num_error_pixel;
+} __attribute__((packed));;
+
+struct himawari_standard_error_info_header{
+  uint8_t header_type;
+  uint32_t header_length;
+  uint16_t num_error_info;
+  himawari_standard_error_info *error_info;
+  char spare[40];
+} __attribute__((packed));;
+
+struct himawari_standard_spare_header{
+  uint8_t header_type;
+  uint16_t header_length;
+  char spare[256];
+} __attribute__((packed));;
+#endif

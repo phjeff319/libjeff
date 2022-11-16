@@ -1,0 +1,325 @@
+###CUDA####include<cuda.h>
+#include<iostream>
+#include<cmath>
+using namespace std;
+
+###CUDA####include"cuda_setting.h"
+#include"map_projection.h"
+#include"physics_constants.h"
+
+using namespace libjeff;
+namespace libjeff{
+  //Mercator subroutines
+  ###CUDA### ###HOST### void gen_mercator(double *lat,double *lon,double baselat,double baselon,double truelat,double lat_res,double lon_res,int latgrid,int longrid,double latloc,double lonloc){
+    double *d_lat, *d_lon;
+    cudaMalloc(&d_lat,latgrid*sizeof(double));
+    cudaMalloc(&d_lon,longrid*sizeof(double));
+
+    int numthreads = cuda_setting::get_numthreads();
+    dim3 grid;
+    grid.x = (int) ceil((double) max(latgrid,longrid)/((double) numthreads));
+    gen_mercator_lat_kernel<<<grid,numthreads>>>(latgrid,lat_res,baselat,truelat,latloc,d_lat);
+    gen_mercator_lon_kernel<<<grid,numthreads>>>(longrid,lon_res,baselon,truelat,lonloc,d_lon);
+    cudaMemcpy(lat,d_lat,latgrid*sizeof(double),cudaMemcpyDeviceToHost);
+    cudaMemcpy(lon,d_lon,longrid*sizeof(double),cudaMemcpyDeviceToHost);
+
+    cudaFree(d_lat);
+    cudaFree(d_lon);
+  }
+  ###CPP### ###HOST### void gen_mercator(double *lat,double *lon,double baselat,double baselon,double truelat,double lat_res,double lon_res,int latgrid,int longrid,double latloc,double lonloc){
+    int i;
+    for(i=0;i<longrid;i++){
+      lon[i]=baselon + (i-lonloc)*lon_res/(Earth_radius*cos(truelat*ang_to_rad))/ang_to_rad;
+    }
+    
+    for(i=0;i<latgrid;i++){
+      double temp = exp((i-latloc)*lat_res/(Earth_radius*cos(truelat*ang_to_rad)))*(1.+sin(baselat*ang_to_rad))/cos(baselat*ang_to_rad);
+      lat[i]=asin((temp*temp - 1.)/(temp*temp + 1.))/ang_to_rad;
+    }
+  }
+  ###CPP### ###CUDA### ###HOST### int gen_mercator(double *lat,double *lon,double centlat,double centlon,double truelat,double lat_res,double lon_res,int latgrid,int longrid){
+    if(longrid%2!=1 || latgrid%2!=1){
+      cout << "Error! longrid and latgrid must be an odd number" << endl;
+      return 1;
+    }
+    
+    gen_mercator(lat,lon,centlat,centlon,truelat,lat_res,lon_res,latgrid,longrid,latgrid/2,longrid/2);
+    return 0;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_mercator_xyindex(double *latlon,double baselat,double baselon,double truelat,double lat_res,double lon_res,int latloc,int lonloc,double *xyindex){
+    return cal_mercator_xyindex(latlon[0],latlon[1],baselat,baselon,truelat,lat_res,lon_res,latloc,lonloc,xyindex);
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_mercator_xyindex(double lat,double lon,double baselat,double baselon,double truelat,double lat_res,double lon_res,int latloc,int lonloc,double *xyindex){
+    xyindex[0] = (lon - baselon)*ang_to_rad*(Earth_radius*cos(truelat*ang_to_rad))/(lon_res) + lonloc;
+    xyindex[1] = log((1./cos(lat*ang_to_rad) + tan(lat*ang_to_rad))/(1./cos(baselat*ang_to_rad) + tan(baselat*ang_to_rad)))*(Earth_radius*cos(truelat*ang_to_rad))/(lat_res) + latloc;
+    return xyindex;
+  }
+  ###CUDA### ###HOST### double *cal_mercator_xyindex(int npt,double *latlon,double baselat,double baselon,double truelat,double lat_res,double lon_res,int latloc,int lonloc,double *xyindex){
+    int numthreads = cuda_setting::get_numthreads();
+    dim3 grid;
+    grid.x = (int) ceil((double) npt/((double) numthreads));
+
+    double *d_xyindex, *d_latlon;
+    cudaMalloc(&d_xyindex,2*npt*sizeof(double));
+    cudaMalloc(&d_latlon,2*npt*sizeof(double));
+    cudaMemcpy(d_latlon,latlon,2*npt*sizeof(double),cudaMemcpyHostToDevice);
+    cal_mercator_xyindex_kernel<<<grid,numthreads>>>(npt,d_latlon,baselat,baselon,truelat,lat_res,lon_res,latloc,lonloc,d_xyindex);
+    cudaMemcpy(xyindex,d_xyindex,2*npt*sizeof(double),cudaMemcpyDeviceToHost);
+
+    cudaFree(d_xyindex);
+    cudaFree(d_latlon);
+
+    return xyindex;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_mercator_res(double min_lat,double max_lat,double min_lon,double max_lon,double truelat,int nlat,int nlon,double *res){
+    res[0] = log((1./cos(max_lat*ang_to_rad) + tan(max_lat*ang_to_rad))/(1./cos(min_lat*ang_to_rad) + tan(min_lat*ang_to_rad)))*(Earth_radius*cos(truelat*ang_to_rad))/nlat;
+    res[1] = (max_lon - min_lon)*ang_to_rad*(Earth_radius*cos(truelat*ang_to_rad))/nlon;
+    return res;
+  }
+
+  ###CUDA### ###GLOBAL### void gen_mercator_lat_kernel(int latgrid,double lat_res,double baselat,double truelat,double latloc,double *lat){
+    int index = (blockDim.x*blockIdx.x + threadIdx.x);
+
+    if(index < latgrid){
+       double temp = exp((index-latloc)*lat_res/(Earth_radius*cos(truelat*ang_to_rad)))*(1.+sin(baselat*ang_to_rad))/cos(baselat*ang_to_rad);
+       lat[index] = asin((temp*temp - 1.)/(temp*temp + 1.))/ang_to_rad;
+    }
+  }
+  ###CUDA### ###GLOBAL### void gen_mercator_lon_kernel(int longrid,double lonres,double baselon,double truelat,double lonloc,double *lon){
+    int index = (blockDim.x*blockIdx.x + threadIdx.x);
+
+    if(index < longrid){
+      lon[index]=baselon + (index-lonloc)*lonres/(Earth_radius*cos(truelat*ang_to_rad))/ang_to_rad;
+    }
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_mercator_lat(double index,double baselat,double truelat,double lat_res,int latloc){
+    double temp = exp((index-latloc)*lat_res/(Earth_radius*cos(truelat*ang_to_rad)))*(1.+sin(baselat*ang_to_rad))/cos(baselat*ang_to_rad);
+    return asin((temp*temp - 1.)/(temp*temp + 1.))/ang_to_rad;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_mercator_lon(double index,double baselon,double truelat,double lon_res,int lonloc){
+    double out = (index - lonloc)*lon_res/(ang_to_rad*(Earth_radius*cos(truelat*ang_to_rad))) + baselon;
+    return out;
+  }
+
+  ###CUDA### ###GLOBAL### void cal_mercator_xyindex_kernel(int npt,double *latlon,double baselat,double baselon,double truelat,double lat_res,double lon_res,int latloc,int lonloc,double *xyindex){
+    int pt_index = (blockDim.x*blockIdx.x + threadIdx.x);
+
+    if(pt_index < npt){
+      cal_mercator_xyindex(latlon+pt_index*2,baselat,baselon,truelat,lat_res,lon_res,latloc,lonloc,xyindex+pt_index*2);
+    }
+  }
+
+  //Lambert Conformal N subtourines
+  ###CUDA### ###HOST### void gen_lambertConN(double *lat,double *lon,double ref_lat,double ref_lon,double true_lat1,double true_lat2,double lat_res,double lon_res,int latgrid,int longrid,int latloc,int lonloc){
+    double truelat1_rad,truelat2_rad,ref_lat_rad;
+    double nn,ff,rho0;
+    
+    truelat1_rad = true_lat1*ang_to_rad;
+    truelat2_rad = true_lat2*ang_to_rad;
+    ref_lat_rad = ref_lat*ang_to_rad;
+    
+    cal_lambertConN_parameter_rad(truelat1_rad,truelat2_rad,ref_lat_rad,nn,ff,rho0);
+    double xres = cal_lambertConN_x_scale(ref_lat,ref_lon,true_lat1,true_lat2,lon_res);
+    double yres = cal_lambertConN_y_scale(ref_lat,ref_lon,true_lat1,true_lat2,lat_res);
+
+    int numthreads = cuda_setting::get_numthreads();
+    dim3 grid;
+    grid.x = (int) ceil((double) latgrid*longrid/((double) numthreads));
+
+    double *d_lat, *d_lon;
+    cudaMalloc(&d_lat,latgrid*longrid*sizeof(double));
+    cudaMalloc(&d_lon,latgrid*longrid*sizeof(double));
+    gen_lambertConN_kernel<<<grid,numthreads>>>(latgrid,longrid,xres,yres,nn,ff,rho0,ref_lon,latloc,lonloc,d_lat,d_lon);
+    cudaMemcpy(lat,d_lat,latgrid*longrid*sizeof(double),cudaMemcpyDeviceToHost);
+    cudaMemcpy(lon,d_lon,latgrid*longrid*sizeof(double),cudaMemcpyDeviceToHost);
+
+    cudaFree(d_lat);
+    cudaFree(d_lon);
+  }
+  ###CPP### ###HOST### void gen_lambertConN(double *lat,double *lon,double ref_lat,double ref_lon,double true_lat1,double true_lat2,double lat_res,double lon_res,int latgrid,int longrid,int latloc,int lonloc){
+    double truelat1_rad,truelat2_rad,ref_lat_rad;
+    double nn,ff,rho0;
+    
+    truelat1_rad = true_lat1*ang_to_rad;
+    truelat2_rad = true_lat2*ang_to_rad;
+    ref_lat_rad = ref_lat*ang_to_rad;
+    
+    cal_lambertConN_parameter_rad(truelat1_rad,truelat2_rad,ref_lat_rad,nn,ff,rho0);
+    double xres = cal_lambertConN_x_scale(ref_lat,ref_lon,true_lat1,true_lat2,lon_res);
+    double yres = cal_lambertConN_y_scale(ref_lat,ref_lon,true_lat1,true_lat2,lat_res);
+    
+    int i,j;
+    for(i=0;i<longrid;i++){
+      for(j=0;j<latgrid;j++){
+	double tempx = xres*(i-lonloc);
+	double tempy = rho0 - yres*(j-latloc);
+	lon[i*latgrid+j] = ref_lon + atan(tempx/tempy)/nn/ang_to_rad;
+	lat[i*latgrid+j] = 2*atan(pow(ff/pow(tempx*tempx + tempy*tempy,0.5),1/nn))/ang_to_rad - 90;
+      }
+    }
+  }
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### void cal_lambertConN_parameter_rad(const double &true_lat1_rad,const double &true_lat2_rad,const double &ref_lat_rad,double &nn,double &ff, double &rho0){
+    nn = cal_lambertConN_parameter_rad_nn(true_lat1_rad,true_lat2_rad);
+    ff = cal_lambertConN_parameter_rad_ff(true_lat1_rad,true_lat2_rad,nn);
+    rho0 = cal_lambertConN_parameter_rad_rho(ref_lat_rad,nn,ff);
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_parameter_rad_nn(const double &true_lat1_rad,const double &true_lat2_rad){
+    return log(cos(true_lat1_rad)/cos(true_lat2_rad))/log(tan(0.25*pi+0.5*true_lat2_rad)/tan(0.25*pi+0.5*true_lat1_rad));
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_parameter_rad_ff(const double &true_lat1_rad,const double &true_lat2_rad,const double &nn){
+    return cos(true_lat1_rad)*pow(tan(0.25*pi+0.5*true_lat1_rad),nn)/nn;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_parameter_rad_rho(const double &ref_lat_rad,const double &nn,const double &ff){
+    // return ff/pow(tan(0.25*pi+0.5*ref_lat_rad),nn);
+    return ff/exp(nn*log(tan(0.25*pi+0.5*ref_lat_rad)));
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_x_scale(double ref_lat,double ref_lon,double true_lat1,double true_lat2,double lon_res){
+    double truelat1_rad,truelat2_rad,ref_lat_rad;
+    double nn,ff,rho0;
+    
+    truelat1_rad = true_lat1*ang_to_rad;
+    truelat2_rad = true_lat2*ang_to_rad;
+    ref_lat_rad = ref_lat*ang_to_rad;
+    
+    cal_lambertConN_parameter_rad(truelat1_rad,truelat2_rad,ref_lat_rad,nn,ff,rho0);
+    double rho = cal_lambertConN_parameter_rad_rho(truelat1_rad,nn,ff);
+    
+    return rho*sin(nn*lon_res/(Earth_radius*cos(truelat1_rad)));
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_x_scale(double ref_lat,double ref_lon,double true_lat1,double true_lat2,double lon_res,double nn,double ff){
+    double truelat1_rad;
+    
+    truelat1_rad = true_lat1*ang_to_rad;
+    
+    double rho = cal_lambertConN_parameter_rad_rho(truelat1_rad,nn,ff);
+    
+    return rho*sin(nn*lon_res/(Earth_radius*cos(truelat1_rad)));
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_y_scale(double ref_lat,double ref_lon,double true_lat1,double true_lat2,double lat_res){
+    double truelat1_rad,truelat2_rad,ref_lat_rad;
+    double nn,ff,rho0;
+    
+    truelat1_rad = true_lat1*ang_to_rad;
+    truelat2_rad = true_lat2*ang_to_rad;
+    ref_lat_rad = ref_lat*ang_to_rad;
+    
+    cal_lambertConN_parameter_rad(truelat1_rad,truelat2_rad,ref_lat_rad,nn,ff,rho0);
+    
+    //return ff*(1./pow(tan(0.25*pi + 0.5*truelat1_rad),nn) - 1./pow(tan(0.25*pi + 0.5*truelat1_rad + 0.5*lat_res/Earth_radius),nn));
+    return ff*(1./exp(nn*log(tan(0.25*pi + 0.5*truelat1_rad))) - 1./exp(nn*log(tan(0.25*pi + 0.5*truelat1_rad + 0.5*lat_res/Earth_radius))));
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double cal_lambertConN_y_scale(double ref_lat,double ref_lon,double true_lat1,double true_lat2,double lat_res,double nn,double ff){
+    double truelat1_rad;
+    
+    truelat1_rad = true_lat1*ang_to_rad;
+    
+    //return ff*(1./pow(tan(0.25*pi + 0.5*truelat1_rad),nn) - 1./pow(tan(0.25*pi + 0.5*truelat1_rad + 0.5*lat_res/Earth_radius),nn));
+    return ff*(1./exp(nn*log(tan(0.25*pi + 0.5*truelat1_rad))) - 1./exp(nn*log(tan(0.25*pi + 0.5*truelat1_rad + 0.5*lat_res/Earth_radius))));
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_lambertConN_xyindex(double *latlon,double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,double *xyindex){
+    return cal_lambertConN_xyindex(latlon[0],latlon[1],truelat1,truelat2,ref_lat,ref_lon,lat_res,lon_res,xyindex);
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_lambertConN_xyindex(double *latlon,double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,int latloc,int lonloc,double *xyindex){
+    cal_lambertConN_xyindex(latlon[0],latlon[1],truelat1,truelat2,ref_lat,ref_lon,lat_res,lon_res,xyindex);
+
+    xyindex[0] += lonloc;
+    xyindex[1] += latloc;
+    
+    return xyindex;
+  }
+  ###CUDA### ###HOST### double *cal_lambertConN_xyindex(int npt,double *latlon,double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,int latloc,int lonloc,double *xyindex){
+    double truelat1_rad,truelat2_rad,ref_lat_rad;
+    double nn,ff,rho0;
+    
+    truelat1_rad = truelat1*ang_to_rad;
+    truelat2_rad = truelat2*ang_to_rad;
+    ref_lat_rad = ref_lat*ang_to_rad;
+    
+    cal_lambertConN_parameter_rad(truelat1_rad,truelat2_rad,ref_lat_rad,nn,ff,rho0);
+
+    double x_scale, y_scale;
+    x_scale = cal_lambertConN_x_scale(ref_lat,ref_lon,truelat1,truelat2,lon_res,nn,ff);
+    y_scale = cal_lambertConN_y_scale(ref_lat,ref_lon,truelat1,truelat2,lat_res,nn,ff);
+
+    int numthreads = cuda_setting::get_numthreads();
+    dim3 grid;
+    grid.x = (int) ceil((double) npt/((double) numthreads));
+    double *d_xyindex, *d_latlon;
+    cudaMalloc(&d_xyindex,2*npt*sizeof(double));
+    cudaMalloc(&d_latlon,2*npt*sizeof(double));
+    cudaMemcpy(d_latlon,latlon,2*npt*sizeof(double),cudaMemcpyHostToDevice);
+    cal_lambertConN_xyindex_kernel<<<grid,numthreads>>>(npt,d_latlon,nn,ff,rho0,ref_lat,ref_lon,x_scale,y_scale,latloc,lonloc,d_xyindex);
+    cudaMemcpy(xyindex,d_xyindex,2*npt*sizeof(double),cudaMemcpyDeviceToHost);
+
+    cudaFree(d_xyindex);
+    cudaFree(d_latlon);
+
+    return xyindex;
+  }
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_lambertConN_xyindex(double lat,double lon,double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,double *xyindex){
+    double truelat1_rad,truelat2_rad,ref_lat_rad;
+    double nn,ff,rho0;
+    
+    truelat1_rad = truelat1*ang_to_rad;
+    truelat2_rad = truelat2*ang_to_rad;
+    ref_lat_rad = ref_lat*ang_to_rad;
+    
+    cal_lambertConN_parameter_rad(truelat1_rad,truelat2_rad,ref_lat_rad,nn,ff,rho0);
+    double rho = cal_lambertConN_parameter_rad_rho(lat*ang_to_rad,nn,ff);
+    
+    xyindex[0] = rho*sin(nn*(lon - ref_lon)*ang_to_rad)/cal_lambertConN_x_scale(ref_lat,ref_lon,truelat1,truelat2,lon_res,nn,ff);
+    xyindex[1] = (rho0 - rho*cos(nn*(lon - ref_lon)*ang_to_rad))/cal_lambertConN_y_scale(ref_lat,ref_lon,truelat1,truelat2,lat_res,nn,ff);
+    
+    return xyindex;
+  }
+
+  ###CUDA### ###GLOBAL### void gen_lambertConN_kernel(int latgrid,int longrid,double xres,double yres,double nn,double ff,double rho0,double ref_lon,int latloc,int lonloc,double *lat,double *lon){
+    int lat_index = (blockDim.x*blockIdx.x + threadIdx.x)%latgrid;
+    int lon_index = (blockDim.x*blockIdx.x + threadIdx.x)/latgrid;
+
+    if(lat_index < latgrid && lon_index < longrid){
+      double tempx = xres*(lon_index-lonloc);
+      double tempy = rho0 - yres*(lat_index-latloc);
+
+      lon[lon_index*latgrid+lat_index] = ref_lon + atan(tempx/tempy)/nn/ang_to_rad;
+      //lat[lon_index*latgrid+lat_index] = 2*atan(pow(ff/pow(tempx*tempx + tempy*tempy,0.5),1/nn))/ang_to_rad - 90;
+      lat[lon_index*latgrid+lat_index] = 2.*atan(exp(1./nn*log(ff/(exp(0.5*log(tempx*tempx + tempy*tempy))))))/ang_to_rad - 90.;
+    }
+  }
+  ###CUDA### ###GLOBAL### void cal_lambertConN_xyindex_kernel(int npt,double *latlon,double nn,double ff,double rho0,double ref_lat,double ref_lon,double x_scale,double y_scale,int latloc,int lonloc,double *xyindex){
+    int pt_index = (blockDim.x*blockIdx.x + threadIdx.x);
+
+    if(pt_index < npt){
+      double rho = cal_lambertConN_parameter_rad_rho(latlon[2*pt_index]*ang_to_rad,nn,ff);
+
+      xyindex[2*pt_index] = rho*sin(nn*(latlon[2*pt_index+1] - ref_lon)*ang_to_rad)/x_scale + lonloc;
+      xyindex[2*pt_index+1] = (rho0 - rho*cos(nn*(latlon[2*pt_index+1] - ref_lon)*ang_to_rad))/y_scale + latloc;
+    }
+  }
+
+  //GEOS subroutine
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### double *cal_geos_xyindex(double lat,double lon,double satellite_lon,double satellite_height,double *xyindex){
+    double geo_lat = atan(Earth_WGS88_polar_radius*Earth_WGS88_polar_radius/(Earth_WGS88_equator_radius*Earth_WGS88_equator_radius)*tan(lat*ang_to_rad));
+    double londiff = (lon - satellite_lon)*ang_to_rad;
+
+    double re=Earth_WGS88_polar_radius/pow(1-(Earth_WGS88_equator_radius*Earth_WGS88_equator_radius - Earth_WGS88_polar_radius*Earth_WGS88_polar_radius)/(Earth_WGS88_equator_radius*Earth_WGS88_equator_radius)*pow(cos(geo_lat),2.),0.5);
+
+    double r1 = satellite_height - re*cos(geo_lat)*cos(londiff);
+    double r2 = -re*cos(geo_lat)*sin(londiff);
+    double r3 = re*sin(geo_lat);
+    double rn = pow(r1*r1 + r2*r2 + r3*r3,0.5);
+
+    xyindex[0] = atan(-r2/r1)/ang_to_rad;
+    xyindex[1] = asin(-r3/rn)/ang_to_rad;
+
+    if(cos(londiff) >= re*cos(geo_lat)/satellite_height){
+      return xyindex;
+    }
+    else{
+      //this means the point defined by (lat,lon) cannot be seen from the satellite
+      return NULL;
+    }
+  }
+}
+

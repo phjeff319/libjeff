@@ -1,0 +1,9 @@
+#ifndef SEMI_LAGRANGIAN_ADVECTION
+#define SEMI_LAGRANGIAN_ADVECTION
+#include "grid_data.h"
+#include "advection_scheme.h"
+
+class semi_lagrangian_advection : public advection_scheme{
+ public:
+};
+#endif

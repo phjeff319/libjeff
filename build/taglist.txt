@@ -1,0 +1,11 @@
+###CPP###,
+###CUDA###,
+###DEV###,
+###HOST### ,__host__ 
+###DEVICE### ,__device__ 
+###GLOBAL### ,__global__ 
+###SCIENTIFIC###,
+###ROBOTICS###,
+###XGBOOST###,
+###DATABASE###,
+###EXTERNAL###,

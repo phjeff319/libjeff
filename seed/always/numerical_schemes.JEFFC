@@ -1,0 +1,117 @@
+#include <cmath>
+#include <iostream>
+using namespace std;
+
+#include "debug_mode.h"
+#include "error_code.h"
+#include "numerical_schemes.h"
+
+namespace libjeff{
+  ###CPP### ###CUDA### ###HOST### double numerical_schemes_secant_method(int max_iter,double x0,double x1,double y0,double eps,double (*foo)(double)){
+    int i;
+  
+    double result;
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Iterations in secant method:" << std::endl;
+      std::cout << "-----------------------------------------------" << std::endl;
+    }
+    for(i=0;i<max_iter;i++){
+      result = x1 - ((*foo)(x1) - y0)*(x1 - x0)/((*foo)(x1) - (*foo)(x0));
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "Iteration: " << i << " " << x0 << " " << x1 << " " << y0 << " " << result << std::endl;
+      }
+      if(fabs(result - x1) < eps){
+	break;
+      }
+      x0 = x1;
+      x1 = result;
+    }
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "-----------------------------------------------" << std::endl;
+    }
+    
+    return result;
+  }
+  ###CPP### ###CUDA### ###HOST### int numerical_schemes_secant_method(int max_iter,double x0,double x1,double y0,double eps,double *dparms,int *iparms,double (*foo)(double,double*,int*),double &out){
+    int i;
+    
+    double result;
+    for(i=0;i<max_iter;i++){
+      result = x1 - ((*foo)(x1,dparms,iparms) - y0)*(x1 - x0)/((*foo)(x1,dparms,iparms) - (*foo)(x0,dparms,iparms));
+      if(fabs(result - x1) < eps){
+	out = result;
+	return _ERRORCODE_NOERROR;
+      }
+      x0 = x1;
+      x1 = result;
+    }
+    
+    return _ERRORCODE_ITERATIONSFAILEDTOCONVERGE;
+  }
+  ###CPP### ###CUDA### ###HOST### int numerical_schemes_false_position_method(int max_iter,double x0,double x1,double y,double eps,double *dparms,int *iparms,double (*foo)(double,double*,int*),double &out){
+    int i;
+    double y0,y1,newx, newy;
+
+    y0 = (*foo)(x0,dparms,iparms);
+    y1 = (*foo)(x1,dparms,iparms);
+
+    if((y1-y)*(y0-y) > 0){
+      return _ERRORCODE_WRONGINPUTSFORITERATION;
+    }
+    
+    for(i=0;i<max_iter;i++){
+      newx = (x0*(y1-y) - x1*(y0-y))/(y1 - y0);
+      newy = (*foo)(newx,dparms,iparms);
+
+      if(fabs(newy -y) < eps){
+	out = newx;
+	return _ERRORCODE_NOERROR;
+      }
+      
+      if((newy-y)*(y0-y)>=0){
+	x0 = newx;
+	y0 = newy;
+      }
+      else{
+	x1 = newx;
+	y1 = newy;
+      }
+      //std::cout << x0 << " " << x1 << endl;
+    }
+
+    return _ERRORCODE_ITERATIONSFAILEDTOCONVERGE;
+  }
+  ###CPP### ###CUDA### ###HOST### int numerical_schemes_bisection_method(int max_iter,double x0,double x1,double y,double eps,double *dparms,int *iparms,double (*foo)(double,double*,int*),double &out){
+    int i;
+    double y0,y1,newx, newy;
+
+    y0 = (*foo)(x0,dparms,iparms);
+    y1 = (*foo)(x1,dparms,iparms);
+
+    if((y1-y)*(y0-y) > 0){
+      return _ERRORCODE_WRONGINPUTSFORITERATION;
+    }
+    
+    for(i=0;i<max_iter;i++){
+      newx = 0.5*(x0+x1);
+      newy = (*foo)(newx,dparms,iparms);
+      
+      if((newy-y)*(y0-y)>=0){
+	x0 = newx;
+	y0 = newy;
+      }
+      else{
+	x1 = newx;
+	y1 = newy;
+      }
+      //std::cout << x0 << " " << x1 << endl;
+
+      if(fabs(x0 -x1) < eps){
+	out = newx;
+	return _ERRORCODE_NOERROR;
+      }
+    }
+
+    return _ERRORCODE_ITERATIONSFAILEDTOCONVERGE;
+  }
+}

@@ -1,0 +1,27 @@
+#ifndef GPIO_RASPBERRY
+#define GPIO_RASPBERRY
+#include <cstring>
+
+class gpio_raspberry{
+ public:
+  gpio_raspberry();
+  gpio_raspberry(int in);
+  
+  int gpio_set_pinnum(int in);
+  int gpio_get_pinnum();
+  
+  int gpio_export();
+  int gpio_unexport();
+
+  int gpio_set_value(int in);
+  int gpio_get_value(int &out);
+
+  int gpio_set_direction(int dir);  //0 and +ve for out, -ve for in
+
+ private:
+  int pinnum;
+};
+
+bool gpio_is_pinnum_valid(int in);
+
+#endif

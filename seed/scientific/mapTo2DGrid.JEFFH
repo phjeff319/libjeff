@@ -1,0 +1,91 @@
+#ifndef MAPTO2DGRID
+#define MAPTO2DGRID
+#include "error_code.h"
+#include "grid_codes.h"
+#include "grid_data.h"
+
+//This grid structure assumes x-y dimensions are mapped to a single (x) dimensions. Thus, number of data = nx * nz * ndim
+
+class mapTo2DGrid : public grid_data{
+ public:
+  ###CPP### ###CUDA### ###HOST### mapTo2DGrid();
+  ###CPP### ###CUDA### ###HOST### mapTo2DGrid(int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### virtual ~mapTo2DGrid();
+  
+  ###CPP### ###CUDA### ###HOST### virtual void create(int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### inline virtual void create(int nx,int ny,int nz,int ndim,double dummy1,double dummy2) {this->create(nx,ny,nz,ndim);}
+  ###CPP### ###CUDA### ###HOST### inline virtual void create(int nx,int ny,int nz,int ndim,int *idummy1,double* ddummy) {this->create(nx,ny,nz,ndim);}
+  ###CUDA### ###HOST### virtual void create_gpu(int nx,int ny,int nz,int ndim);
+  ###CUDA### ###HOST### virtual void host2device();
+  ###CUDA### ###HOST### virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim);
+  ###CUDA### ###HOST### inline virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work) {host2device(from_x,to_x,from_y,to_y,from_z,to_z,from_dim,to_dim,work,1);}
+  ###CUDA### ###HOST### virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work,int nstream); //if nstream > 1, work must be pinned memory allocated by cudaMallocHost
+  ###CUDA### ###HOST### virtual void device2host();
+  ###CUDA### ###HOST### virtual void device2host(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim);  
+  
+
+  ###CPP### ###CUDA### ###HOST### inline virtual double get_z(int ix,int iy,int iz) const {return z[iz];}
+  ###CPP### ###CUDA### ###HOST### virtual double get_z(double ix,double iy,double iz) const;
+  using grid_data::get_z;
+  ###CPP### ###CUDA### ###HOST### virtual double* get_z_address(int ix,int iy,int iz) const;
+  ###CPP### ###CUDA### ###HOST### inline virtual double get_y(int ix,int iy,int iz) const {return y[ix];}
+  ###CPP### ###CUDA### ###HOST### virtual double get_y(double ix,double iy,double iz) const;
+  using grid_data::get_y;
+  ###CPP### ###CUDA### ###HOST### virtual double* get_y_address(int ix,int iy,int iz) const;
+  ###CPP### ###CUDA### ###HOST### inline virtual double get_x(int ix,int iy,int iz) const {return x[ix];}
+  ###CPP### ###CUDA### ###HOST### virtual double get_x(double ix,double iy,double iz) const;
+  using grid_data::get_x;
+  ###CPP### ###CUDA### ###HOST### virtual double* get_x_address(int ix,int iy,int iz) const;
+
+  ###CUDA### ###HOST### virtual double *get_expanded_d_x(double *out) const;  //out is assumed to be correctly allocated
+  ###CUDA### ###HOST### virtual double *get_expanded_d_y(double *out) const;  //out is assumed to be correctly allocated
+  ###CUDA### ###HOST### virtual double *get_expanded_d_z(double *out) const;  //out is assumed to be correctly allocated
+
+  ###CPP### ###CUDA### ###HOST### inline virtual double *get_data(int ix,int iy,int iz) const {return grid_data::get_data(ix*ny*nz + iz);}
+  ###CPP### ###CUDA### ###HOST### virtual double *get_data4dim(int dim,double *work) const;
+  ###CPP### ###CUDA### ###HOST### virtual float *get_data4dim(int dim,float *work) const;
+
+  ###CPP### ###CUDA### ###HOST### virtual double *get_coordinate(int index,double *work) const;
+  ###CPP### ###CUDA### ###HOST### virtual double *get_coordinate(int ix,int iy,int iz,double *work) const;
+
+  //currently periodicity is not allowed
+  ###CPP### ###CUDA### ###HOST### virtual void set_x_period(double in);
+  ###CPP### ###CUDA### ###HOST### virtual void set_y_period(double in);
+  ###CPP### ###CUDA### ###HOST### virtual void set_z_period(double in);
+  
+  ###CPP### ###CUDA### ###HOST### virtual void set_data4dim(int dim,double* indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_data4dim(int dim,float* indata);
+
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(double *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(float *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(int ix,int iy,int iz,double x);
+  ###CPP### ###CUDA### ###HOST### virtual void set_x(int ix,int iy,int iz,float x);
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(double *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(float *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(int ix,int iy,int iz,double y);
+  ###CPP### ###CUDA### ###HOST### virtual void set_y(int ix,int iy,int iz,float y);
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(double *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(float *indata);
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(int ix,int iy,int iz,double z);
+  ###CPP### ###CUDA### ###HOST### virtual void set_z(int ix,int iy,int iz,float z);
+
+  ###CPP### ###CUDA### ###HOST### virtual grid_data& operator=(const grid_data& in);
+
+  //###CPP### ###CUDA### ###HOST### virtual inline int read_NHM_fortrain_binarydata(char *name_format,int nelements,char **elements,int nlevels,char **level_names) { return -1; } //not implemented
+  //using grid_data::read_NHM_fortrain_binarydata;
+
+  ###CPP### ###CUDA### ###HOST### inline virtual double* multiple_linear_interpolate(double x, double y, double z, double *temp) const { return NULL; } //NOT YET IMPLEMENTED
+  ###CPP### ###CUDA### ###HOST### inline virtual double* multiple_linear_interpolate(double x, double y, double z, double *missing_value, double *temp) const { return NULL; } //NOT YET IMPLEMENTED
+  ###CUDA### ###HOST### inline virtual double* multiple_linear_interpolate(int npt,double *x, double *y, double *z, double *temp) { return NULL; } //NOT YET IMPLEMENTED
+  ###CPP### ###CUDA### ###HOST### inline virtual double* multiple_cubic_interpolate(double x, double y, double z, double *temp) const {return NULL;} //NOT YET IMPLEMENTED
+
+  ###CPP### ###CUDA### ###HOST### inline virtual double* nearest_to(double x,double y,double z,double (*metric)(double *a,double *b),double *temp) const {return NULL;} //NOT YET IMPLEMENTED
+  ###CPP### ###CUDA### ###HOST### inline virtual int find_enclose(double &ptx,double &pty,double &ptz,int *out) const {return _ERRORCODE_NOTIMPLEMENTED;}
+
+  ###CPP### ###CUDA### ###HOST### virtual inline int get_grid_code() const { return MAPTO2DGRID_CODE;}
+
+ private:
+
+};
+###CPP### ###CUDA### ###HOST### void mapTo2D_grid_allocation(grid_data* &in);
+#endif

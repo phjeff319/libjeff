@@ -1,0 +1,117 @@
+#ifndef AWSDATA
+#define AWSDATA
+#include<iostream>
+#include<fstream>
+
+#include "date_time.h"
+#include "station_meta.h"
+
+class aws_data_ind{
+ public:
+  aws_data_ind();
+  aws_data_ind(const aws_data_ind &in);
+
+  void set_station_info(station_meta_data* station_info);
+  void set_slp(const double &slp);
+  void set_temp(const double &temp);
+  void set_dewpt(const double &dew_pt);
+  void set_rh(const double &rh);
+  void set_windu(const double &windu);
+  void set_windv(const double &windv);
+  void set_vis(const double &vis);
+  void set_vis_cause(const int &vis_cause);
+  void set_rain(const double &rain);
+  void set_ts(const bool &ts);
+  void set_obs_time(const date_time &obs_time);
+
+  void set_pc(const double &pc);
+  void set_tc(const double &tc);
+  void set_pc(const aws_data_ind& aws24);
+  void set_tc(const aws_data_ind& aws24);
+
+  aws_data_ind &operator=(const aws_data_ind &in);
+
+  station_meta_data* get_station_info() const;
+  double get_slp() const;
+  double get_temp() const;
+  double get_dewpt() const;
+  double get_rh() const;
+  double get_windu() const;
+  double get_windv() const;
+  double get_vis() const;
+  int get_vis_cause() const;
+  double get_rain() const;
+  bool get_ts() const;
+  date_time get_obs_time() const;
+  double get_pc() const;
+  double get_tc() const;
+  double get_missing_value() const;
+
+  int get_num_valid_element() const;
+
+  bool is_windu_valid() const;
+  bool is_windv_valid() const;
+  bool is_pc_valid() const;
+  bool is_tc_valid() const;
+  bool is_temp_valid() const;
+  bool is_dewpt_valid() const;
+  bool is_slp_valid() const;
+  bool is_rh_valid() const;
+  bool is_rain_valid() const;
+
+  //conversion functions
+  char* to_little_r(int seq_num,char *buff) const;
+  char* to_METAR(char *buff) const;
+
+ private:
+  station_meta_data* station_info;
+  /*
+    Variable unit:
+slp in hPa
+temp in K
+dewpt in K
+rh in %
+windu, windv in ms-1
+   */
+  //set missing value either in -999
+  double slp, temp, dewpt, rh;
+  double windu, windv;
+  date_time obs_time;
+  //derived quantity. Not direclty from the AWS reading
+  double pc, tc;
+  double vis;
+  int vis_cause; //0 for nil, 1 for hz, 2 for mr, 3 for fog
+  bool ts;
+  double rain;
+  double missing_value;
+};
+
+class aws_data{
+  friend ostream &operator<<(ostream &, aws_data&);
+ public:
+  aws_data();
+  aws_data(const aws_data &in);
+  ~aws_data();
+  void destroy();
+
+  void read_aws_info(char *filename);
+
+  void read_metar(char *path_format,const date_time& yyyymm);
+  int read_hkaws_universal(char *path_format,const date_time& yyyymmdd,char *dirtimeformat);//use ###DIR TIME### in the name_format
+
+  aws_data &operator=(const aws_data &in);
+
+  aws_data_ind* get_data(char *id, date_time obs_time) const;
+  aws_data_ind* get_data(int index) const;
+  int get_num_data() const;
+  station_meta* get_aws_info() const;
+
+  void append(const aws_data &in);
+
+private:
+  station_meta* aws_info;
+  aws_data_ind* awsdata;
+  int num_data;
+};
+
+#endif

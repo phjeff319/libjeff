@@ -1,0 +1,64 @@
+#ifndef OPTIMIZATION
+#define OPTIMIZATION
+#include"error_code.h"
+namespace libjeff{
+  struct optimization_PSO_setting{
+    int max_iteration = 500;
+    int num_particle = 10000;
+
+    bool converge_mode_no_update = true;
+    int no_update_iteration = 10;
+    bool converge_mode_max_vec = true;
+    double max_vec = 1e-4;
+    bool converge_mode_clustering = false;
+    double cluster_threshold_percent, cluster_threshold_distance;
+
+    double *lowbound, *upbound;
+    bool hard_boundary = false;
+    double damp = 0.7,potential_p = 2.5,potential_s = 0.5;
+    double damp2 = 0.4,potential_p2 = 0.5,potential_s2 = 2.5;
+
+    int error = _ERRORCODE_NOERROR;
+  };
+
+  struct optimization_PSO_monitor{
+    double ***particle_pos;
+    double ***particle_vec;
+    double ***particle_best_loc;
+    double **swarm_best_loc;
+    double **best_p;
+    double *best_s;
+    int num_iteration_carried_out;
+  };
+
+  struct optimization_PSO_monitor_gpu{
+    double *particle_pos;
+    double *particle_vec;
+    double *particle_best_loc;
+    double *swarm_best_loc;
+    double *best_p;
+    double *best_s;
+    int num_iteration_carried_out;
+  };
+  
+  int optimization_minimize_particle_swarm(int nparam,double *param,void* optimization_funct_param,optimization_PSO_setting* iter_setting,double* (*funct)(int nparticle,double** in,void *param,double *out),optimization_PSO_monitor* monitor);
+  int optimization_minimize_particle_swarm(int ndata,double **data,bool *obs,double (*funct)(double* data,double *param),double (*metric)(int ndata,double *data,bool *obs),int nparam,double *param,optimization_PSO_setting* iter_setting); //data[ndata][n_component], param: input as fg, output as solution
+  ###CPP### ###CUDA### ###HOST### int optimization_minimize_particle_swarm_gpu(int nparam,double *param,void* optimization_funct_param,optimization_PSO_setting* iter_setting,double (*funct)(int threadid,double* din,int *iin,void *param),optimization_PSO_monitor_gpu* monitor,double *fg);
+  //###CPP### ###CUDA### ###HOST### int optimization_minimize_particle_swarm_gpu(int nparam,double *param,void* optimization_funct_param,optimization_PSO_setting* iter_setting,void (*funct)(double* in,void *param,double *out));
+
+  namespace optimization{
+    struct optimization_skill_area_in_ROC_param{
+      int ndata;
+      int nparam;
+      double **data;
+      bool *obs;
+      double (*funct)(double* data,double *param);
+      bool auto_flip_roc = false;
+    };
+
+    double* skill_area_in_ROC(int nparticle,double** in,void *param,double *out);
+    double skill_area_in_ROC(int ndata,double *data,bool *obs);
+  }
+}
+
+#endif

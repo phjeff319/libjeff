@@ -1,0 +1,848 @@
+#include<cmath>
+#include<cstdlib>
+#include<cstring>
+#include<ctime>
+###CUDA####include<cuda.h>
+#include<dirent.h>
+#include<fstream>
+#include<iostream>
+
+#include "debug_mode.h"
+#include "error_code.h"
+###EXTERNAL####include "file_handler.h"
+###SCIENTIFIC####include"geometry.h"
+#include"global_settings.h"
+#include"string_man.h"
+#include"tools.h"
+using namespace std;
+
+bool check_data_error(double data){
+  if((data<=32766.99)||(data>=32767.01)){
+    return 0;
+  }
+  else{
+    return 1;
+  }
+}
+
+int check_num_tag_in_string(char *to_check,char *tag){
+  int result = 0;
+  char *temp = to_check;
+  while(strstr(temp,tag)!=NULL){
+    temp = strstr(temp,tag)+1;
+    result++;
+  }
+  return result;
+}
+
+void error_handler(int error_handle_method,char* message){
+  if(error_handle_method==0){
+    cout << "Warning! " << message << endl;
+    cout << "Proceed with setting the data to zero" << endl;
+  }
+  else if(error_handle_method==1){
+    cout << "Error! " << message << endl;
+    exit(1);
+  }
+}
+
+bool is_little_endian(){
+  int n = 1;
+  // little endian if true
+  if(*(char *)&n == 1){
+    return 1;
+  }
+  else{
+    return 0;
+  }
+}
+bool is_all_digit(char* to_check){
+  int i;
+  if(strlen(to_check)==0){
+    return false;
+  }
+  for(i=0;i<strlen(to_check);i++){
+    if(!isdigit(to_check[i])){
+      return false;
+    }
+  }
+  return true;
+}
+bool is_all_digit(char* to_check,int stindex,int endindex){
+  int i;
+  int endcheck = strlen(to_check);
+  if(endindex > endcheck){
+    endindex = endcheck;
+  }
+  for(i=stindex;i<endindex;i++){
+    if(!isdigit(to_check[i])){
+      return false;
+    }
+  }
+  return true;
+}
+bool is_number(char *to_check){
+  int i;
+  int num_dot = 0, num_digit = 0, num_minus=0;
+  for(i=0;i<strlen(to_check);i++){
+    if(num_digit==0 && isspace(to_check[i])){
+    }
+    else if(to_check[i]=='-'){
+      num_minus++;
+      if(num_minus>1){
+	return false;
+      }
+    }
+    else{
+      if(!isdigit(to_check[i])){
+	if(to_check[i]=='.'){
+	  num_dot++;
+	}
+	else{
+	  return false;
+	}
+      }
+      else{
+	num_digit++;
+      }
+
+      if(num_dot > 1){
+	return false;
+      }
+    }
+  }
+  return true;
+}
+bool is_nan(double to_check){
+  return !(to_check==to_check);
+}
+bool check_correct_endian(char *endian){
+  return ((strcmp(endian,"big")==0 && !is_little_endian()) || (strcmp(endian,"little")==0 && is_little_endian()));
+}
+void reverse_endian(int* in){
+  reverse_endian((char *) in,sizeof(int));
+}
+void reverse_endian(unsigned short* in){
+  reverse_endian((char *) in,sizeof(unsigned short));
+}
+void reverse_endian(float* in){
+  reverse_endian((char *) in,sizeof(float));
+}
+void reverse_endian(double* in){
+  reverse_endian((char *) in,sizeof(double));
+}
+void reverse_endian(short* in){
+  reverse_endian((char *) in,sizeof(short));
+}
+void reverse_endian(uint32_t* in){
+  reverse_endian((char *) in,sizeof(uint32_t));
+}
+void reverse_endian(uint64_t* in){
+  reverse_endian((char *) in,sizeof(uint64_t));
+}
+void reverse_endian(char* to_reverse,int num_byte){
+  int i;
+  char temp;
+  for(i=0;i<num_byte/2;i++){
+    temp = *(to_reverse+i);
+    *(to_reverse+i) = *(to_reverse+num_byte-1-i);
+    *(to_reverse+num_byte-1-i) = temp;
+  }
+}
+###SCIENTIFIC###void reverse_endian(hrit_header_common *in){
+  reverse_endian(&in->header_length);
+}
+###SCIENTIFIC###void reverse_endian(hrit_pri_header *in){
+  reverse_endian(&in->header_length);
+  reverse_endian(&in->total_header_length);
+  reverse_endian(&in->data_field_length);
+}
+###SCIENTIFIC###void reverse_endian(hrit_image_struct_header *in){
+  reverse_endian(&in->header_length);
+  reverse_endian(&in->num_column);
+  reverse_endian(&in->num_lines);
+}
+###SCIENTIFIC###void reverse_endian(hrit_image_navigation_header *in){
+  reverse_endian(&in->header_length);
+  reverse_endian(&in->cfac);
+  reverse_endian(&in->lfac);
+  reverse_endian(&in->coff);
+  reverse_endian(&in->loff);
+}
+###SCIENTIFIC###void reverse_endian(hrit_image_data_function_header *in){
+  reverse_endian(&in->header_length);
+}
+###SCIENTIFIC###void reverse_endian(hrit_annotation_header *in){
+  reverse_endian(&in->header_length);
+}
+###SCIENTIFIC###void reverse_endian(hrit_time_stamp_header *in){
+  reverse_endian(&in->header_length);
+  reverse_endian(&in->cds_t_field_day);
+  reverse_endian(&in->cds_t_field_ms);
+}
+###SCIENTIFIC###void reverse_endian(hrit_ancillary_text_header *in){
+  reverse_endian(&in->header_length);
+}
+###SCIENTIFIC###void reverse_endian(hrit_image_segment_id_header *in){
+  reverse_endian(&in->header_length);
+  reverse_endian(&in->line_no_seg);
+}
+###SCIENTIFIC###void reverse_endian(hrit_image_compression_header *in){
+  reverse_endian(&in->header_length);
+}
+###SCIENTIFIC###void reverse_endian(hrit_image_observation_time_header *in){
+  reverse_endian(&in->header_length);
+}
+###SCIENTIFIC###void reverse_endian(hrit_image_quality_info_header *in){
+  reverse_endian(&in->header_length);
+}
+
+int reorder(int ndim,double *in,double *out,int *dim,int *ordering){
+  int *inverse_map = new int [ndim];
+  int i,j;
+  int num_index = 1;
+  for(i=0;i<ndim;i++){
+    if(ordering[i] < ndim){
+      inverse_map[ordering[i]] = i;
+    }
+    else{
+      return _ERRORCODE_INPUTOUTOFRANGE;	
+    }
+    num_index *= dim[i];
+  }
+
+  int *multi_index = new int [ndim];
+  int *reorder_index = new int [ndim];
+  int index, temp;
+  for(j=0;j<num_index;j++){
+    temp = j;
+    for(i=0;i<ndim;i++){
+      multi_index[i] = temp%dim[i];
+      temp/=dim[i];
+    }
+    /*
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << j << " ";
+      for(i=0;i<ndim;i++){
+	std::cout << multi_index[i] << " ";
+      }
+      std::cout << "to ";
+    }
+    */
+    index = 0;
+    temp = 1;
+    for(i=0;i<ndim;i++){
+      index += temp*multi_index[inverse_map[i]];
+      temp *= dim[inverse_map[i]];
+    }
+    /*
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      for(i=0;i<ndim;i++){
+	std::cout << multi_index[inverse_map[i]] << " ";
+      }
+      std::cout << index << std::endl;
+    }
+    */
+    out[index] = in[j];
+  }
+  delete [] multi_index;
+  delete [] reorder_index;
+  delete [] inverse_map;
+
+  return _ERRORCODE_NOERROR;
+}
+int reorder(int ndim,float *in,float *out,int *dim,int *ordering){
+  int *inverse_map = new int [ndim];
+  int i,j;
+  int num_index = 1;
+  for(i=0;i<ndim;i++){
+    if(ordering[i] < ndim){
+      inverse_map[ordering[i]] = i;
+    }
+    else{
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+    num_index *= dim[i];
+  }
+
+  int *multi_index = new int [ndim];
+  int *reorder_index = new int [ndim];
+  int index, temp;
+  for(j=0;j<num_index;j++){
+    temp = j;
+    for(i=0;i<ndim;i++){ //in original ordering
+      multi_index[i] = temp%dim[i];
+      temp/=dim[i];
+    }
+
+    index = 0;
+    temp = 1;
+    for(i=0;i<ndim;i++){
+      index += temp*multi_index[inverse_map[i]];
+      temp *= dim[inverse_map[i]];
+    }
+    out[index] = in[j];
+  }
+  delete [] multi_index;
+  delete [] reorder_index;
+  delete [] inverse_map;
+
+  return _ERRORCODE_NOERROR;
+}
+int reorder(int ndim,int *in,int *out,int *dim,int *ordering){
+  int *inverse_map = new int [ndim];
+  int i,j;
+  int num_index = 1;
+  for(i=0;i<ndim;i++){
+    if(ordering[i] < ndim){
+      inverse_map[ordering[i]] = i;
+    }
+    else{
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+    num_index *= dim[i];
+  }
+
+  int *multi_index = new int [ndim];
+  int *reorder_index = new int [ndim];
+  int index, temp;
+  for(j=0;j<num_index;j++){
+    temp = j;
+    for(i=0;i<ndim;i++){
+      multi_index[i] = temp%dim[i];
+      temp/=dim[i];
+    }
+    /*
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << j << " ";
+      for(i=0;i<ndim;i++){
+	std::cout << multi_index[i] << " ";
+      }
+      std::cout << "to ";
+    }
+    */
+    index = 0;
+    temp = 1;
+    for(i=0;i<ndim;i++){
+      index += temp*multi_index[inverse_map[i]];
+      temp *= dim[inverse_map[i]];
+    }
+    /*
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      for(i=0;i<ndim;i++){
+	std::cout << multi_index[inverse_map[i]] << " ";
+      }
+      std::cout << index << std::endl;
+    } 
+    */   
+    out[index] = in[j];
+  }
+  delete [] multi_index;
+  delete [] reorder_index;
+  delete [] inverse_map;
+
+  return 0;
+}
+void reorder_from_nhm(int nx,int ny,float *array){
+  int i,j;
+  float *temp = new float [nx*ny];
+  for(i=0;i<nx;i++){
+    for(j=0;j<ny;j++){
+      temp[i*ny+j] = array[(ny-1-j)*nx+i];
+    }
+  }
+
+  for(i=0;i<nx*ny;i++){
+    array[i] = temp[i];
+  }
+  delete [] temp;
+}
+void reorder_from_nhm(int nx,int ny,double *array){
+  int i,j;
+  double *temp = new double [nx*ny];
+  for(i=0;i<nx;i++){
+    for(j=0;j<ny;j++){
+      temp[i*ny+j] = array[(ny-1-j)*nx+i];
+    }
+  }
+
+  for(i=0;i<nx*ny;i++){
+    array[i] = temp[i];
+  }
+  delete [] temp;
+}
+void reorder_to_nhm(int nx,int ny,double *array){
+  int i,j;
+  double *temp = new double [nx*ny];
+  for(i=0;i<nx;i++){
+    for(j=0;j<ny;j++){
+      temp[(ny-1-j)*nx+i] = array[i*ny+j];
+    }
+  }
+
+  for(i=0;i<nx*ny;i++){
+    array[i] = temp[i];
+  }
+  delete [] temp;
+}
+void reorder_to_nhm(int nx,int ny,float *array){
+  int i,j;
+  float *temp = new float [nx*ny];
+  for(i=0;i<nx;i++){
+    for(j=0;j<ny;j++){
+      temp[(ny-1-j)*nx+i] = array[i*ny+j];
+    }
+  }
+
+  for(i=0;i<nx*ny;i++){
+    array[i] = temp[i];
+  }
+  delete [] temp;
+}
+void read_fortran_binary_line(ifstream &fin, int numbyte, char *line){
+  char temp[4];
+  fin.read(temp,4);
+  fin.read(line,numbyte);
+  fin.read(temp,4);
+}
+void read_fortran_binary_line(ifstream &file, int nrecord, int *toread){
+  read_fortran_binary_line(file,nrecord*sizeof(int),(char *) toread);
+}
+void read_fortran_binary_line(ifstream &file, int nrecord, float *toread){
+  read_fortran_binary_line(file,nrecord*sizeof(float),(char *) toread);
+}
+void read_fortran_binary_line(ifstream &file, int nrecord, double *toread){
+  read_fortran_binary_line(file,nrecord*sizeof(double),(char *) toread);
+}
+void read_fortran_binary_line(ifstream &file,int nrecord,int *toread,char *endian){
+  read_fortran_binary_line(file,nrecord,toread);
+
+  if(!check_correct_endian(endian)){
+    int i;
+    int temp;
+    for(i=0;i<nrecord;i++){
+      temp = toread[i];
+      reverse_endian(&temp);
+      toread[i] = temp;
+    }
+  }
+}
+void read_fortran_binary_line(ifstream &file,int nrecord,float *toread,char *endian){
+  read_fortran_binary_line(file,nrecord,toread);
+
+  if(!check_correct_endian(endian)){
+    int i;
+    float temp;
+    for(i=0;i<nrecord;i++){
+      temp = toread[i];
+      reverse_endian(&temp);
+      toread[i] = temp;
+    }
+  }
+}
+void read_fortran_binary_line(ifstream &file,int nrecord,double *toread,char *endian){
+  read_fortran_binary_line(file,nrecord,toread);
+
+  if(!check_correct_endian(endian)){
+    int i;
+    double temp;
+    for(i=0;i<nrecord;i++){
+      temp = toread[i];
+      reverse_endian(&temp);
+      toread[i] = temp;
+    }
+  }
+}
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file, int numbyte, char *line){
+  char temp[4];
+  file->read(temp,4);
+  file->read(line,numbyte);
+  file->read(temp,4);
+}
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file, int nrecord, int *toread){
+  read_fortran_binary_line(file,nrecord*sizeof(int),(char *) toread);
+}
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file, int nrecord, float *toread){
+  read_fortran_binary_line(file,nrecord*sizeof(float),(char *) toread);
+}
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file, int nrecord, double *toread){
+  read_fortran_binary_line(file,nrecord*sizeof(double),(char *) toread);
+}
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file,int nrecord,int *toread,char *endian){
+  read_fortran_binary_line(file,nrecord,toread);
+
+  if(!check_correct_endian(endian)){
+    int i;
+    int temp;
+    for(i=0;i<nrecord;i++){
+      temp = toread[i];
+      reverse_endian(&temp);
+      toread[i] = temp;
+    }
+  }
+}
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file,int nrecord,float *toread,char *endian){
+  read_fortran_binary_line(file,nrecord,toread);
+
+  if(!check_correct_endian(endian)){
+    int i;
+    float temp;
+    for(i=0;i<nrecord;i++){
+      temp = toread[i];
+      reverse_endian(&temp);
+      toread[i] = temp;
+    }
+  }
+}
+###EXTERNAL###void read_fortran_binary_line(libjeff::file_handler* file,int nrecord,double *toread,char *endian){
+  read_fortran_binary_line(file,nrecord,toread);
+
+  if(!check_correct_endian(endian)){
+    int i;
+    double temp;
+    for(i=0;i<nrecord;i++){
+      temp = toread[i];
+      reverse_endian(&temp);
+      toread[i] = temp;
+    }
+  }
+}
+double **transpose(int dimen1,int dimen2,double **&matrix){
+  double **temp;
+
+  temp = new double *[dimen2];
+  int i,j;
+  for(i=0;i<dimen2;i++){
+    temp[i] = new double [dimen1];
+    for(j=0;j<dimen1;j++){
+      temp[i][j] = matrix[j][i];
+    }
+  }
+  for(i=0;i<dimen1;i++){
+    delete [] matrix[i];
+  }
+  delete [] matrix;
+
+  matrix = temp;
+  temp = NULL;
+
+  return matrix;
+}
+void write_fortran_binary(ofstream &fout,int numbyte,char* record){
+  fout.write((char *) &numbyte,4);
+  fout.write(record,numbyte);
+  fout.write((char *) &numbyte,4);
+}
+void write_fortran_binary(ofstream &file,int nrecord,int* record){
+  write_fortran_binary(file,nrecord*sizeof(int),(char *) record);
+}
+void write_fortran_binary(ofstream &file,int nrecord,float* record){
+  write_fortran_binary(file,nrecord*sizeof(float),(char *) record);
+}
+void write_fortran_binary(ofstream &file,int nrecord,double* record){
+  write_fortran_binary(file,nrecord*sizeof(double),(char *) record);
+}
+void write_fortran_binary(ofstream &file,int nrecord,int* record,char *endian){
+  bool correct_endian=check_correct_endian(endian);
+
+  if(correct_endian){
+    write_fortran_binary(file,nrecord,record);
+  }
+  else{
+    int i,j;
+    int numbyte = nrecord*sizeof(int);
+    for(i=sizeof(int)-1;i>=0;i--){
+      file.write(((char *) &numbyte)+i,1);
+    }
+    for(i=0;i<nrecord;i++){
+      for(j=sizeof(int)-1;j>=0;j--){
+	file.write(((char *) (record+i))+j,1);
+      }
+    }
+    for(i=sizeof(int)-1;i>=0;i--){
+      file.write(((char *) &numbyte)+i,1);
+    }
+  }
+}
+void write_fortran_binary(ofstream &file,int nrecord,float* record,char *endian){
+  bool correct_endian=check_correct_endian(endian);
+
+  if(correct_endian){
+    write_fortran_binary(file,nrecord,record);
+  }
+  else{
+    int i,j;
+    int numbyte = nrecord*sizeof(float);
+    for(i=sizeof(int)-1;i>=0;i--){
+      file.write(((char *) &numbyte)+i,1);
+    }
+    for(i=0;i<nrecord;i++){
+      for(j=sizeof(float)-1;j>=0;j--){
+	file.write(((char *) (record+i))+j,1);
+      }
+    }
+    for(i=sizeof(int)-1;i>=0;i--){
+      file.write(((char *) &numbyte)+i,1);
+    }
+  }
+}
+void write_fortran_binary(ofstream &file,int nrecord,double* record,char *endian){
+  bool correct_endian=check_correct_endian(endian);
+
+  if(correct_endian){
+    write_fortran_binary(file,nrecord,record);
+  }
+  else{
+    int i,j;
+    int numbyte = nrecord*sizeof(double);
+    for(i=sizeof(int)-1;i>=0;i--){
+      file.write(((char *) &numbyte)+i,1);
+    }
+    for(i=0;i<nrecord;i++){
+      for(j=sizeof(double)-1;j>=0;j--){
+	file.write(((char *) (record+i))+j,1);
+      }
+    }
+    for(i=sizeof(int)-1;i>=0;i--){
+      file.write(((char *) &numbyte)+i,1);
+    }
+  }
+}
+double cal_sec_between(clock_t time1,clock_t time2){
+  return (time2 - time1)/((double) CLOCKS_PER_SEC/1000.)/1000.;
+}
+###SCIENTIFIC### void operate_within(int nx,int ny,int ndim,double *x,double *y,double *griddata,int *&operate_map,int nside,double **vertices,double (*operate)(int nx,int ny,int ndim,int ix,int iy,int idim,int *operate_map,double *data)){
+  int i,j,k;
+
+  double *point = new double [2];
+  bool operate_map_avail = 0;
+
+  if(operate_map != NULL){
+    operate_map_avail = 1;
+  }
+  else{
+    operate_map = new int [nx*ny];
+  }
+
+  if(!operate_map_avail){
+    for(i=0;i<nx;i++){
+      for(j=0;j<ny;j++){
+	point[0] = x[i*ny+j];
+	point[1] = y[i*ny+j];
+
+	if(geometry_is_pt_inside_convex_polygon(nside,vertices,point)==-1){
+	  operate_map[i*ny+j] = 1;
+	}
+	else{
+	  operate_map[i*ny+j] = 0;
+	}
+      }
+    }
+  }
+  
+  for(i=0;i<nx;i++){
+    for(j=0;j<ny;j++){
+      if(operate_map[i*ny+j]){
+	for(k=0;k<ndim;k++){
+	  griddata[i*ny*ndim + j*ndim + k] = (*operate)(nx,ny,ndim,i,j,k,operate_map,griddata);
+	}
+      }
+    }
+  }
+
+  delete [] point;
+}
+double neighbour_averaging(int nx,int ny,int ndim,int ix,int iy,int idim,int *operate_map,double *data){
+  return 0.25*(data[(ix-1)*ny*ndim + iy*ndim + idim] + data[(ix+1)*ny*ndim + iy*ndim + idim] + data[ix*ny*ndim + (iy-1)*ndim + idim] + data[ix*ny*ndim + (iy+1)*ndim + idim]);
+}
+
+char *remove_quote(char *in){
+  if(strlen(in) >= 2){
+    if((in[0] == '\"' && in[strlen(in)-1] == '\"') || (in[0] == '\'' && in[strlen(in)-1] == '\'')){
+      char *temp_in = new char [strlen(in)+1];
+      strcpy(temp_in,in+1);
+      temp_in[strlen(temp_in)-1] = '\0';
+      strcpy(in,temp_in);
+      delete [] temp_in;
+    }
+  }
+
+  return in;
+}
+char *remove_quote(const char *in,char* &out){
+  if(out != NULL){
+    if(libjeff::global_settings::get_auto_resize()){
+      delete [] out;
+    }
+    else{
+      return NULL;
+    }
+  }
+  out = new char [strlen(in)+10];
+
+  strcpy(out,in);
+  remove_quote(out);
+
+  return out;
+}
+char *remove_suffix(char *in,char *suffix){
+  int suffix_loc=strlen(in) - strlen(suffix);
+  
+  if(strcmp(in + suffix_loc,suffix)==0){
+    *(in + suffix_loc) = '\0';
+  }
+
+  return in;
+}
+
+int getMoney(char *in){
+  char *ctemp = new char [strlen(in)+1];
+  int i,count = 0;
+  for(i=0;i<strlen(in);i++){
+    if(in[i]!=','){
+      ctemp[count] = in[i];
+      count++;
+    }
+  }
+  int result = round(atof(ctemp)*100);
+  delete [] ctemp;
+  return result;
+}
+
+###CUDA### void print_GPU_memory_status(){
+  std::cout << "------------------- GPU Memory status --------------------" << std::endl;
+  size_t free, total;
+  cudaMemGetInfo(&free,&total);
+  std::cout << "Total memory: " << total << " Free memory: " << free << std::endl;
+  std::cout << "----------------------------------------------------------" << std::endl;
+}
+/*
+double interpolate_within(int nx,int ny,int ndim,int ix,int iy,int idim,int *operate_map,double *data){
+  if(!operate_map[ix*ny+iy]){
+    return data[ix*ny*ndim + iy*ndim + idim];
+  }
+  else{
+    int i;
+    int xlimit[2],ylimit[2];
+
+    for(i=0;i<ix;i++){
+      if(operate_map[i*ny+iy]){
+	xlimit[0] = i-1;
+	break;
+      }
+    }
+    for(i=ix;i<nx;i++){
+      if(!operate_map[i*ny+iy]){
+	xlimit[1] = i;
+	break;
+      }
+    }
+
+    for(i=0;i<iy;i++){
+      if(operate_map[ix*ny+i]){
+	ylimit[0] = i-1;
+	break;
+      }
+    }
+    for(i=iy;i<ny;i++){
+      if(!operate_map[ix*ny+i]){
+	ylimit[1] = i;
+	break;
+      }
+    }
+
+    return (data[xlimit[1]*ny*ndim + iy*ndim + idim]*(ix - xlimit[0]) + data[xlimit[0]*ny*ndim + iy*ndim + idim]*(xlimit[1] - ix))*(data[ix*ny*ndim + ylimit[1]*ndim + idim]*(iy - ylimit[0]) + data[ix*ny*ndim + ylimit[0]*ndim + idim]*(ylimit[1] - iy))/((xlimit[1] - xlimit[0])*(ylimit[1] - ylimit[0]));
+  }
+}
+*/
+char *get_filename(char *pathfile,char *out){
+  if(strstr(pathfile,"/")==NULL){
+    strcpy(out,pathfile);
+  }
+  else{
+    char *ctemp = new char [strlen(pathfile)+10];
+
+    string_reverse(pathfile,ctemp);
+    *strstr(ctemp,"/") = '\0';
+    string_reverse(ctemp,out);
+
+    delete [] ctemp;
+  }
+
+  return out;
+}
+char *get_path(char *pathfile,char *out){
+  if(strstr(pathfile,"/")==NULL){
+    strcpy(out,"./");
+  }
+  else{
+    char *ctemp = new char [strlen(pathfile)+10];
+
+    string_reverse(pathfile,ctemp);
+    string_reverse(strstr(ctemp,"/"),out);
+
+    delete [] ctemp;
+  }
+
+  return out;
+}
+
+int max(int ndim,int *in){
+  int i;
+  int out = in[0];
+  for(i=1;i<ndim;i++){
+    if(in[i] > out){
+      out = in[i];
+    }
+  }
+  return out;
+}
+namespace libjeff{
+  void print_OK(){
+    print_OK(0);
+  }
+  void print_FAILED(){
+    print_FAILED(0);
+  }
+  void print_NOTOK(){
+    print_NOTOK(0);
+  }
+  void print_NA(){
+    print_NA(0);
+  }
+  
+  void print_OK(int space){
+    int blank = space - 2;
+    int i;
+    for(i=0;i<blank;i++){
+      cout << " ";
+    }
+    cout << char (27) << "[1;32mOK" << char (27) << "[0m";
+  }
+  void print_FAILED(int space){
+    int blank = space - 6;
+    int i;
+    for(i=0;i<blank;i++){
+      cout << " ";
+    }
+    cout << char (27) << "[1;31mFAILED" << char (27) << "[0m";
+  }
+  void print_NOTOK(int space){
+    int blank = space - 5;
+    int i;
+    for(i=0;i<blank;i++){
+      cout << " ";
+    }
+    cout << char (27) << "[1;31mNOTOK" << char (27) << "[0m";
+  }
+  void print_NA(int space){
+    int blank = space - 2;
+    int i;
+    for(i=0;i<blank;i++){
+      cout << " ";
+    }
+    cout << char (27) << "[1;33mNA" << char (27) << "[0m";
+  }
+
+  
+}

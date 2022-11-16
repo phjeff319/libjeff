@@ -1,0 +1,13 @@
+#include "global_settings.h"
+
+namespace libjeff{
+  bool global_settings::auto_resize = true;
+
+  global_settings::global_settings(){
+    this->set_auto_resize(true);
+  }
+
+  void global_settings::set_auto_resize(bool in){
+    auto_resize = in;
+  }
+};

@@ -1,0 +1,18 @@
+#ifndef HALOLIDARHEADER
+#define HALOLIDARHEADER
+
+#include "date_time.h"
+
+struct HALO_LIDAR_hpl_header{
+  int num_gate;
+  int igate_length;
+  double dgate_length;
+  date_time scan_time;
+
+  int averaging;
+
+
+}  __attribute__((packed));;
+
+
+#endif

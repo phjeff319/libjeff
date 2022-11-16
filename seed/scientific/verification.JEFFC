@@ -1,0 +1,939 @@
+#include<cmath>
+#include<iostream>
+
+###CUDA####include"cuda_tools.h"
+#include"date_time.h"
+#include"earth.h"
+#include"error_code.h"
+#include"physics_constants.h"
+#include"tc_tracks.h"
+#include"verification.h"
+
+verification::verification(){
+  ndim = 0;
+  max_ndata = 0;
+  ndata = 0;
+  auto_extend = 0;
+}
+verification::verification(const verification &in){
+  *this=in;
+}
+verification::~verification(){
+  this->destroy();
+}
+
+void verification::create(int ndim, int max_ndata,double missing_value){
+  this->destroy();
+
+  this->ndim = ndim;
+  this->max_ndata = max_ndata;
+  this->missing_value = missing_value;
+  this->verdata = new double **[2];
+  int i,j,k;
+  for(i=0;i<2;i++){
+    this->verdata[i] = new double *[this->max_ndata];
+    for(j=0;j<this->max_ndata;j++){
+      this->verdata[i][j] = new double [this->ndim];
+      for(k=0;k<this->ndim;k++){
+	this->verdata[i][j][k] = missing_value;
+      }
+    }
+  }
+
+  this->ndata = 0;
+}
+void verification::destroy(){
+  if(ndim > 0 && max_ndata > 0){
+    int i,j;
+    for(i=0;i<2;i++){
+      for(j=0;j<this->max_ndata;j++){
+	delete [] this->verdata[i][j];
+      }
+      delete [] this->verdata[i];
+    }
+    delete [] this->verdata;
+  }
+  ndim = 0;
+  max_ndata = 0;
+  ndata = 0;
+}
+
+void verification::enable_extend(){
+  auto_extend=1;
+}
+void verification::disable_extend(){
+  auto_extend=0;
+}
+bool verification::is_auto_extend() const{
+  return auto_extend;
+}
+
+int verification::get_ndim() const{
+  return this->ndim;
+}
+int verification::get_max_ndata() const{
+  return this->max_ndata;
+}
+int verification::get_ndata() const{
+  return this->ndata;
+}
+double verification::get_missing_value() const{
+  return this->missing_value;
+}
+
+verification& verification::operator=(const verification &in){
+  if(this == &in){
+    return *this;
+  }
+
+  if(in.get_ndim() > 0 && in.get_max_ndata() > 0){
+    this->create(in.get_ndim(),in.get_max_ndata(),in.get_missing_value());
+    int i,j,k;
+
+    for(i=0;i<ndim;i++){
+      for(j=0;j<2;j++){
+	for(k=0;k<max_ndata;k++){
+	  this->verdata[j][k][i] = in.verdata[j][k][i];
+	}
+      }
+    }
+    this->ndata = in.ndata;
+    this->auto_extend = in.auto_extend;
+  }
+  else{
+    this->destroy();
+    this->ndim = 0;
+    this->max_ndata = 0;
+    this->ndata = 0;
+    this->auto_extend = 0;
+  }
+
+  return *this;
+}
+
+int verification::add_data_pair(double* in1,double* in2){
+    //check for memory space
+  if(ndata == max_ndata){
+    if(!auto_extend){
+      cout << "Error! Too much data to verify and automatic extension disabled." << endl;
+      return _ERRORCODE_FAILEDMEMORYALLOCATION;
+    }
+    else{
+      verification temp(*this);
+      this->create(temp.ndim,temp.max_ndata*2,temp.missing_value);
+      int i,j,k;
+      for(i=0;i<temp.ndim;i++){
+	for(j=0;j<2;j++){
+	  for(k=0;k<temp.max_ndata;k++){
+	    this->verdata[j][k][i] = temp.verdata[j][k][i];
+	  }
+	}
+	this->ndata = temp.ndata;
+      }
+
+      temp.destroy();
+    }
+  }
+  int i;
+  for(i=0;i<ndim;i++){
+    this->verdata[0][this->ndata][i] = in1[i];
+    this->verdata[1][this->ndata][i] = in2[i];
+  }
+  this->ndata++;
+
+  return _ERRORCODE_NOERROR;
+}
+
+int verification::verify_tc_tracks(int num_model_track,model_tc_track* fcst_track,tc_track* act_track,date_time fcst2verify){
+  if(num_model_track <= 0){
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+
+  this->create(2,num_model_track,-999.9);
+
+  int i,j,k;
+  for(i=0;i<num_model_track;i++){
+    for(j=0;j<fcst_track[i].get_num_track_pt();j++){
+      for(k=0;k<act_track->get_num_track_pt();k++){
+	if(((fcst_track[i].get_model_init_time() + fcst2verify) == (act_track->get_valid_time())[k]) && ((fcst_track[i].get_model_init_time() + fcst2verify) == (fcst_track[i].get_valid_time())[j])){
+	  this->add_data_pair((fcst_track[i].get_track_pts())[j],(act_track->get_track_pts())[k]);
+
+	  break;
+	}
+      }
+    }
+
+  }
+  
+  return _ERRORCODE_NOERROR;
+}
+int verification::verify_tc_tracks_effective_sample_siegel(int num_model_track,model_tc_track* fcst_track,tc_track* act_track,date_time fcst2verify){
+  
+
+  return _ERRORCODE_NOERROR;
+}
+
+double* verification::cal_diff(double *output,double* (*metric)(int ndata,int ndim,double missing_value,double** data0, double** data1,double *output,bool (*is_valid)(int ndim,int dim_index,double *in,double missing_value)),bool (*is_valid)(int dim,int dim_index,double *in,double missing_value)){
+  return (*metric)(this->ndata,this->ndim,this->missing_value,verdata[0],verdata[1],output,is_valid);
+}
+
+double *verification_metric_rmse(int ndata,int ndim,double missing_value,double** data0,double** data1,double *output,bool (*is_valid)(int ndim,int dim_index,double *in,double missing_value)){
+  int i,j;
+  int *ncount = new int [ndim];
+
+  for(j=0;j<ndim;j++){
+    output[j] = 0.;
+  }
+
+  for(i=0;i<ndata;i++){
+    for(j=0;j<ndim;j++){
+      if((*is_valid)(ndim,j,data0[i],missing_value) && (*is_valid)(ndim,j,data1[i],missing_value)){
+	output[j] += (data0[i][j] - data1[i][j])*(data0[i][j] - data1[i][j]);
+	ncount[j]++;
+      }
+    }
+  }
+
+  for(j=0;j<ndim;j++){
+    if(ncount[j] > 0){
+      output[j] /= ncount[j];
+      output[j] = std::pow(output[j],0.5);
+    }
+    else{
+      output[j] = missing_value;
+    }
+  }
+
+  delete [] ncount;
+
+  return output;
+}
+double *verification_metric_abs_mean_diff(int ndata,int ndim,double missing_value,double** data0,double** data1,double *output,bool (*is_valid)(int ndim,int dim_index,double *in,double missing_value)){
+  int i,j;
+  int *ncount = new int [ndim];
+
+  for(j=0;j<ndim;j++){
+    output[j] = 0.;
+  }
+
+  for(i=0;i<ndata;i++){
+    for(j=0;j<ndim;j++){
+      if((*is_valid)(ndim,j,data0[i],missing_value) && (*is_valid)(ndim,j,data1[i],missing_value)){
+	output[j] += std::fabs(data0[i][j] - data1[i][j]);
+	ncount[j]++;
+      }
+    }
+  }
+
+  for(j=0;j<ndim;j++){
+    if(ncount[j] > 0){
+      output[j] /= ncount[j];
+    }
+    else{
+      output[j] = missing_value;
+    }
+  }
+
+  delete [] ncount;
+
+  return output;
+}
+double *verification_metric_mean_diff(int ndata,int ndim,double missing_value,double** data0,double** data1,double *output,bool (*is_valid)(int ndim,int dim_index,double *in,double missing_value)){
+  int i,j;
+  int *ncount = new int [ndim];
+
+  for(j=0;j<ndim;j++){
+    output[j] = 0.;
+  }
+
+  for(i=0;i<ndata;i++){
+    for(j=0;j<ndim;j++){
+      if((*is_valid)(ndim,j,data0[i],missing_value) && (*is_valid)(ndim,j,data1[i],missing_value)){
+	output[j] += (data0[i][j] - data1[i][j]);
+	ncount[j]++;
+      }
+    }
+  }
+
+  for(j=0;j<ndim;j++){
+    if(ncount[j] > 0){
+      output[j] /= ncount[j];
+    }
+    else{
+      output[j] = missing_value;
+    }
+  }
+
+  delete [] ncount;
+
+  return output;
+}
+double *verification_metric_tc_dpe(int ndata,int ndim,double missing_value,double** data0,double** data1,double *output,bool (*is_valid)(int ndim,int dim_index,double *in,double missing_value)){
+  int i;
+  int ncount = 0;
+
+  *output = 0.;
+
+  for(i=0;i<ndata;i++){
+    if((*is_valid)(ndim,0,data0[i],missing_value) && (*is_valid)(ndim,0,data1[i],missing_value)){
+      *output += libjeff::earth_latlon2dist(data0[i],data1[i]);
+      ncount++;
+    }
+  }
+
+  if(ncount > 0){
+    *output /= ncount;
+  }
+  else{
+    *output = missing_value;
+  }
+
+  return output;
+}
+bool is_track_pt_valid(int ndim,int dim_index,double *in,double missing_value){
+  if(in[0] >= -90. && in[0] <= 90. && in[1] >= -360. && in[1] <= 360.){
+    return true;
+  }
+  else{
+    return false;
+  }
+}
+const int roc_init_nseg = 100;
+const double roc_converge_criteria = 1e-4;
+###CPP### ###CUDA### ###HOST### ###DEVICE### double skill_area_in_ROC(int ndata,double *data,bool *obs){
+  double results = -1;
+  double pre_results = -1;
+  
+  int roc_nseg = roc_init_nseg;
+  if(roc_nseg >= ndata){
+    roc_nseg = ndata-1;
+  }
+  
+  if(ndata > 1){
+    double max_data, min_data, threshold_workon;
+    
+    max_data = data[0];
+    min_data = data[0];
+    
+    int i,j,k;
+    for(i=1;i<ndata;i++){
+      if(data[i] > max_data){
+	max_data = data[i];
+      }
+      if(data[i] < min_data){
+	min_data = data[i];
+      }
+    }
+    
+    double *threshold;
+    int threshold_index_workon;
+    bool *threshold_found;
+    double *pod, *fpr;
+    double temp_fpr;
+    
+    bool converged = false;
+    long long *temp_verification = new long long [4];
+    int pre_index, next_index;
+    while(!converged){
+      threshold = new double [roc_nseg+1];
+      pod = new double [roc_nseg+1];
+      fpr = new double [roc_nseg+1];
+      threshold_found = new bool [roc_nseg+1];
+      
+      for(i=0;i<=roc_nseg;i++){
+	threshold_found[i] = false;
+      }
+      
+      threshold[0] = min_data;
+      threshold[roc_nseg] = max_data;
+      threshold_found[0] = true;
+      threshold_found[roc_nseg] = true;
+      
+      pod[0] = 1.;
+      fpr[0] = 1.;
+      pod[roc_nseg] = 0.;
+      fpr[roc_nseg] = 0.;
+      
+      for(j=2;j<=roc_nseg;j++){
+	for(i=0;i<4;i++){
+	  temp_verification[i] = 0;
+	}
+	
+	int count = 0;
+	for(i=1;i<roc_nseg;i++){
+	  if(count == 0 && !threshold_found[i]){
+	    for(k=i-1;k>=0;k--){
+	      if(threshold_found[k]){
+		pre_index = k;
+		break;
+	      }
+	    }
+	    for(k=i+1;k<=roc_nseg;k++){
+	      if(threshold_found[k]){
+		next_index = k;
+		break;
+	      }
+	    }
+	    count = 1;
+	  }
+	  if(count==1){
+	    break;
+	  }
+	}
+	
+	threshold_workon = 0.5*(threshold[pre_index] + threshold[next_index]);
+	for(k=0;k<ndata;k++){
+	  if(obs[k]){
+	    if(data[k] >= threshold_workon){
+	      temp_verification[0]++;
+	    }
+	    else{
+	      temp_verification[2]++;
+	    }
+	  }
+	  else{
+	    if(data[k] >= threshold_workon){
+	      temp_verification[1]++;
+	    }
+	    else{
+	      temp_verification[3]++;
+	    }
+	  }
+	}
+	
+	temp_fpr = ((double) temp_verification[1])/((double) temp_verification[1] + temp_verification[3]);
+	if(fpr[pre_index] != fpr[next_index]){
+	  threshold_index_workon = round((temp_fpr - fpr[pre_index])/(fpr[next_index] - fpr[pre_index])*(next_index - pre_index - 2) + pre_index + 1);
+	}
+	else{
+	  threshold_index_workon = round(0.5*(next_index - pre_index - 2) + pre_index + 1);
+	}
+	
+	fpr[threshold_index_workon] = temp_fpr;
+	pod[threshold_index_workon] = ((double) temp_verification[0])/((double) temp_verification[0] + temp_verification[2]);
+	threshold_found[threshold_index_workon] = true;
+	threshold[threshold_index_workon] = threshold_workon;
+      }
+      
+      results = 0.;
+      for(j=1;j<=roc_nseg;j++){
+	if(fabs(fpr[j] - fpr[j-1]) > 1e-10){
+	  results += 0.5*(pod[j] + pod[j-1])*fabs(fpr[j] - fpr[j-1]);
+	}
+      }
+      /*
+	std::cout << roc_nseg << " " << pre_results << " " << results << std::endl;
+	for(j=0;j<=roc_nseg;j++){
+	std::cout << threshold[j] << "\t" << fpr[j] << "\t" << pod[j] << std::endl;
+	}
+      */
+      
+      delete [] threshold;
+      delete [] pod;
+      delete [] fpr;
+      delete [] threshold_found;
+      
+      if(fabs(pre_results - results) < roc_converge_criteria){
+	converged = true;
+      }
+      else{
+	pre_results = results;
+	roc_nseg *= 2.;
+	if(roc_nseg >= ndata){
+	  roc_nseg = ndata-1;
+	}
+      }
+    }
+    delete [] temp_verification;
+  }
+  
+  return results;
+}
+
+###CUDA### ###GLOBAL### void skill_area_in_ROC_get_count(int ndata,double *data,bool *obs,double threshold,int *count){
+  int data_index = blockDim.x*blockIdx.x + threadIdx.x;
+
+  if(data_index < ndata){
+    if(obs[data_index]){
+      if(data[data_index] >= threshold){
+	atomicAdd(count,1);
+      }
+      else{
+	atomicAdd(count+2,1);
+      }
+    }
+    else{
+      if(data[data_index] >= threshold){
+	atomicAdd(count+1,1);
+      }
+      else{
+	atomicAdd(count+3,1);
+      }
+    }
+  }
+}
+
+###CUDA### ###GLOBAL### void skill_area_in_ROC_recursive(int nroc,int current_depth,int numthreads,int max_roc_recursive_depth,int max_roc_point,int ndata,double *min_work,double *max_work,double *roc_curve_work,int* work_loc,int *grid_count,double *lowb,double *upb,double *data,bool *obs,double roc_converge_criteria_delta,int *count,double *area,int *error){
+  int roc_index = blockDim.x*blockIdx.x + threadIdx.x;
+
+  if(roc_index < nroc && current_depth <= max_roc_recursive_depth){
+    if(current_depth != 0){
+      int loc = atomicAdd(work_loc,1);
+      if(loc < max_roc_point){
+	double threshold = 0.5*(lowb[0] + upb[0]);
+	dim3 grid_ndata;
+	grid_ndata.x = (int) ceil((double) ndata/numthreads);
+	skill_area_in_ROC_get_count<<<grid_ndata,numthreads>>>(ndata,data,obs,threshold,count+4*loc);
+	//__syncthreads();
+	//__syncthreads();
+	double fpr,pod;
+	roc_curve_work[4*loc] = threshold;
+	atomicAdd(grid_count,1);
+	cudaError_t temp_error = cudaDeviceSynchronize();
+	if(temp_error){
+	  *error = temp_error;
+	}
+	fpr = ((double) count[4*loc+1])/((double) count[4*loc+1] + count[4*loc+3]);
+	pod = ((double) count[4*loc])/((double) count[4*loc] + count[4*loc+2]);
+	roc_curve_work[4*loc+1] = fpr;
+	roc_curve_work[4*loc+2] = pod;
+	double delta_area = 0.5*((upb[1] - lowb[1])*(pod - lowb[2]) - (fpr - lowb[1])*(upb[2] - lowb[2]));
+	roc_curve_work[4*loc+3] = delta_area;
+
+	area[roc_index] += delta_area;
+
+	if(fabs(delta_area) >= roc_converge_criteria_delta){
+	  skill_area_in_ROC_recursive<<<1,1>>>(nroc,current_depth+1,numthreads,max_roc_recursive_depth,max_roc_point,ndata,min_work,max_work,roc_curve_work,work_loc,grid_count,roc_curve_work+4*loc,upb,data,obs,roc_converge_criteria_delta,count,area,error);
+	  skill_area_in_ROC_recursive<<<1,1>>>(nroc,current_depth+1,numthreads,max_roc_recursive_depth,max_roc_point,ndata,min_work,max_work,roc_curve_work,work_loc,grid_count,lowb,roc_curve_work+4*loc,data,obs,roc_converge_criteria_delta,count,area,error);
+	}
+      }
+    }
+    else{
+      int loc = atomicAdd(work_loc+roc_index,2);
+      if(loc + 1 < max_roc_point){
+	atomicAdd(grid_count+roc_index,2);
+	area[roc_index] = 0.5;
+	roc_curve_work[4*roc_index*max_roc_point] = min_work[roc_index];
+	roc_curve_work[4*roc_index*max_roc_point+1] = 1.;
+	roc_curve_work[4*roc_index*max_roc_point+2] = 1.;
+	roc_curve_work[4*roc_index*max_roc_point+3] = 0.;
+	roc_curve_work[4*roc_index*max_roc_point+4] = max_work[roc_index];
+	roc_curve_work[4*roc_index*max_roc_point+4+1] = 0.;
+	roc_curve_work[4*roc_index*max_roc_point+4+2] = 0.;
+	roc_curve_work[4*roc_index*max_roc_point+4+3] = 0.5;
+	skill_area_in_ROC_recursive<<<1,1>>>(nroc,current_depth+1,numthreads,max_roc_recursive_depth,max_roc_point,ndata,min_work+roc_index,max_work+roc_index,roc_curve_work+4*roc_index*max_roc_point,work_loc+roc_index,grid_count+roc_index,roc_curve_work+4*roc_index*max_roc_point+4,roc_curve_work+4*roc_index*max_roc_point,data+roc_index*ndata,obs+roc_index*ndata,roc_converge_criteria_delta,count+4*roc_index*max_roc_point,area+roc_index,error);
+      }
+    }
+  }
+}
+###CUDA### ###GLOBAL### void skill_partial_area_in_ROC_recursive(int nroc,int current_depth,int numthreads,int max_roc_recursive_depth,int max_roc_point,int ndata,double *min_work,double *max_work,double *roc_curve_work,int* work_loc,int *grid_count,double *lowb,double *upb,double *data,bool *obs,double roc_converge_criteria_delta,int *count,double *min_section_angle,double *max_section_angle,double *area,int *error){
+  int roc_index = blockDim.x*blockIdx.x + threadIdx.x;
+
+  if(roc_index < nroc && current_depth <= max_roc_recursive_depth){
+    if(current_depth != 0){
+      int loc = atomicAdd(work_loc,1);
+      if(loc < max_roc_point){
+	double threshold = 0.5*(lowb[0] + upb[0]);
+	dim3 grid_ndata;
+	grid_ndata.x = (int) ceil((double) ndata/numthreads);
+	skill_area_in_ROC_get_count<<<grid_ndata,numthreads>>>(ndata,data,obs,threshold,count+4*loc);
+	//cudaDeviceSynchronize();
+	//__syncthreads();
+	//__syncthreads();
+	double fpr,pod;
+	roc_curve_work[4*loc] = threshold;
+	atomicAdd(grid_count,1);
+	cudaError_t temp_error = cudaDeviceSynchronize();
+	if(temp_error){
+	  *error = temp_error;
+	}
+	fpr = ((double) count[4*loc+1])/((double) count[4*loc+1] + count[4*loc+3]);
+	pod = ((double) count[4*loc])/((double) count[4*loc] + count[4*loc+2]);
+
+	roc_curve_work[4*loc+1] = fpr;
+	roc_curve_work[4*loc+2] = pod;
+
+	double r, theta;
+	r = pow((1. - fpr)*(1. - fpr) + pod*pod,0.5);
+	theta = asin(pod/r);
+	double low_r, low_theta, up_r, up_theta;
+
+	low_r = pow((1. - lowb[1])*(1. - lowb[1]) + lowb[2]*lowb[2],0.5);
+	low_theta = asin(lowb[2]/low_r);
+	up_r = pow((1. - upb[1])*(1. - upb[1]) + upb[2]*upb[2],0.5);
+	up_theta = asin(upb[2]/up_r);
+	double delta_area = 0;
+
+	if(up_theta >= *min_section_angle && low_theta <= *max_section_angle){
+	  //Adding contribution from new triangles
+	  if(theta <= *min_section_angle){
+	    if(up_theta <= *max_section_angle){
+	      double r_prime;
+	      if(fpr == upb[1]){
+		r_prime = up_r*cos(up_theta)/cos(*min_section_angle);
+	      }
+	      else{
+		double k = (r*sin(theta) - up_r*sin(up_theta))/(r*cos(theta) - up_r*cos(up_theta));
+		if(k < 1e-10 && *min_section_angle == 0.){
+		  r_prime = 1.;
+		}
+		else{
+		  r_prime = (k*cos(theta) - sin(theta))*r/(k*cos(*min_section_angle) - sin(*min_section_angle));
+		}
+	      }
+	      delta_area += 0.5*r_prime*up_r*sin(up_theta - *min_section_angle);
+	    }
+	    else{
+	      double r_prime1, r_prime2;
+	      if(fpr == upb[1]){
+		r_prime1 = up_r*cos(up_theta)/cos(*min_section_angle);
+		r_prime2 = up_r*cos(up_theta)/cos(*max_section_angle);
+	      }
+	      else{
+		double k = (r*sin(theta) - up_r*sin(up_theta))/(r*cos(theta) - up_r*cos(up_theta));
+		if(k < 1e-10 && *min_section_angle == 0.){
+		  r_prime1 = 1.;
+		}
+		else{
+		  r_prime1 = (k*cos(theta) - sin(theta))*r/(k*cos(*min_section_angle) - sin(*min_section_angle));
+		}
+		r_prime2 = (k*cos(theta) - sin(theta))*r/(k*cos(*max_section_angle) - sin(*max_section_angle));
+	      }
+	      delta_area += 0.5*r_prime1*r_prime2*sin(*max_section_angle - *min_section_angle);
+	    }
+	  }
+	  else if(theta >= *max_section_angle){
+	    if(low_theta >= *min_section_angle){
+	      double r_prime;
+	      if(fpr == lowb[1]){
+		r_prime = low_r*cos(low_theta)/cos(*max_section_angle);
+	      }
+	      else{
+		double k = (r*sin(theta) - low_r*sin(low_theta))/(r*cos(theta) - low_r*cos(low_theta));
+		r_prime = (k*cos(theta) - sin(theta))*r/(k*cos(*max_section_angle) - sin(*max_section_angle));
+	      }
+	      delta_area += 0.5*r_prime*low_r*sin(*max_section_angle - low_theta);
+	    }
+	    else{
+	      double r_prime1, r_prime2;
+	      if(fpr == upb[1]){
+		r_prime1 = up_r*cos(up_theta)/cos(*min_section_angle);
+		r_prime2 = up_r*cos(up_theta)/cos(*max_section_angle);
+	      }
+	      else{
+		double k = (r*sin(theta) - low_r*sin(low_theta))/(r*cos(theta) - low_r*cos(low_theta));
+		if(k < 1e-10 && *min_section_angle == 0.){
+		  r_prime1 = 1.;
+		}
+		else{
+		  r_prime1 = (k*cos(theta) - sin(theta))*r/(k*cos(*min_section_angle) - sin(*min_section_angle));
+		}
+		r_prime2 = (k*cos(theta) - sin(theta))*r/(k*cos(*max_section_angle) - sin(*max_section_angle));
+	      }
+	      delta_area += 0.5*r_prime1*r_prime2*sin(*max_section_angle - *min_section_angle);
+	    }
+	  }
+	  else{
+	    if(up_theta <= *max_section_angle){
+	      delta_area += 0.5*r*up_r*sin(up_theta - theta);
+	    }
+	    else{
+	      double r_prime;
+	      if(lowb[1] == upb[1]){
+		r_prime = up_r*cos(up_theta)/cos(theta);
+	      }
+	      else{
+		double k = (r*sin(theta) - up_r*sin(up_theta))/(r*cos(theta) - up_r*cos(up_theta));
+		r_prime = (k*cos(theta) - sin(theta))*r/(k*cos(*max_section_angle) - sin(*max_section_angle));
+	      }
+	      delta_area += 0.5*r_prime*r*sin(*max_section_angle - theta);
+	    }
+
+	    if(low_theta >= *min_section_angle){
+	      delta_area += 0.5*r*low_r*sin(theta - low_theta);
+	    }
+	    else{
+	      double r_prime;
+	      if(lowb[1] == upb[1]){
+		r_prime = low_r*cos(low_theta)/cos(theta);
+	      }
+	      else{
+		double k = (r*sin(theta) - low_r*sin(low_theta))/(r*cos(theta) - low_r*cos(low_theta));
+		if(k < 1e-10 && *min_section_angle == 0.){
+		  r_prime = 1.;
+		}
+		else{
+		  r_prime = (k*cos(theta) - sin(theta))*r/(k*cos(*min_section_angle) - sin(*min_section_angle));
+		}
+	      }
+	      delta_area += 0.5*r_prime*r*sin(theta - *min_section_angle);
+	    }
+	  }
+
+	  //subtracting the contribution from old triangles
+	  if(low_theta >= *min_section_angle && up_theta <= *max_section_angle){
+	    delta_area -= 0.5*up_r*low_r*sin(up_theta - low_theta);
+	  }
+	  else if(low_theta >= *min_section_angle && up_theta > *max_section_angle){
+	    double r_prime;
+	    if(lowb[1] == upb[1]){
+	      r_prime = low_r*cos(low_theta)/cos(*max_section_angle);
+	    }
+	    else{
+	      double k = (up_r*sin(up_theta) - low_r*sin(low_theta))/(up_r*cos(up_theta) - low_r*cos(low_theta));
+	      r_prime = (k*cos(low_theta) - sin(low_theta))*low_r/(k*cos(*max_section_angle) - sin(*max_section_angle));
+	    }
+	    delta_area -= 0.5*r_prime*low_r*sin(*max_section_angle - low_theta);
+	  }
+	  else if(low_theta < *min_section_angle && up_theta <= *max_section_angle){
+	    double r_prime;
+	    if(lowb[1] == upb[1]){
+	      r_prime = low_r*cos(low_theta)/cos(*min_section_angle);
+	    }
+	    else{
+	      double k = (up_r*sin(up_theta) - low_r*sin(low_theta))/(up_r*cos(up_theta) - low_r*cos(low_theta));
+	      if(k < 1e-10 && *min_section_angle == 0.){
+		  r_prime = 1.;
+		}
+		else{
+		  r_prime = (k*cos(low_theta) - sin(low_theta))*low_r/(k*cos(*min_section_angle) - sin(*min_section_angle));
+		}
+	    }
+	    delta_area -= 0.5*r_prime*up_r*sin(up_theta - *min_section_angle);
+	  }
+	  else{
+	    double r_prime1, r_prime2;
+	      if(lowb[1] == upb[1]){
+		r_prime1 = up_r*cos(up_theta)/cos(*min_section_angle);
+		r_prime2 = up_r*cos(up_theta)/cos(*max_section_angle);
+	      }
+	      else{
+		double k = (up_r*sin(up_theta) - low_r*sin(low_theta))/(up_r*cos(up_theta) - low_r*cos(low_theta));
+		if(k < 1e-10 && *min_section_angle == 0.){
+		  r_prime1 = 1.;
+		}
+		else{
+		  r_prime1 = (k*cos(up_theta) - sin(up_theta))*up_r/(k*cos(*min_section_angle) - sin(*min_section_angle));
+		}
+		r_prime2 = (k*cos(up_theta) - sin(up_theta))*up_r/(k*cos(*max_section_angle) - sin(*max_section_angle));
+	      }
+	      delta_area -= 0.5*r_prime1*r_prime2*sin(*max_section_angle - *min_section_angle);
+	  }
+	}
+
+	roc_curve_work[4*loc+3] = delta_area;
+
+	area[roc_index] += delta_area;
+
+	delta_area = 0.5*((upb[1] - lowb[1])*(pod - lowb[2]) - (fpr - lowb[1])*(upb[2] - lowb[2]));
+	if(fabs(delta_area) >= roc_converge_criteria_delta){
+	  skill_partial_area_in_ROC_recursive<<<1,1>>>(nroc,current_depth+1,numthreads,max_roc_recursive_depth,max_roc_point,ndata,min_work,max_work,roc_curve_work,work_loc,grid_count,roc_curve_work+4*loc,upb,data,obs,roc_converge_criteria_delta,count,min_section_angle,max_section_angle,area,error);
+	  skill_partial_area_in_ROC_recursive<<<1,1>>>(nroc,current_depth+1,numthreads,max_roc_recursive_depth,max_roc_point,ndata,min_work,max_work,roc_curve_work,work_loc,grid_count,lowb,roc_curve_work+4*loc,data,obs,roc_converge_criteria_delta,count,min_section_angle,max_section_angle,area,error);
+	}
+      }
+    }
+    else{
+      int loc = atomicAdd(work_loc+roc_index,2);
+      if(loc + 1 < max_roc_point){
+	if(min_section_angle[roc_index] >= 0.5*pi || max_section_angle[roc_index] <= 0 || min_section_angle[roc_index] >= max_section_angle[roc_index]){
+	  area[roc_index] = 0.;
+	}
+	else{
+	  if(min_section_angle[roc_index] < 0.){
+	    min_section_angle[roc_index] = 0.;
+	  }
+	  if(max_section_angle[roc_index] > 0.5*pi){
+	    max_section_angle[roc_index] = 0.5*pi;
+	  }
+
+	  double r1, r2;
+	  r1 = 1./(cos(min_section_angle[roc_index]) + sin(min_section_angle[roc_index]));
+	  r2 = 1./(cos(max_section_angle[roc_index]) + sin(max_section_angle[roc_index]));
+	  atomicAdd(grid_count+roc_index,2);
+	  area[roc_index] = 0.5*r1*r2*sin(max_section_angle[roc_index] - min_section_angle[roc_index]);
+	  roc_curve_work[4*roc_index*max_roc_point] = min_work[roc_index];
+	  roc_curve_work[4*roc_index*max_roc_point+1] = 1.;
+	  roc_curve_work[4*roc_index*max_roc_point+2] = 1.;
+	  roc_curve_work[4*roc_index*max_roc_point+3] = 0.;
+	  roc_curve_work[4*roc_index*max_roc_point+4] = max_work[roc_index];
+	  roc_curve_work[4*roc_index*max_roc_point+4+1] = 0.;
+	  roc_curve_work[4*roc_index*max_roc_point+4+2] = 0.;
+	  roc_curve_work[4*roc_index*max_roc_point+4+3] = area[roc_index];
+	  skill_partial_area_in_ROC_recursive<<<1,1>>>(nroc,current_depth+1,numthreads,max_roc_recursive_depth,max_roc_point,ndata,min_work+roc_index,max_work+roc_index,roc_curve_work+4*roc_index*max_roc_point,work_loc+roc_index,grid_count+roc_index,roc_curve_work+4*roc_index*max_roc_point+4,roc_curve_work+4*roc_index*max_roc_point,data+roc_index*ndata,obs+roc_index*ndata,roc_converge_criteria_delta,count+4*roc_index*max_roc_point,min_section_angle+roc_index,max_section_angle+roc_index,area+roc_index,error);
+	}
+      }
+    }
+  }
+}
+###CUDA### ###GLOBAL### void skill_area_in_ROC_master_kernel(int nroc,int ndata,int numthreads,int multipler_per_level,double *data,bool *obs,double *work,double *min_work,double *max_work,int max_roc_recursive_depth,int max_work_space,double convergence_delta,double *roc_curve_work,int *count_work,int *loc_count,int *grid_count,double *area,int *error){
+  int i = blockDim.x*blockIdx.x + threadIdx.x;
+
+  if(i < nroc){
+    int ndata_2n = (int) pow(2.,((int) ceil(log((double) ndata)/log(2.))));
+    dim3 grid_nndata2,grid_n2,grid_nroc;
+    int j;
+
+    grid_nndata2.x = (int) ceil((double) nroc*ndata_2n/numthreads);
+    grid_nroc.x = (int) ceil((double) nroc/numthreads);
+
+    cuda_expand_by_repeat_kernel<<<grid_nndata2,numthreads>>>(nroc,ndata,ndata_2n,data,work);
+    j=ndata_2n/2;
+    while(j>=1){
+      grid_n2.x = (int) ceil((double) j*nroc/numthreads);
+      cuda_max_kernel<<<grid_n2,numthreads>>>(nroc,ndata_2n,j,work);
+      j/=2;
+    }
+    cuda_extract_every_n_kernel<<<grid_nroc,numthreads>>>(nroc,ndata_2n,0,work,max_work);
+    
+    cuda_expand_by_repeat_kernel<<<grid_nndata2,numthreads>>>(nroc,ndata,ndata_2n,data,work);
+    j=ndata_2n/2;
+    while(j>=1){
+      grid_n2.x = (int) ceil((double) j*nroc/numthreads);
+      cuda_min_kernel<<<grid_n2,numthreads>>>(nroc,ndata_2n,j,work);
+      j/=2;
+    }
+    cuda_extract_every_n_kernel<<<grid_nroc,numthreads>>>(nroc,ndata_2n,0,work,min_work);
+
+    cuda_set_value<<<grid_nroc,numthreads>>>(nroc,area,0.);
+    
+    skill_area_in_ROC_recursive<<<grid_nroc,numthreads>>>(nroc,0,numthreads,max_roc_recursive_depth,max_work_space,ndata,min_work,max_work,roc_curve_work,loc_count,grid_count,roc_curve_work,roc_curve_work,data,obs,convergence_delta,count_work,area,error);
+  }
+}
+###CUDA### ###GLOBAL### void skill_partial_area_in_ROC_master_kernel(int nroc,int ndata,int numthreads,int multipler_per_level,double *data,bool *obs,double *work,double *min_work,double *max_work,int max_roc_recursive_depth,int max_work_space,double convergence_delta,double *roc_curve_work,int *count_work,int *loc_count,int *grid_count,double *min_section_angle,double *max_section_angle,double *area,int *error){
+  int i = blockDim.x*blockIdx.x + threadIdx.x;
+
+  if(i < nroc){
+    int ndata_2n = (int) pow(2.,((int) ceil(log((double) ndata)/log(2.))));
+    dim3 grid_nndata2,grid_n2,grid_nroc;
+    int j;
+
+    grid_nndata2.x = (int) ceil((double) nroc*ndata_2n/numthreads);
+    grid_nroc.x = (int) ceil((double) nroc/numthreads);
+
+    cuda_expand_by_repeat_kernel<<<grid_nndata2,numthreads>>>(nroc,ndata,ndata_2n,data,work);
+    j=ndata_2n/2;
+    while(j>=1){
+      grid_n2.x = (int) ceil((double) j*nroc/numthreads);
+      cuda_max_kernel<<<grid_n2,numthreads>>>(nroc,ndata_2n,j,work);
+      j/=2;
+    }
+    cuda_extract_every_n_kernel<<<grid_nroc,numthreads>>>(nroc,ndata_2n,0,work,max_work);
+    
+    cuda_expand_by_repeat_kernel<<<grid_nndata2,numthreads>>>(nroc,ndata,ndata_2n,data,work);
+    j=ndata_2n/2;
+    while(j>=1){
+      grid_n2.x = (int) ceil((double) j*nroc/numthreads);
+      cuda_min_kernel<<<grid_n2,numthreads>>>(nroc,ndata_2n,j,work);
+      j/=2;
+    }
+    cuda_extract_every_n_kernel<<<grid_nroc,numthreads>>>(nroc,ndata_2n,0,work,min_work);
+
+    cuda_set_value<<<grid_nroc,numthreads>>>(nroc,area,0.);
+    
+    skill_partial_area_in_ROC_recursive<<<grid_nroc,numthreads>>>(nroc,0,numthreads,max_roc_recursive_depth,max_work_space,ndata,min_work,max_work,roc_curve_work,loc_count,grid_count,roc_curve_work,roc_curve_work,data,obs,convergence_delta,count_work,min_section_angle,max_section_angle,area,error);
+  }
+
+}
+###CUDA### ###GLOBAL### void skill_area_in_TOC_recursive(int ntoc,int current_depth,int numthreads,int max_toc_recursive_depth,int max_toc_point,int ndata,double *min_work,double *max_work,double *toc_curve_work,int* work_loc,int *grid_count,double *lowb,double *upb,double *data,bool *obs,double toc_converge_criteria_delta,int *count,double *area,int *error){
+  int toc_index = blockDim.x*blockIdx.x + threadIdx.x;
+
+  if(toc_index < ntoc && current_depth <= max_toc_recursive_depth){
+    if(current_depth != 0){
+      int loc = atomicAdd(work_loc,1);
+      if(loc < max_toc_point){
+	double threshold = 0.5*(lowb[0] + upb[0]);
+	dim3 grid_ndata;
+	grid_ndata.x = (int) ceil((double) ndata/numthreads);
+	skill_area_in_ROC_get_count<<<grid_ndata,numthreads>>>(ndata,data,obs,threshold,count+4*loc);
+	//__syncthreads();
+	//__syncthreads();
+	double fpr,pod;
+	toc_curve_work[4*loc] = threshold;
+	atomicAdd(grid_count,1);
+	cudaError_t temp_error = cudaDeviceSynchronize();
+	if(temp_error){
+	  *error = temp_error;
+	}
+	fpr = ((double) count[4*loc] + count[4*loc+1])/(ndata);
+	pod = ((double) count[4*loc])/((double) count[4*loc] + count[4*loc+2]);
+	toc_curve_work[4*loc+1] = fpr;
+	toc_curve_work[4*loc+2] = pod;
+	double delta_area = 0.5*((upb[1] - lowb[1])*(pod - lowb[2]) - (fpr - lowb[1])*(upb[2] - lowb[2]));
+	toc_curve_work[4*loc+3] = delta_area;
+
+	area[toc_index] += delta_area;
+
+	if(fabs(delta_area) >= toc_converge_criteria_delta){
+	  skill_area_in_TOC_recursive<<<1,1>>>(ntoc,current_depth+1,numthreads,max_toc_recursive_depth,max_toc_point,ndata,min_work,max_work,toc_curve_work,work_loc,grid_count,toc_curve_work+4*loc,upb,data,obs,toc_converge_criteria_delta,count,area,error);
+	  skill_area_in_TOC_recursive<<<1,1>>>(ntoc,current_depth+1,numthreads,max_toc_recursive_depth,max_toc_point,ndata,min_work,max_work,toc_curve_work,work_loc,grid_count,lowb,toc_curve_work+4*loc,data,obs,toc_converge_criteria_delta,count,area,error);
+	}
+      }
+    }
+    else{
+      int loc = atomicAdd(work_loc+toc_index,2);
+      if(loc + 1 < max_toc_point){
+	atomicAdd(grid_count+toc_index,2);
+	area[toc_index] = 0.5;
+	toc_curve_work[4*toc_index*max_toc_point] = min_work[toc_index];
+	toc_curve_work[4*toc_index*max_toc_point+1] = 1.;
+	toc_curve_work[4*toc_index*max_toc_point+2] = 1.;
+	toc_curve_work[4*toc_index*max_toc_point+3] = 0.;
+	toc_curve_work[4*toc_index*max_toc_point+4] = max_work[toc_index];
+	toc_curve_work[4*toc_index*max_toc_point+4+1] = 0.;
+	toc_curve_work[4*toc_index*max_toc_point+4+2] = 0.;
+	toc_curve_work[4*toc_index*max_toc_point+4+3] = 0.5;
+	skill_area_in_TOC_recursive<<<1,1>>>(ntoc,current_depth+1,numthreads,max_toc_recursive_depth,max_toc_point,ndata,min_work+toc_index,max_work+toc_index,toc_curve_work+4*toc_index*max_toc_point,work_loc+toc_index,grid_count+toc_index,toc_curve_work+4*toc_index*max_toc_point+4,toc_curve_work+4*toc_index*max_toc_point,data+toc_index*ndata,obs+toc_index*ndata,toc_converge_criteria_delta,count+4*toc_index*max_toc_point,area+toc_index,error);
+      }
+    }
+  }
+}
+
+###CUDA### ###GLOBAL### void skill_area_in_TOC_master_kernel(int ntoc,int ndata,int numthreads,double *data,bool *obs,double *work,double *min_work,double *max_work,int max_toc_recursive_depth,int max_work_space,double convergence_delta,double *toc_curve_work,int *count_work,int *loc_count,int *grid_count,double *area,int *error){
+  int i = blockDim.x*blockIdx.x + threadIdx.x;
+
+  if(i < ntoc){
+    int ndata_2n = (int) pow(2.,((int) ceil(log((double) ndata)/log(2.))));
+    dim3 grid_nndata2,grid_n2,grid_ntoc;
+    int j;
+
+    grid_nndata2.x = (int) ceil((double) ntoc*ndata_2n/numthreads);
+    grid_ntoc.x = (int) ceil((double) ntoc/numthreads);
+
+    cuda_expand_by_repeat_kernel<<<grid_nndata2,numthreads>>>(ntoc,ndata,ndata_2n,data,work);
+    j=ndata_2n/2;
+    while(j>=1){
+      grid_n2.x = (int) ceil((double) j*ntoc/numthreads);
+      cuda_max_kernel<<<grid_n2,numthreads>>>(ntoc,ndata_2n,j,work);
+      j/=2;
+    }
+    cuda_extract_every_n_kernel<<<grid_ntoc,numthreads>>>(ntoc,ndata_2n,0,work,max_work);
+    
+    cuda_expand_by_repeat_kernel<<<grid_nndata2,numthreads>>>(ntoc,ndata,ndata_2n,data,work);
+    j=ndata_2n/2;
+    while(j>=1){
+      grid_n2.x = (int) ceil((double) j*ntoc/numthreads);
+      cuda_min_kernel<<<grid_n2,numthreads>>>(ntoc,ndata_2n,j,work);
+      j/=2;
+    }
+    cuda_extract_every_n_kernel<<<grid_ntoc,numthreads>>>(ntoc,ndata_2n,0,work,min_work);
+
+    cuda_set_value<<<grid_ntoc,numthreads>>>(ntoc,area,0.);
+    
+    skill_area_in_TOC_recursive<<<grid_ntoc,numthreads>>>(ntoc,0,numthreads,max_toc_recursive_depth,max_work_space,ndata,min_work,max_work,toc_curve_work,loc_count,grid_count,toc_curve_work,toc_curve_work,data,obs,convergence_delta,count_work,area,error);
+  }
+}
+
+###CUDA### ###HOST### int gen_ROC(int ndata,double *data,bool *obs,int &nroc_pt,double** &roc_pt){
+  if(ndata <= 0){
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+  else if(data == NULL || obs == NULL){
+    return _ERRORCODE_DATAYETTOBEINITIATED;
+  }
+  else if(roc_pt != NULL){
+    return _ERRORCODE_POTENTIAL_MEMORYLEAK;
+  }
+
+
+  return _ERRORCODE_NOERROR;
+}

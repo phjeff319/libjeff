@@ -1,0 +1,230 @@
+###CUDA####include<cuda.h>
+#include<iostream>
+#include<fstream>
+#include<cstdlib>
+#include<cmath>
+using namespace std;
+
+#include "grid_data.h"
+#include "geos_grid.h"
+#include "hrit_header.h"
+#include "map_projection.h"
+#include "math_special_function.h"
+#include "tools.h"
+using namespace libjeff;
+
+###CPP### ###CUDA### ###HOST### geos_grid::geos_grid():regular_grid(){
+  missing_value = -9999.;
+}
+###CPP### ###CUDA### ###HOST### geos_grid::~geos_grid(){
+//cout << "GEOS_GRID destructor called." << endl;
+  grid_data::destroy();
+}
+
+###CPP### ###CUDA### ###HOST### void geos_grid::create(int nx,int ny,int nz,int ndim,double satellite_longitude,double satellite_height){
+  this->regular_grid::create(nx,ny,nz,ndim);
+
+  this->satellite_longitude = satellite_longitude;
+  this->satellite_height = satellite_height;
+}
+
+###CPP### ###CUDA### ###HOST### double* geos_grid::multiple_linear_interpolate(double lon, double lat, double height, double *temp) const{
+  double *xyindex = new double [2];
+//cout << "Interpolation from geos_grid called." << endl;
+
+  int i,j;
+  if(this->get_nx() <= 0 || this->get_ny() <= 0 || this->get_nz() <= 0){
+    for(i=0;i<this->get_ndim();i++){
+      temp[i] = this->missing_value;
+    }
+    temp[0] = this->missing_value;
+    return temp;
+  }
+
+  if(cal_geos_xyindex(lat,lon,this->satellite_longitude,this->satellite_height,xyindex) != NULL){
+
+    int grid_dim = 2;
+    double **temp_grid;
+    temp_grid = new double *[grid_dim];
+    for(i=0;i<grid_dim;i++){
+      temp_grid[i] = new double [2];
+    }
+
+    double *temp_data;
+    temp_data = new double [libjeff::pow(2,grid_dim)];
+
+    double *point = new double [3];
+    point[0] = xyindex[0];
+    point[1] = xyindex[1];
+    //point[2] = height;
+
+    int xloc, yloc, zloc;
+    //check for the ordering of the grid_data and if the data enclose the point to be interpolated
+    if(this->x[nx-1] > this->x[0]){
+      if(xyindex[0] < this->x[0] || xyindex[0] > this->x[nx-1]){
+	cout << "Error! Point is outside the grid in x direction." << endl;
+	cout << "Trying to interpolate to:" << xyindex[0] << " " << xyindex[1] << " " << height << endl;
+	cout << "Range of x is: " << this->x[0] << " - " << this->x[nx-1] << endl;
+	cout << "Corresponding coordinates are: " << lon << " " << lat << " " << height << endl;
+	//exit(1);
+	return NULL;
+      }
+      
+      for(i=1;i<nx;i++){
+	if(xyindex[0] <= this->x[i]){
+	  xloc = i;
+	  temp_grid[0][0] = this->x[i-1];
+	  temp_grid[0][1] = this->x[i];
+	  break;
+	}
+      }
+    }
+    else{
+      if(xyindex[0] > this->x[0] || xyindex[0] < this->x[nx-1]){
+	cout << "Error! Point is outside the grid in x direction." << endl;
+	cout << "Trying to interpolate to:" << xyindex[0] << " " << xyindex[1] << " " << height << endl;
+	cout << "Range of x is: " << this->x[0] << " - " << this->x[nx-1] << endl;
+	cout << "Corresponding coordinates are: " << lon << " " << lat << " " << height << endl;
+	//exit(1);
+	return NULL;
+      }
+      
+      for(i=1;i<nx;i++){
+	if(xyindex[0] >= this->x[i]){
+	  xloc = i;
+	  temp_grid[0][0] = this->x[i-1];
+	  temp_grid[0][1] = this->x[i];
+	  break;
+	}
+      }
+    }
+
+    //for y dimension
+    if(grid_dim >= 2){
+      if(this->y[ny-1] > this->y[0]){
+	if(xyindex[1] < this->y[0] || xyindex[1] > this->y[ny-1]){
+	  cout << "Error! Point is outside the grid in y direction." << endl;
+	  cout << "Trying to interpolate to:" << xyindex[0] << " " << xyindex[1] << " " << height << endl;
+	  cout << "Range of y is: " << this->y[0] << " - " << this->y[ny-1] << endl;
+	  cout << "Corresponding coordinates are: " << lon << " " << lat << " " << height << endl;
+	  //exit(1);
+	  return NULL;
+	}
+	
+	for(i=1;i<ny;i++){
+	  if(xyindex[1] <= this->y[i]){
+	    yloc = i;
+	    temp_grid[1][0] = this->y[i-1];
+	    temp_grid[1][1] = this->y[i];
+	    break;
+	  }
+	}
+      }
+      else{
+	if(xyindex[1] > this->y[0] || xyindex[1] < this->y[ny-1]){
+	  cout << "Error! Point is outside the grid in y direction." << endl;
+	  cout << "Trying to interpolate to:" << xyindex[0] << " " << xyindex[1] << " " << height << endl;
+	  cout << "Range of y is: " << this->y[0] << " - " << this->y[ny-1] << endl;
+	  cout << "Corresponding coordinates are: " << lon << " " << lat << " " << height << endl;
+	  //exit(1);
+	  return NULL;
+	}
+	
+	for(i=1;i<ny;i++){
+	  if(xyindex[1] >= this->y[i]){
+	    yloc = i;
+	    temp_grid[1][0] = this->y[i-1];
+	    temp_grid[1][1] = this->y[i];
+	    break;
+	  }
+	}
+      }
+    }
+
+    //for interpolation. Work on the dimensions one by one
+    for(i=0;i<ndim;i++){
+      switch(grid_dim){
+      case 1:
+	temp_data[0] = this->grid1D[(xloc-1)*ndim+i];
+	temp_data[1] = this->grid1D[(xloc)*ndim+i];
+	break;
+      case 2:
+	temp_data[0] = this->grid1D[(xloc-1)*ndim*ny+(yloc-1)*ndim+i];
+	temp_data[1] = this->grid1D[(xloc)*ndim*ny+(yloc-1)*ndim+i];
+	temp_data[2] = this->grid1D[(xloc-1)*ndim*ny+(yloc)*ndim+i];
+	temp_data[3] = this->grid1D[(xloc)*ndim*ny+(yloc)*ndim+i];
+	break;
+      case 3:
+	temp_data[0] = this->grid1D[(xloc-1)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc-1)*ndim+i];
+	temp_data[1] = this->grid1D[(xloc)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc-1)*ndim+i];
+	temp_data[2] = this->grid1D[(xloc-1)*ndim*ny*nz+(yloc)*ndim*nz+(zloc-1)*ndim+i];
+	temp_data[3] = this->grid1D[(xloc)*ndim*ny*nz+(yloc)*ndim*nz+(zloc-1)*ndim+i];	
+	temp_data[4] = this->grid1D[(xloc-1)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc)*ndim+i];
+	temp_data[5] = this->grid1D[(xloc)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc)*ndim+i];
+	temp_data[6] = this->grid1D[(xloc-1)*ndim*ny*nz+(yloc)*ndim*nz+(zloc)*ndim+i];
+	temp_data[7] = this->grid1D[(xloc)*ndim*ny*nz+(yloc)*ndim*nz+(zloc)*ndim+i];	
+	break;
+      default:
+	break;
+      }
+
+      bool missing=0;
+      switch(grid_dim){
+      case 3:
+	for(j=4;j<8;j++){
+	  if(fabs(temp_data[j]-this->missing_value)<1){
+	    temp[i] = missing_value;
+	    missing = 1;
+	    break;
+	  }
+	}
+	if(missing){
+	  break;
+	}
+      case 2:
+	for(j=2;j<4;j++){
+	  if(fabs(temp_data[j]-this->missing_value)<1){
+	    temp[i] = missing_value;
+	    missing = 1;
+	    break;
+	  }
+	}
+	if(missing){
+	  break;
+	}
+      case 1: 
+	for(j=0;j<2;j++){
+	  if(fabs(temp_data[j]-this->missing_value)<1){
+	    temp[i] = missing_value;
+	    missing = 1;
+	    break;
+	  }
+	}
+	if(missing){
+	  break;
+	}
+      default:
+	temp[i] = libjeff::math_multilinear_interpolate(grid_dim,point,temp_grid,temp_data);
+	break;
+      }
+    }
+
+    for(i=0;i<grid_dim;i++){
+      delete [] temp_grid[i];
+    }
+    delete [] temp_grid;
+    delete [] temp_data;
+    delete [] point;
+  }
+  else{
+    for(i=0;i<this->get_ndim();i++){
+      temp[i] = this->missing_value;
+    }
+  }
+
+  delete [] xyindex;
+  return temp;
+}
+###CPP### ###CUDA### ###HOST### void geos_grid_allocation(grid_data* &in){
+  in = new geos_grid;
+}

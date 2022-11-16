@@ -1,0 +1,2557 @@
+#include<cmath>
+#include<cstdio>
+#include<cstring>
+#include<iostream>
+#include<fstream>
+#include<sys/types.h>
+#include<sys/stat.h>
+using namespace std;
+
+###EXTERNAL####include"bzlib.h"
+
+###EXTERNAL####include"bz2_interface.h"
+#include"debug_mode.h"
+#include"error_code.h"
+#include"file_check.h"
+#include"file_handler.h"
+###EXTERNAL####include"gz_interface.h"
+###EXTERNAL####include"ssh_interface.h"
+#include"string_man.h"
+#include"tools.h"
+
+#define FILENAMEBUFFSIZE 4096
+#define BZ2INITIALTRIALFACTOR 100
+
+#define FILEBUFFINITSIZE 4096000
+
+namespace libjeff{
+  file_handler::file_handler(){
+    filename = NULL;
+    error = _ERRORCODE_NOERROR;
+  }
+  file_handler::~file_handler(){
+    if(filename != NULL){
+      delete [] filename;
+    }
+    filename = NULL;
+  }
+  
+  int standard_file::open(char *filename){
+    if(this->filename!=NULL){
+      this->close();
+    }
+    this->filename = new char [FILENAMEBUFFSIZE];
+    strcpy(this->filename,filename);
+    input = fopen(this->filename,"rb");
+    if(input==NULL){
+      error = _ERRORCODE_FILENOTFOUND;
+    }
+    return error;
+  }
+  
+  int standard_file::open(libjeff::file_handler *in){
+    if(in->get_priority() > this->get_priority()){
+      //this is the biggest priority so nothing works here
+    }
+    else{
+      error = _ERRORCODE_FILEOPENERROR;
+    }
+    return error;    
+  }
+  int standard_file::open(char *buff, int size){
+    return _ERRORCODE_NOTIMPLEMENTED;
+  }
+
+  int standard_file::read(char *output,int numbytes){
+    fread(output,1,numbytes,this->input);
+    return error;
+  }
+  int standard_file::read_file(char *&output,size_t &numbytes){
+    struct stat stat_buf;
+    stat(this->filename,&stat_buf);
+    numbytes = stat_buf.st_size;
+    //cout << "Numbytes = " << numbytes << endl;
+    
+    if(output != NULL){
+      //cout << "Deleting previously allocated memory." << endl;
+      delete [] output;
+    }
+    //cout << "Going to allocate memory" << endl;
+    output = new char [numbytes];
+    //cout << "Here" << endl;
+    fseek(input,0,SEEK_SET);
+    //cout << "Reading binaries from file" << endl;
+    fread(output,1,numbytes,this->input);
+    
+    return error;
+  }
+  int standard_file::getline(char* output, int numbyte, char deliminator){
+    int i;
+    for(i=0;i<numbyte;i++){
+      output[i] = getc(this->input);
+      if(output[i] == EOF || output[i] == deliminator){
+	output[i] = '\0';
+	break;
+      }
+    }
+    output[numbyte]='\0';
+    
+    return error;
+  }
+  long int standard_file::tell(){
+    return ftell(input);
+  }
+  int standard_file::seek(long int position){
+    return fseek(input,position,SEEK_SET);
+  }
+  void standard_file::close(){
+    fclose(input);
+    delete [] filename;
+    filename = NULL;
+  }
+  
+  ###EXTERNAL###bz_file::~bz_file(){
+  }
+  ###EXTERNAL###int bz_file::open(char *filename){
+    /*
+    this->standard_file::open(filename);
+    bzin = BZ2_bzReadOpen(&error,input,0,0,NULL,0);
+    switch(error){
+    case BZ_CONFIG_ERROR:
+      cout << "Error! Library mis-compiled." << endl;
+      break;
+    case BZ_PARAM_ERROR:
+      cout << "Error! Parameter error." << endl;
+      break;
+    case BZ_IO_ERROR:
+      cout << "IO error." << endl;
+      break;
+    case BZ_MEM_ERROR:
+      cout << "Mem error." << endl;
+      break;
+    default:
+      break;
+    }
+    */
+    this->pseudo_file::open(filename);
+    char *temp_buff = NULL;
+    size_t temp_size = 0;
+    error = libjeff::bz2_decompress(this->file_buffer,this->buffersize,temp_buff,temp_size);
+    
+    if(!error){
+      delete [] this->file_buffer;
+      this->file_buffer = temp_buff;
+      this->buffersize = temp_size;
+      this->cursor_loc = temp_buff;
+    }
+
+    return error;
+  }
+  ###EXTERNAL###int bz_file::open(libjeff::file_handler*in){
+    if(in->get_priority() > this->get_priority()){
+      if(this->buffersize>0){
+	delete [] file_buffer;
+	file_buffer = NULL;
+      }
+
+      char *temp_buff = NULL;
+      size_t tempsize = 0;
+
+      in->read_file(temp_buff,tempsize);
+
+      error = libjeff::bz2_decompress(temp_buff,tempsize,this->file_buffer,this->buffersize);
+
+      if(temp_buff != NULL){
+	delete [] temp_buff;
+      }
+
+      this->cursor_loc = this->file_buffer;
+    }
+    else{
+      error = _ERRORCODE_FILEOPENERROR;
+    }
+    return error;    
+  }
+  ###EXTERNAL###int bz_file::open(char *buff, int size){
+    return _ERRORCODE_NOTIMPLEMENTED;
+  }
+  ###EXTERNAL###int bz_file::read(char *output,int numbytes){
+    int read_size = numbytes;
+    if(buffersize - (cursor_loc-file_buffer) < read_size){
+      read_size = buffersize - (cursor_loc-file_buffer);
+    }
+
+    memcpy(output,cursor_loc,read_size);
+    this->cursor_loc += read_size;
+
+    /*
+    int result=BZ2_bzRead(&error,bzin,output,numbytes);
+    char *buff = NULL;
+    int to_read, read_count;
+    int itemp;
+    switch(error){
+    case BZ_SEQUENCE_ERROR:
+      cout << "Error! File was opened with BZ2_bzWriteOpen." << endl;
+      break;
+    case BZ_PARAM_ERROR:
+      cout << "Error! Parameter error." << endl;
+      break;
+    case BZ_IO_ERROR:
+      cout << "IO error." << endl;
+      break;
+    case BZ_MEM_ERROR:
+      cout << "Mem error." << endl;
+      break;
+    case BZ_UNEXPECTED_EOF:
+      cout << "Compressed file ended before logical end-of-stream was deleted." << endl;
+      break;
+    case BZ_DATA_ERROR:
+      cout << "Data integrity error detected." << endl;
+      break;
+    case BZ_DATA_ERROR_MAGIC:
+      cout << "This is not a BZ2 file." << endl;
+      break;
+    case BZ_STREAM_END:
+      to_read = numbytes - result;
+      read_count = result;
+      while(to_read > 0){
+	BZ2_bzReadGetUnused(&error,bzin,(void**) &buff,&itemp);
+	strncpy(output+result,buff,itemp);
+	BZ2_bzReadClose(&error,bzin);
+	bzin = BZ2_bzReadOpen(&error,input,0,0,buff,itemp);
+	result=BZ2_bzRead(&error,bzin,output+read_count,to_read);
+
+	if(error != BZ_STREAM_END){
+	  switch(error){
+	  case BZ_SEQUENCE_ERROR:
+	    cout << "Error! File was opened with BZ2_bzWriteOpen." << endl;
+	    break;
+	  case BZ_PARAM_ERROR:
+	    cout << "Error! Parameter error." << endl;
+	    break;
+	  case BZ_IO_ERROR:
+	    cout << "IO error." << endl;
+	    break;
+	  case BZ_MEM_ERROR:
+	    cout << "Mem error." << endl;
+	    break;
+	  case BZ_UNEXPECTED_EOF:
+	    cout << "Compressed file ended before logical end-of-stream was deleted." << endl;
+	    break;
+	  case BZ_DATA_ERROR:
+	    cout << "Data integrity error detected." << endl;
+	    break;
+	  case BZ_DATA_ERROR_MAGIC:
+	    cout << "This is not a BZ2 file." << endl;
+	    break;
+	  }
+	  
+	  if(buff!=NULL){
+	    delete [] buff;
+	  }
+	}
+	else{
+	  error = _ERRORCODE_NOERROR;
+	}
+	to_read -= result;
+	read_count += result;
+      }
+      
+      break;
+    default:
+      break;
+    }
+    */
+    return error;
+  }
+  ###EXTERNAL###int bz_file::read_file(char *&output,size_t &numbytes){
+    /*
+    standard_file tempread;
+    tempread.open(this->filename);
+    char *tempspace = NULL;
+    size_t tempspace_size;
+    tempread.read_file(tempspace,tempspace_size);
+    tempread.close();
+
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Input size: " << tempspace_size << std::endl;
+    }
+    
+    error = libjeff::bz2_decompress(tempspace,tempspace_size,output,numbytes);
+    
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Output size: " << numbytes << std::endl;
+      std::cout << "Out:" << std::endl;
+      int i;
+      for(i=0;i<numbytes;i++){
+	std::cout << output[i];
+      }
+      std::cout << std::endl;
+    }
+    */
+    if(output != NULL){
+      delete [] output;
+    }
+
+    if(this->buffersize > 0){
+      numbytes=buffersize;
+      output = new char [numbytes];
+      memcpy(output,this->file_buffer,numbytes);
+    }
+
+    return error;
+  }
+  ###EXTERNAL###int bz_file::getline(char* output, int numbyte, char deliminator){
+    return _ERRORCODE_NOTIMPLEMENTED;
+  }
+  ###EXTERNAL###void bz_file::close(){
+    libjeff::print_trace(1,"bz_file::close()");
+    //BZ2_bzReadClose(&error,bzin);
+    this->pseudo_file::close();
+    libjeff::print_trace(0,"bz_file::close()");
+  }
+  ###EXTERNAL###gz_file::~gz_file(){
+  }
+  ###EXTERNAL###int gz_file::open(char *filename){
+    this->pseudo_file::open(filename);
+    char *temp_buff = NULL;
+    size_t temp_size = 0;
+    error = libjeff::gz_decompress(this->file_buffer,this->buffersize,temp_buff,temp_size);
+    
+    if(!error){
+      delete [] this->file_buffer;
+      this->file_buffer = temp_buff;
+      this->buffersize = temp_size;
+      this->cursor_loc = temp_buff;
+    }
+
+    return error;
+  }
+  ###EXTERNAL###int gz_file::open(libjeff::file_handler*in){
+    if(in->get_priority() > this->get_priority()){
+      if(this->buffersize>0){
+	delete [] file_buffer;
+	file_buffer = NULL;
+      }
+
+      char *temp_buff = NULL;
+      size_t tempsize = 0;
+
+      in->read_file(temp_buff,tempsize);
+
+      error = libjeff::gz_decompress(temp_buff,tempsize,this->file_buffer,this->buffersize);
+
+      if(temp_buff != NULL){
+	delete [] temp_buff;
+      }
+
+      this->cursor_loc = this->file_buffer;
+    }
+    else{
+      error = _ERRORCODE_FILEOPENERROR;
+    }
+    return error;    
+  }
+  ###EXTERNAL###int gz_file::open(char *buff, int size){
+    return _ERRORCODE_NOTIMPLEMENTED;
+  }
+  ###EXTERNAL###int gz_file::read(char *output,int numbytes){
+    int read_size = numbytes;
+    if(buffersize - (cursor_loc-file_buffer) < read_size){
+      read_size = buffersize - (cursor_loc-file_buffer);
+    }
+
+    memcpy(output,cursor_loc,read_size);
+    this->cursor_loc += read_size;
+
+    return error;
+  }
+  ###EXTERNAL###int gz_file::read_file(char *&output,size_t &numbytes){
+    if(output != NULL){
+      delete [] output;
+    }
+
+    if(this->buffersize > 0){
+      numbytes=buffersize;
+      output = new char [numbytes];
+      memcpy(output,this->file_buffer,numbytes);
+    }
+
+    return error;
+  }
+  ###EXTERNAL###int gz_file::getline(char* output, int numbyte, char deliminator){
+    return _ERRORCODE_NOTIMPLEMENTED;
+  }
+  ###EXTERNAL###void gz_file::close(){
+    this->pseudo_file::close();
+  }
+  
+  pseudo_file::pseudo_file():file_handler(){
+    buffersize=0;
+    file_buffer=NULL;
+    cursor_loc=NULL;
+  }
+  pseudo_file::~pseudo_file(){
+    libjeff::print_trace(1,"pseudo_file::~pseudo_file()");
+    //this->pseudo_file::destroy();
+    if(buffersize>0){
+      delete [] file_buffer;
+    }
+    buffersize = 0;
+    file_buffer = NULL;
+    cursor_loc = NULL;
+    libjeff::print_trace(0,"pseudo_file::~pseudo_file()");
+  }
+  /*
+  int pseudo_file::destroy(){
+    std::cout << "pseudo_file::destroy() in" << std::endl;
+    if(buffersize>0){
+      delete [] file_buffer;
+    }
+    buffersize = 0;
+    file_buffer = NULL;
+    cursor_loc = NULL;
+    std::cout << "pseudo_file::destroy() out" << std::endl;
+  }
+  */
+  int pseudo_file::open(char *filename){
+    if(this->filename!=NULL){
+      this->close();
+    }
+    this->filename = new char [FILENAMEBUFFSIZE];
+    strcpy(this->filename,filename);
+    
+    libjeff::file_handler* file = new standard_file;
+    file->open(filename);
+    //openfile(file,filename);
+
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Before reading file " << filename << endl;
+    }
+    file->read_file(file_buffer,buffersize);
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Done reading file " << filename << endl;
+    }
+    cursor_loc = file_buffer;
+    
+    file->close();
+    delete file;
+    return _ERRORCODE_NOERROR;
+  }
+  int pseudo_file::open(libjeff::file_handler*in){
+    if(in->get_priority() > this->get_priority()){
+      in->read_file(this->file_buffer,this->buffersize);
+      this->cursor_loc = this->file_buffer;
+    }
+    else{
+      error = _ERRORCODE_FILEOPENERROR;
+    }
+    return error;    
+  }
+  int pseudo_file::open(char *buff, int size){
+    //this->destroy();
+    if(buffersize>0){
+      delete [] file_buffer;
+    }
+    buffersize = 0;
+    file_buffer = NULL;
+    cursor_loc = NULL;
+
+    if(size > 0){
+      buffersize = size;
+      file_buffer = new char [buffersize];
+      cursor_loc = file_buffer;
+
+      memcpy(file_buffer,buff,size);
+
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_FILEOPENERROR;
+    }
+  }
+  int pseudo_file::read(char *output,int numbytes){
+    if(buffersize > 0 && this->tell() + numbytes <= buffersize){
+      size_t st_numbytes = numbytes;
+      memcpy(output,cursor_loc,st_numbytes);
+      
+      cursor_loc += numbytes;
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      int new_buffersize = 2*(this->tell() + numbytes);
+      char *new_file_buffer = new char [new_buffersize];
+      if(file_buffer != NULL){
+	strcpy(new_file_buffer,file_buffer);
+	cursor_loc = this->tell() + new_file_buffer;
+      }
+      else{
+	cursor_loc = new_file_buffer;
+      }
+      size_t st_numbytes = numbytes;
+      memcpy(output,cursor_loc,st_numbytes);
+      
+      cursor_loc += numbytes;
+      
+      if(file_buffer != NULL){
+	delete [] file_buffer;
+      }
+      file_buffer = new_file_buffer;
+      buffersize = new_buffersize;
+      
+      return _ERRORCODE_NOERROR;
+    }
+  }
+  int pseudo_file::read_file(char *&output,size_t &numbytes){
+    if(output != NULL){
+      delete [] output;
+      output = NULL;
+    }
+    
+    if(buffersize > 0){
+      numbytes = buffersize;
+      output = new char [numbytes];
+      size_t st_numbytes = numbytes;
+      
+      memcpy(output,file_buffer,st_numbytes);
+      
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_FILEREADERROR;
+    }
+  }
+  int pseudo_file::getline(char* output, int numbyte, char deliminator){
+    char target[2];
+    //std::cout << (int) deliminator << std::endl;
+    target[0] = deliminator;
+    target[1] = '\0';
+    char* loc = strstr(cursor_loc,target);
+    //  std::cout << target << (size_t) loc << " " << (size_t) (loc - cursor_loc) << std::endl;
+    
+    if(loc != NULL && loc - cursor_loc <= numbyte){
+      memcpy(output,cursor_loc,loc-cursor_loc);
+      output[loc-cursor_loc]='\0';
+      cursor_loc=loc+1;
+    }
+    else{
+      memcpy(output,cursor_loc,numbyte);
+      output[numbyte] = '\0';
+      cursor_loc+=numbyte;
+    }
+    
+    return error;
+  }
+  long int pseudo_file::tell(){
+    long int result = 0;
+    if(buffersize > 0){
+      result = cursor_loc - file_buffer;
+    }
+    return result;
+  }
+  int pseudo_file::seek(long int position){
+    if(position < buffersize){
+      cursor_loc = file_buffer + position;
+      return _ERRORCODE_NOERROR;
+    }
+    else{
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+  }
+  void pseudo_file::close(){
+    libjeff::print_trace(1,"pseudo_file::close()");
+    //this->pseudo_file::destroy();
+    if(buffersize>0){
+      delete [] file_buffer;
+    }
+    buffersize = 0;
+    file_buffer = NULL;
+    cursor_loc = NULL;
+    //std::cout << "here_x" << std::endl;
+    if(filename != NULL){
+      delete [] filename;
+    }
+    filename = NULL;
+    libjeff::print_trace(0,"pseudo_file::close()");
+  }
+  
+  ###EXTERNAL###sftp_file::sftp_file():pseudo_file(){
+    ssh = NULL;
+  }
+  ###EXTERNAL###sftp_file::sftp_file(libjeff::ssh_interface* ssh):pseudo_file(){
+    std::cout << "sftp_file(libjeff::ssh_interface* ssh) called" << std::endl;
+    this->ssh = new libjeff::ssh_interface;
+    *this->ssh = *ssh;
+  }
+  ###EXTERNAL###sftp_file::~sftp_file(){
+    this->close();
+  }
+  ###EXTERNAL###int sftp_file::open(char *filename){
+    if(!libjeff::is_sftp_file(filename)){
+      return _ERRORCODE_SFTP_INVALID_FILENAME;
+    }
+    char *hostname = new char [strlen(filename)+1];
+    char *port = new char [strlen(filename)+1];
+    char *username = new char [strlen(filename)+1];
+    char *password = new char [strlen(filename)+1];
+    char *filepath = new char [strlen(filename)+1];
+    
+    file_handler_sftp_file_decipher(filename,username,password,hostname,filepath,port);
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "SFTP connection with the following settings:" << std::endl;
+      std::cout << "Username: " << username << std::endl;
+      std::cout << "Password: " << password << std::endl;
+      std::cout << "Hostname: " << hostname << std::endl;
+      std::cout << "Filepath: " << filepath << std::endl;
+      std::cout << "Port: " << port << std::endl;
+    }
+    if(this->ssh != NULL){
+      bool match = true;
+      if(strcmp(hostname,"") != 0 && strcmp(hostname,ssh->get_hostname()) != 0){
+	match = false;
+      }
+      else if(strcmp(hostname,"") == 0){
+	strcpy(hostname,ssh->get_hostname());
+      }
+      if(strcmp(port,"") != 0 && atoi(port) != ssh->get_ssh_port()){
+	match = false;
+      }
+      else if(strcmp(port,"") == 0){
+	sprintf(port,"%d",ssh->get_ssh_port());
+      }
+      if(strcmp(username,"") != 0 && strcmp(username,ssh->get_username()) != 0){
+	match = false;
+      }
+      else if(strcmp(username,"") == 0){
+	strcpy(username,ssh->get_username());
+      }
+      if(strcmp(password,"") != 0 && strcmp(password,ssh->get_password()) != 0){
+	match = false;
+      }
+      else if(strcmp(password,"") == 0){
+	strcpy(password,ssh->get_password());
+      }
+      
+      if(!match){
+	delete this->ssh;
+	this->ssh = new libjeff::ssh_interface(hostname,username,password,atoi(port));
+      }
+    }
+    else{
+      this->ssh = new libjeff::ssh_interface(hostname,username,password,atoi(port));
+    }
+    
+    char *temp_buff = NULL;
+    size_t temp_size = 0;
+    
+    int error = _ERRORCODE_NOERROR;
+    error = ssh->sftp_get_file(filepath,temp_buff,temp_size);
+    if(!error){
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "Read " << filepath << " with " << temp_size << " bytes of data" << std::endl;
+      }
+      if(temp_size > 0){
+	/*
+	if(libjeff::is_bz2_file(filepath)){
+	  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	    std::cout << "Calling bz2 decompression" << std::endl;
+	  }
+	  error = libjeff::bz2_decompress(temp_buff,temp_size,this->file_buffer,this->buffersize);
+	  if(libjeff::debug_setting::get_debug_mode_warning() && error){
+	    std::cout << "Error in bz2_decompression " << error << std::endl;
+	  }
+	  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	    std::cout << this->buffersize << " bytes of data written into the buffer" << std::endl;
+	  }
+	}
+	else{
+	}
+	*/
+	  if(this->file_buffer != NULL){
+	    delete [] this->file_buffer;
+	  }
+	  this->file_buffer = new char [temp_size];
+	  memcpy(this->file_buffer,temp_buff,temp_size);
+	  this->buffersize = temp_size;
+	  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	    std::cout << this->buffersize << " bytes of data written into the buffer" << std::endl;
+	  }
+	  //}
+	delete [] temp_buff;
+      }
+      else{
+	if(this->file_buffer != NULL){
+	  delete [] this->file_buffer;
+	}
+	this->file_buffer = NULL;
+	this->buffersize = temp_size;
+      }
+    }
+    else{
+      if(libjeff::debug_setting::get_debug_mode_warning()){
+	std::cout << "Warning! Error from SSH. Code = " << error << std::endl;
+      }
+    }
+    
+    this->cursor_loc = this->file_buffer;
+    
+    delete [] hostname;
+    delete [] port;
+    delete [] username;
+    delete [] password;
+    delete [] filepath;
+    
+    return error;
+  }
+  ###EXTERNAL###int sftp_file::open(libjeff::file_handler*in){
+    if(in->get_priority() > this->get_priority()){
+      //this is the biggest priority so nothing works here
+    }
+    else{
+      error = _ERRORCODE_FILEOPENERROR;
+    }
+    return error;    
+  }
+  ###EXTERNAL###int sftp_file::open(char *buff, int size){
+    return _ERRORCODE_NOTIMPLEMENTED;
+  }
+  ###EXTERNAL###void sftp_file::close(){
+    if(this->ssh!=NULL){
+      delete this->ssh;
+    }
+    this->ssh = NULL;
+  }
+
+  namespace outstream{
+    file_handler::file_handler(){
+      error = 0;
+      filename = NULL;
+      mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
+    }
+    file_handler::~file_handler(){
+      if(filename != NULL){
+	delete [] filename;
+      }
+    }
+
+    pseudo_file::pseudo_file():file_handler(){
+      allocated_size = 0;
+      file_buffer = NULL;
+      cursor_loc = NULL;
+    }
+    pseudo_file::~pseudo_file(){
+      this->clear();
+    }
+
+    int pseudo_file::open(char *filename){
+      return this->open(filename,S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
+    }
+    int pseudo_file::open(char *filename,mode_t mode){
+      this->clear();
+      this->mode = mode;
+      if(this->filename != NULL){
+	delete [] this->filename;
+      }
+      this->filename = new char [strlen(filename)+10];
+      strcpy(this->filename,filename);
+
+      return _ERRORCODE_NOERROR;
+    }    
+    int pseudo_file::write(char *input,int numbytes){
+      if(numbytes > 0){
+	if(cursor_loc-file_buffer+numbytes > allocated_size){
+	  if(allocated_size == 0){
+	    this->file_buffer = new char [FILEBUFFINITSIZE];
+	    allocated_size = FILEBUFFINITSIZE;
+	    this->cursor_loc = this->file_buffer;
+	  }
+	  else{
+	    size_t curr_size = cursor_loc-file_buffer;
+	    
+	    char *newbuff = new char [(allocated_size + numbytes)];
+	    memcpy(newbuff,this->file_buffer,curr_size);
+	    delete [] this->file_buffer;
+	    this->file_buffer = newbuff;
+	    this->cursor_loc = this->file_buffer + curr_size;
+	    allocated_size += numbytes;
+	  }
+	}
+	
+	memcpy(cursor_loc,input,numbytes);
+	cursor_loc += numbytes;
+
+	return _ERRORCODE_NOERROR;
+      }
+      else{
+	return _ERRORCODE_INPUTOUTOFRANGE;
+      }
+    }
+    
+    void pseudo_file::clear(){
+      if(allocated_size > 0){
+	delete [] file_buffer;
+	file_buffer = NULL;
+	cursor_loc = NULL;
+      }
+      allocated_size = 0;
+    }
+    void pseudo_file::close(){
+      if(filename != NULL){
+	std::ofstream fout;
+	fout.open(filename);
+	if(cursor_loc>file_buffer){
+	  fout.write(this->file_buffer,cursor_loc-file_buffer);
+	}
+	fout.close();
+	delete [] this->filename;
+	this->filename = NULL;
+      }
+      this->clear();
+    }
+
+    int standard_file::open(char *filename){
+      return this->open(filename,S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
+    }
+    int standard_file::open(char *filename,mode_t mode){
+      if(this->filename != NULL){
+	this->close();
+      }
+      this->mode = mode;
+      this->filename = new char [strlen(filename)+10];
+      strcpy(this->filename,filename);
+      this->output = fopen(this->filename,"wb");
+
+      return _ERRORCODE_NOERROR;
+    }
+
+    int standard_file::write(char *input,int numbytes){
+      if(numbytes > 0){
+	fwrite(input,1,numbytes,this->output);
+      }
+      else{
+	return _ERRORCODE_INPUTOUTOFRANGE;
+      }
+      return _ERRORCODE_NOERROR;
+    }
+
+    void standard_file::close(){
+      fclose(this->output);
+    }
+
+    ###EXTERNAL###sftp_file::sftp_file():pseudo_file(){
+      ssh = NULL;
+    }
+    ###EXTERNAL###sftp_file::sftp_file(libjeff::ssh_interface* ssh):pseudo_file(){
+      libjeff::print_trace(1,"libjeff::outstream::sftp_file(libjeff::ssh_interface* ssh)");
+      this->ssh = new libjeff::ssh_interface;
+      *this->ssh = *ssh;
+      libjeff::print_trace(0,"libjeff::outstream::sftp_file(libjeff::ssh_interface* ssh)");
+    }
+    ###EXTERNAL###sftp_file::~sftp_file(){
+      this->close();
+    }
+    
+    ###EXTERNAL###int sftp_file::open(char *filename){
+      return this->open(filename,S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
+    }
+    ###EXTERNAL###int sftp_file::open(char *filename,mode_t mode){
+      if(!libjeff::is_sftp_file(filename)){
+	return _ERRORCODE_SFTP_INVALID_FILENAME;
+      }
+      this->mode = mode;
+      char *hostname = new char [strlen(filename)+1];
+      char *port = new char [strlen(filename)+1];
+      char *username = new char [strlen(filename)+1];
+      char *password = new char [strlen(filename)+1];
+      char *filepath = new char [strlen(filename)+1];
+
+      file_handler_sftp_file_decipher(filename,username,password,hostname,filepath,port);
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "SFTP connection with the following settings:" << std::endl;
+	std::cout << "Username: " << username << std::endl;
+	std::cout << "Password: " << password << std::endl;
+	std::cout << "Hostname: " << hostname << std::endl;
+	std::cout << "Filepath: " << filepath << std::endl;
+	std::cout << "Port: " << port << std::endl;
+      }
+      if(this->ssh != NULL){
+	bool match = true;
+	if(strcmp(hostname,"") != 0 && strcmp(hostname,ssh->get_hostname()) != 0){
+	  match = false;
+	}
+	else if(strcmp(hostname,"") == 0){
+	  strcpy(hostname,ssh->get_hostname());
+	}
+	if(strcmp(port,"") != 0 && atoi(port) != ssh->get_ssh_port()){
+	  match = false;
+	}
+	else if(strcmp(port,"") == 0){
+	  sprintf(port,"%d",ssh->get_ssh_port());
+	}
+	if(strcmp(username,"") != 0 && strcmp(username,ssh->get_username()) != 0){
+	  match = false;
+	}
+	else if(strcmp(username,"") == 0){
+	  strcpy(username,ssh->get_username());
+	}
+	if(strcmp(password,"") != 0 && strcmp(password,ssh->get_password()) != 0){
+	  match = false;
+	}
+	else if(strcmp(password,"") == 0){
+	  strcpy(password,ssh->get_password());
+	}
+	
+	if(!match){
+	  delete this->ssh;
+	  this->ssh = new libjeff::ssh_interface(hostname,username,password,atoi(port));
+	}
+      }
+      else{
+	this->ssh = new libjeff::ssh_interface(hostname,username,password,atoi(port));
+      }
+
+      if(this->filename != NULL){
+	delete [] this->filename;
+      }
+      this->filename = new char [strlen(filepath)+10];
+      strcpy(this->filename,filepath);
+
+      delete [] hostname;
+      delete [] port;
+      delete [] username;
+      delete [] password;
+      delete [] filepath;
+      
+      return error;
+    }
+
+    ###EXTERNAL###void sftp_file::close(){
+      if(this->filename != NULL && this->cursor_loc > this->file_buffer){
+	char *path = new char [strlen(this->filename)+10];
+	char *file = new char [strlen(this->filename)+10];
+
+	get_filename(this->filename,file);
+	get_path(this->filename,path);
+
+	mode_t dirmode = this->mode;
+	if(dirmode & S_IRUSR || dirmode & S_IWUSR){
+	  dirmode = dirmode | S_IXUSR;
+	}
+	if(dirmode & S_IRGRP || dirmode & S_IWGRP){
+	  dirmode = dirmode | S_IXGRP;
+	}
+	if(dirmode & S_IROTH || dirmode & S_IWOTH){
+	  dirmode = dirmode | S_IXOTH;
+	}
+
+	int error = ssh->sftp_create_dir(path,dirmode);
+	if(!error){
+	  ssh->sftp_write_file(this->filename,this->file_buffer,this->cursor_loc-this->file_buffer,this->mode);
+	}
+	/*
+	else{
+	  std::cout << "Error in sftp_create_dir. Code = " << error << std::endl;
+	}
+	*/
+	this->clear();
+
+	delete [] path;
+	delete [] file;
+      }
+
+      if(this->ssh!=NULL){
+	delete this->ssh;
+      }
+      this->ssh = NULL;
+    }
+  };
+
+   namespace tar{
+     bool is_tar_content(char *buff){
+       if(strncmp(((tar_header *) buff)->iden,"ustar ",6)==0){
+	 return true;
+       }
+       else{
+	 return false;
+       }
+     }
+     bool is_file(char *in){
+       tar_header *hd = (tar_header *)in;
+       if(hd->link == '0'){
+	 return true;
+       }
+       else{
+	 return false;
+       }
+     }
+     size_t get_filesize(char *in){
+       tar_header *hd = (tar_header *)in;
+       return stoi(hd->filesize,0,8);
+     }
+
+     char *get_filename(char *buff,char *&out){
+       tar_header *hd = (tar_header *)buff;
+
+       if(out != NULL){
+	 delete [] out;
+       }
+       out = new char [sizeof(tar_header)];
+       strcpy(out,hd->filename);
+
+       return out;
+     }
+
+     char* get_content(char *buff,size_t &size,char *&out){
+       if(out != NULL){
+	 delete [] out;
+       }
+       size = get_filesize(buff);
+       out = new char [size];
+       memcpy(out,buff+512,size);
+
+       return out;
+     }
+     char *goto_block(char *buff,size_t size,int index){
+       int i = 0;
+
+       char *pt = buff;
+       int curr_size = 0;
+       while(i < index && is_tar_content(pt)){
+	 if(get_filesize(pt)%512 != 0){
+	   curr_size += ((int) ceil(get_filesize(pt)/512.))*512 + 512;
+	 }
+	 else{
+	   curr_size += get_filesize(pt) + 512;
+	 }
+	 pt = buff + curr_size;
+	 i++;
+       }
+
+       if(!is_tar_content(pt)){
+	 /*
+	 int j;
+	 for(j=0;j<6;j++){
+	   std::cout << (int) ((tar_header *) pt)->iden[j] << std::endl;
+	 }
+	 */
+	 pt = NULL;
+       }
+
+       return pt;
+     }
+
+     libjeff::file_handler* get_file(libjeff::file_handler* in,char *filename){
+       char *ctemp = NULL;
+       size_t size = 0;
+
+       in->read_file(ctemp,size);
+
+       libjeff::file_handler* out = NULL;
+       if(is_tar_content(ctemp)){
+	 char *pt = NULL;
+	 int i = 0;
+
+	 pt = libjeff::tar::goto_block(ctemp,size,i);
+	 while(pt != NULL){
+	   char *temp_filename = NULL;
+	   if(strcmp(libjeff::tar::get_filename(pt,temp_filename),filename)==0){
+	     out = new pseudo_file;
+
+	     delete [] temp_filename;
+	     temp_filename = NULL;
+	     size_t temp_size;
+	     libjeff::tar::get_content(pt,temp_size,temp_filename);
+
+	     out->open(temp_filename,temp_size);
+
+	     break;
+	   }
+	   delete [] temp_filename;
+	   temp_filename = NULL;
+
+	   i++;
+	   pt = libjeff::tar::goto_block(ctemp,size,i);
+	 }
+       }
+
+       if(size > 0){
+	 delete [] ctemp;
+       }
+
+       return out;
+     }
+  };
+
+}
+
+data_block::data_block(){
+  allocated_size=0;
+  block_data = NULL;
+}
+data_block::~data_block(){
+  this->destroy();
+}
+int data_block::create(int size){
+  if(size <= 0){
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+
+  this->destroy();
+  allocated_size = size;
+  block_data = new char [allocated_size];
+  strcpy(block_data,"");
+  
+  return _ERRORCODE_NOERROR;
+}
+void data_block::destroy(){
+  if(allocated_size > 0){
+    delete [] block_data;
+    block_data = NULL;
+  }
+  allocated_size = 0;
+}
+int data_block::enlarge_data_block(int size){
+  if(size > this->allocated_size){
+    char *temp_block = new char [size];
+    if(this->allocated_size > 0){
+      strcpy(temp_block,this->block_data);
+      delete [] block_data;
+    }
+    else{
+      strcpy(temp_block,"");
+    }
+    block_data = temp_block;
+    allocated_size = size;
+
+    return _ERRORCODE_NOERROR;
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+}
+json_block::json_block():data_block(){
+}
+json_block::json_block(const json_block &in):data_block(){
+  *this = in;
+}
+json_block::~json_block(){
+  this->destroy();
+}
+int json_block::read_template(char *filename){
+  if(libjeff::file_check_exist(filename)){
+      FILE *file;
+      file = fopen(filename,"r");
+      
+      fseek(file,0,SEEK_END);
+      size_t length = ftell(file);
+
+      if(length > 0){
+	this->create(length+10);
+	rewind(file);
+      
+	fread(block_data,1,length,file);
+      }
+      fclose(file);
+    }
+
+  return _ERRORCODE_NOERROR;
+}
+int json_block::parse(char *in){
+  int error = this->parse_no_trim(in);
+  if(!error){
+    this->trim_empty_space();
+  }
+  return error;
+}
+int json_block::parse_no_trim(char *in){
+  int size = strlen(in);
+  char *buff = new char [size+10];
+  int error = _ERRORCODE_NOERROR;
+  
+  strcpy(buff,in);
+  int i,j, norm_parentheses_level = 0,parentheses_level = 0, quote_level = 0, double_quote_level = 0;
+  for(i=0;i<size;i++){
+    if(quote_level == 0 && double_quote_level == 0){
+      if(buff[i]=='{'){
+	parentheses_level++;
+      }
+      else if(buff[i]=='}'){
+	parentheses_level--;
+      }
+      else if(buff[i]=='['){
+	norm_parentheses_level++;
+      }
+      else if(buff[i]==']'){
+	norm_parentheses_level--;
+      }
+      else if(buff[i]=='\'' && (i==0 || buff[i-1]!='\\')){
+	quote_level = !quote_level;
+      }
+      else if(buff[i]=='\"' && (i==0 || buff[i-1]!='\\')){
+	double_quote_level = !double_quote_level;
+      }
+
+      if(parentheses_level == 0 && norm_parentheses_level == 0){
+	buff[i+1]='\0';
+	break;
+      }
+    }
+    else{
+      if(buff[i]=='\'' && (i==0 || buff[i-1]!='\\')){
+	quote_level = !quote_level;
+      }
+      else if(buff[i]=='\"' && (i==0 || buff[i-1]!='\\')){
+	double_quote_level = !double_quote_level;
+      }
+    }
+  }
+
+  if(quote_level != 0 || double_quote_level != 0 || parentheses_level != 0){
+    error = _ERRORCODE_INPUTERROR;
+  }
+  
+  if(!error){
+    this->create(strlen(buff)+10);
+    strcpy(this->get_block_data(),buff);
+  }
+  
+  delete [] buff;
+
+  return error;
+}
+int json_block::append(json_block* in){
+  if(in != NULL && in->get_allocated_size() > 0){
+    if((this->allocated_size > 0?strlen(this->block_data):0) + strlen(in->get_block_data()) > this->get_allocated_size()){// size doubling
+      this->enlarge_data_block(((this->allocated_size > 0?strlen(this->block_data):0) + strlen(in->get_block_data()))*2);
+    }
+
+    if(this->allocated_size > 0 && strlen(this->block_data) > 0){
+      strcat(this->block_data,",");
+    }
+    strcat(this->block_data,in->get_block_data());
+  }
+
+  return _ERRORCODE_NOERROR;
+}
+int json_block::tags_replace(tags* tags2replace,char *replace_to){
+  if(replace_to != NULL){
+    if(strlen(replace_to) + (this->allocated_size > 0?strlen(this->block_data):0) > this->allocated_size){
+      this->enlarge_data_block((strlen(replace_to) + (this->allocated_size > 0?strlen(this->block_data):0))*2);
+    }
+
+    tags2replace->replace(this->get_block_data(),replace_to);
+
+    return _ERRORCODE_NOERROR;
+  }
+
+  return _ERRORCODE_INPUTERROR;
+}
+int json_block::tags_replace(tags* tags2replace,int replace_to){
+  if(log10((double) replace_to) + (this->allocated_size > 0?strlen(this->block_data):0) + 2 > this->allocated_size){
+    this->enlarge_data_block((((int) log10((double) replace_to)) + (this->allocated_size > 0?strlen(this->block_data):0) + 2)*2);
+  }
+
+  tags2replace->replace(this->get_block_data(),replace_to);
+
+  return _ERRORCODE_NOERROR;
+}
+
+int json_block::trim_empty_space(){
+  libjeff::print_trace(1,"json_block::trim_empty_space()");
+  int i,j;
+  j = 0;
+  int quote_level = 0;
+  int dquote_level = 0;
+  bool tagon = false;
+  for(i=0;i<strlen(this->block_data);i++){
+    if(quote_level == 0 && this->block_data[i] == '\''  && (i==0 || this->block_data[i-1] != '\\')){
+      quote_level++;
+    }
+    else if(quote_level == 1 && this->block_data[i] == '\''  && (i==0 || this->block_data[i-1] != '\\')){
+      quote_level--;
+    }
+
+    if(dquote_level == 0 && this->block_data[i] == '\"'  && (i==0 || this->block_data[i-1] != '\\')){
+      dquote_level++;
+    }
+    else if(dquote_level == 1 && this->block_data[i] == '\"'  && (i==0 || this->block_data[i-1] != '\\')){
+      dquote_level--;
+    }
+
+    if(i < strlen(this->block_data)-2 && strncmp(this->block_data+i,"###",3)==0){
+      tagon = !tagon;
+    }
+
+    if(quote_level != 0 || dquote_level != 0 || tagon || (this->block_data[i] != ' ' && this->block_data[i] != '\t' && this->block_data[i] != '\n' && this->block_data[i] != ((char) 10) && this->block_data[i] != '\r')){
+      this->block_data[j] = this->block_data[i];
+      j++;
+    }
+  }
+  this->block_data[j] = '\0';
+
+  libjeff::print_trace(0,"json_block::trim_empty_space()");
+  return _ERRORCODE_NOERROR;
+}
+
+json_block& json_block::operator=(const json_block &in){
+  if(this == &in){
+    return *this;
+  }
+
+  this->destroy();
+  if(in.get_allocated_size() > 0){
+    this->create(in.get_allocated_size());
+    strcpy(block_data,in.get_block_data());
+  }
+
+  return *this;
+}
+int json_block::get_array_size(char *key) const{
+  int results = 0;
+
+  if(this->get_allocated_size() == 0){
+    return results;
+  }
+/*
+  char *temp_key = new char [strlen(key)+10];
+  strcpy(temp_key,"\"");
+  strcat(temp_key,key);
+  strcat(temp_key,"\":");
+  if(strstr(this->block_data,temp_key)!=NULL){
+    if(*(strstr(this->block_data,temp_key)-1) == '{' || *(strstr(this->block_data,temp_key)-1) == ','){
+      if(*(strstr(this->block_data,temp_key)+strlen(temp_key)) == '{'){
+	results = 1;
+      }
+      else{
+	int st_pt = strstr(this->block_data,temp_key) - this->block_data;
+	int i;
+	int num_parentheses = 0;
+	int num_norm_parentheses = 0;
+	int strlenbdint=strlen(this->block_data);
+	int strlentkint=strlen(temp_key);
+	//for(i=st_pt+strlen(temp_key);i<strlen(this->block_data);i++){
+	for(i=st_pt+strlentkint+1;i<strlenbdint;i++){	
+	  if(num_parentheses == 0 && num_norm_parentheses == 0 && (this->block_data[i]=='{' || this->block_data[i]=='[')){
+	    results++;
+	  }
+
+	  if(this->block_data[i]=='{'){
+	    num_parentheses++;
+	  }
+	  else if(this->block_data[i]=='}'){
+	    num_parentheses--;
+	  }
+	  
+	  if(this->block_data[i]=='['){
+	    num_norm_parentheses++;
+	  }
+	  else if(this->block_data[i]==']'){
+	    num_norm_parentheses--;
+	  }
+	  
+	  
+	  if(num_parentheses == -1){
+	    break;
+	  }
+	}
+      }
+    }
+  }
+  delete [] temp_key;  
+  */
+  json_block *temp_block = new json_block;
+  if(this->extract(key,temp_block)->get_block_data()!=NULL){
+    int block_size = strlen(this->extract(key,temp_block)->get_block_data());
+    char *ctemp = new char [block_size+10];
+    strcpy(ctemp,this->extract(key,temp_block)->get_block_data());
+    
+    int i;
+    int num_parentheses = 0;
+    int num_norm_parentheses = 0;
+    for(i=0;i<block_size;i++){
+      //std::cout << ctemp[i] << "\t" << num_parentheses << "\t" << num_norm_parentheses << std::endl;
+      if(ctemp[i]=='{'){
+	num_parentheses++;
+      }
+      else if(ctemp[i]=='}'){
+	num_parentheses--;
+      }
+      
+      if(ctemp[i]=='['){
+	num_norm_parentheses++;
+      }
+      else if(ctemp[i]==']'){
+	num_norm_parentheses--;
+
+	if(num_parentheses == 0 && num_norm_parentheses == 0){
+	  results++;
+	}
+      }	
+
+      if(num_norm_parentheses == 1 && num_parentheses == 0 && ctemp[i]==','){
+	results++;
+      }
+    }
+
+    delete [] ctemp;
+  }
+
+  delete temp_block;
+
+  return results;
+}
+int json_block::replace(char *origblock,char *newblock){
+  int extra = strlen(newblock) - strlen(origblock);
+
+  if(strstr(block_data,origblock)!=NULL){
+    if(strlen(block_data) + extra > allocated_size){
+      this->enlarge_data_block((strlen(block_data) + extra)*2);
+    }
+
+    string_replace(this->block_data,origblock,newblock);
+  }
+  else{
+    return _ERRORCODE_JSONBLOCKNOTFOUND;
+  }
+
+  return _ERRORCODE_NOERROR;
+}
+json_block* json_block::extract(char *key,json_block *out) const{
+  return this->extract(key,-1,out);
+}
+json_block* json_block::extract(char *key,int index,json_block *out) const{
+  if(this->get_allocated_size() == 0){
+    out->destroy();
+    return out;
+  }
+
+  char *temp_key = new char [strlen(key)+10];
+  strcpy(temp_key,"\"");
+  strcat(temp_key,key);
+  strcat(temp_key,"\":");
+
+  json_block temp = *this;
+  json_block buff;
+
+  if(strstr(temp.block_data,temp_key)!=NULL){
+    if(*(strstr(temp.block_data,temp_key)-1) == '{' || *(strstr(temp.block_data,temp_key)-1) == ','){
+      int st_pt = strstr(temp.block_data,temp_key) - temp.block_data;
+      int i;
+      int num_parentheses = 0;
+      int num_norm_parentheses = 0;
+      int num_double_quote = 0;
+      int length = 0;
+      int strlenbdint=strlen(temp.block_data);
+      int strlentkint=strlen(temp_key);
+      //for(i=st_pt+strlen(temp_key);i<strlen(temp.block_data);i++){
+      for(i=st_pt+strlentkint;i<strlenbdint;i++){	
+	length++;
+	if(temp.block_data[i]=='{'){
+	  num_parentheses++;
+	}
+	else if(temp.block_data[i]=='}'){
+	  num_parentheses--;
+	}
+
+	if(temp.block_data[i]=='['){
+	  num_norm_parentheses++;
+	}
+	else if(temp.block_data[i]==']'){
+	  num_norm_parentheses--;
+	}
+
+	if(temp.block_data[i]=='\"'){
+	  num_double_quote = (num_double_quote+1)%2;
+	}
+	
+
+	if(num_parentheses == -1 || num_norm_parentheses == -1 || (num_parentheses == 0 && num_norm_parentheses == 0 && num_double_quote==0 && temp.block_data[i]==',')){
+	  length--;
+	  break;
+	}
+      }
+
+      buff.create(length+1);
+      strncpy(buff.get_block_data(),strstr(temp.block_data,temp_key)+strlen(temp_key),length);
+      buff.block_data[length]='\0';
+
+      //std::cout << index << " " << buff.get_block_data() << std::endl;
+
+      if(index < 0){
+	*out = buff;
+      }
+      else{
+	if(buff.block_data[0] == '{' && index >= 1){
+	  out->destroy();
+	}
+	else{
+	  out->destroy();
+
+	  num_parentheses = 0;
+	  num_norm_parentheses = 0;
+	  
+	  strlenbdint=strlen(buff.block_data);
+	  int count = 0, loc = -1;
+	  length = 0;
+	  for(i=1;i<strlenbdint;i++){
+	    if(count == index && num_parentheses == 0 && num_norm_parentheses == 0 && loc < 0){
+	      loc = i;
+	      length++;
+	      //std::cout << loc << " " << length << std::endl;
+	    }
+	    else if(loc >= 0 && count == index){
+	      length++;
+	    }
+	    
+	    if(buff.block_data[i]=='{'){
+	      num_parentheses++;
+	    }
+	    else if(buff.block_data[i]=='}'){
+	      num_parentheses--;
+	    }
+	    
+	    if(buff.block_data[i]=='['){
+	      num_norm_parentheses++;
+	    }
+	    else if(buff.block_data[i]==']'){
+	      num_norm_parentheses--;
+	    }
+
+	    //std::cout << "Data: " << buff.block_data[i] << " " << count << " " << num_parentheses << " " << num_norm_parentheses << std::endl;
+
+	    if(num_parentheses == 0 && num_norm_parentheses == 0 && buff.block_data[i]==','){
+	      if(loc >= 0 && count == index){
+		length--;
+	      }
+	      count++;
+	    }
+	    else if(num_parentheses == -1 || num_norm_parentheses == -1){
+	      if(loc >= 0 && count == index){
+		length--;
+	      }
+	      break;
+	    }
+	  }
+
+	  if(loc >= 0){
+	    out->create(length+1);
+	    strncpy(out->get_block_data(),buff.block_data+loc,length);
+	    out->block_data[length]='\0';
+	  }
+	}
+      }
+    }
+  }
+  else{
+    out->destroy();
+  }
+  delete [] temp_key;
+  return out;
+}
+
+namespace libjeff{
+  namespace json{
+    int get_array_size(char *in_block_data){
+      int length = strlen(in_block_data);
+      if(length > 0){
+	int num_parentheses = 0;
+	int num_norm_parentheses = 0;
+	int num_double_quote = 0;
+
+	int i;
+	int results = 0;
+	for(i=0;i<length;i++){
+	  //std::cout << in_block_data[i] << "\t" << num_parentheses << "\t" << num_norm_parentheses << std::endl;
+	  if(in_block_data[i]=='\"'){
+            num_double_quote = (num_double_quote+1)%2;
+          }
+	  else if(num_double_quote == 0){
+	    if(in_block_data[i]=='{'){
+	      num_parentheses++;
+	    }
+	    else if(in_block_data[i]=='}'){
+	      num_parentheses--;
+	    }
+	    
+	    if(in_block_data[i]=='['){
+	      num_norm_parentheses++;
+	    }
+	    else if(in_block_data[i]==']'){
+	      num_norm_parentheses--;
+	      
+	      if(num_parentheses == 0 && num_norm_parentheses == 0){
+		results++;
+	      }
+	    }
+
+	    if(num_norm_parentheses == 1 && num_parentheses == 0 && num_double_quote == 0 && in_block_data[i]==','){
+	      results++;
+	    }
+	    else if(num_norm_parentheses == 0 && num_parentheses == 0 && num_double_quote == 0){
+	      break;
+	    }
+	  }
+	}
+	return results;
+      }
+      else{
+	return 0;
+      }
+    }
+    char *extract_block_data(char *in_block_data,int index,char* &out){
+      if(out != NULL){
+	delete [] out;
+	out = NULL;
+      }
+
+      int size = libjeff::json::get_array_size(in_block_data);
+      if(index < size && index >= 0){
+	int block_length = strlen(in_block_data);
+
+	out = new char [block_length+1];
+
+	int num_parentheses = 0;
+	int num_norm_parentheses = 0;
+	int num_double_quote = 0;
+	int count = 0;
+	int i=0;
+	for(i=0;i<block_length;i++){
+          //std::cout << in_block_data[i] << "\t" << num_parentheses << "\t" << num_norm_parentheses << std::endl;
+          if(in_block_data[i]=='\"'){
+            num_double_quote = (num_double_quote+1)%2;
+          }
+          else if(num_double_quote == 0){
+            if(in_block_data[i]=='{'){
+              num_parentheses++;
+            }
+            else if(in_block_data[i]=='}'){
+              num_parentheses--;
+            }
+
+            if(in_block_data[i]=='['){
+	      if(num_parentheses == 0 && num_double_quote == 0){
+		break;
+	      }
+            }
+	  }
+	}
+
+	num_parentheses = 0;
+        num_norm_parentheses = 0;
+        num_double_quote = 0;
+
+	while(count < index){
+	  if(in_block_data[i]=='\"'){
+            num_double_quote = (num_double_quote+1)%2;
+          }
+          else if(num_double_quote == 0){
+	    if(in_block_data[i]=='{'){
+	      num_parentheses++;
+	    }
+	    else if(in_block_data[i]=='}'){
+	      num_parentheses--;
+	    }
+	    
+	    if(in_block_data[i]=='['){
+	      num_norm_parentheses++;
+	    }
+	    else if(in_block_data[i]==']'){
+	      num_norm_parentheses--;
+	    }
+
+	    if(num_parentheses == 0 && num_norm_parentheses == 1 && in_block_data[i]==','){
+	      count++;
+	    }
+	  }
+	  i++;
+	}
+
+	strcpy(out,in_block_data+i+(size>0&&index==0?1:0));
+
+	block_length = strlen(out);
+	num_parentheses = 0;
+        num_norm_parentheses = 0;
+        num_double_quote = 0;
+
+	for(i=0;i<block_length;i++){
+	  if(out[i]=='\"'){
+	    num_double_quote = (num_double_quote+1)%2;
+	  }
+	  else if(num_double_quote == 0){
+	    if(out[i]=='{'){
+	      num_parentheses++;
+	    }
+	    else if(out[i]=='}'){
+	      num_parentheses--;
+	    }
+	    
+	    if(out[i]=='['){
+	      num_norm_parentheses++;
+	    }
+	    else if(out[i]==']'){
+	      num_norm_parentheses--;
+	    }
+	    
+	    if((num_parentheses == 0 && num_norm_parentheses == 0 && out[i]==',') || num_norm_parentheses == -1){
+	      out[i] = '\0';
+	    }
+	  }
+	}
+      }
+
+      return out;
+    }
+  }
+}
+
+
+void openfile(libjeff::file_handler* &file,char *filename){
+  if(file!=NULL){
+    delete file;
+    file = NULL;
+  }
+
+  int error = _ERRORCODE_NOERROR;
+  libjeff::file_handler* tempfile = NULL;
+  char *temp_filename = new char [strlen(filename) + 10];
+  strcpy(temp_filename,filename);
+  while(true){
+    if(tempfile != NULL){
+      delete tempfile;
+      tempfile = NULL;
+    }
+
+    ###EXTERNAL###if(libjeff::is_sftp_file(temp_filename)){
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "openfile sftp mode called" << std::endl;
+      }
+      if(file == NULL){
+	file = new libjeff::sftp_file;
+	error = file->open(temp_filename);
+      }
+      else{
+	tempfile = new libjeff::sftp_file;
+	error = tempfile->open(file);
+
+	delete file;
+	file = tempfile;
+	tempfile = NULL;
+      }	
+
+      char *hostname = new char [strlen(filename)+1];
+      char *port = new char [strlen(filename)+1];
+      char *username = new char [strlen(filename)+1];
+      char *password = new char [strlen(filename)+1];
+      char *filepath = new char [strlen(filename)+1];
+      
+      libjeff::file_handler_sftp_file_decipher(temp_filename,username,password,hostname,filepath,port);
+
+      strcpy(temp_filename,filepath);
+
+      delete [] hostname;
+      delete [] port;
+      delete [] username;
+      delete [] password;
+      delete [] filepath;
+
+      if(error){
+	if(file!=NULL){
+	  delete file;
+	  file = NULL;
+	}
+	break;
+      }
+    }
+    ###EXTERNAL###else if(libjeff::is_bz2_file(temp_filename)){
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "openfile bz2 mode called" << std::endl;
+      }
+      if(file == NULL){
+	if(libjeff::file_check_exist(temp_filename)){
+	  file = new libjeff::bz_file;
+	  file->open(temp_filename);
+	  break;
+	}
+      }
+      else{
+	tempfile = new libjeff::bz_file;
+	tempfile->open(file);
+
+	delete file;
+	file = tempfile;
+	tempfile = NULL;
+      }	
+
+      remove_suffix(temp_filename,".bz2");
+    }
+    ###EXTERNAL###else if(libjeff::is_gz_file(temp_filename)){
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "openfile gz mode called" << std::endl;
+      }
+      if(file == NULL){
+	if(libjeff::file_check_exist(temp_filename)){
+	  file = new libjeff::gz_file;
+	  file->open(temp_filename);
+	  break;
+	}
+      }
+      else{
+	tempfile = new libjeff::gz_file;
+	tempfile->open(file);
+
+	delete file;
+	file = tempfile;
+	tempfile = NULL;
+      }	
+
+      remove_suffix(temp_filename,".gz");
+    }
+    ###EXTERNAL###else
+    if(libjeff::file_check_exist(temp_filename)){
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "openfile standard IO mode called" << std::endl;
+      }
+      file = new libjeff::standard_file;
+      file->open(filename);
+
+      break;
+    }
+    ###EXTERNAL###else{
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "openfile default mode called" << std::endl;
+      }
+      if(file == NULL){
+	char *ctemp = new char [4096];
+	strcpy(ctemp,temp_filename);
+	strcat(ctemp,".bz2");
+
+	if(libjeff::file_check_exist(ctemp)){
+	  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	    std::cout << "openfile default mode find the file under bz2 compression" << std::endl;
+	  }
+	  file = new libjeff::bz_file;
+	  file->open(ctemp);
+	
+	  //strcpy(filename,ctemp);
+	}
+	else{
+	  file = NULL;
+	}
+	delete [] ctemp;
+      }
+	
+      break;
+    }
+  }
+  /*
+  if(libjeff::is_sftp_file(filename)){
+    file = new libjeff::sftp_file;
+    file->open(filename);
+  }
+  else{
+    if(libjeff::file_check_exist(filename)){
+      if(libjeff::is_bz2_file(filename)){
+	file = new libjeff::bz_file;
+      }
+      else{
+	file = new libjeff::standard_file;
+      }
+      file->open(filename);
+    }
+    else{
+      char *ctemp = new char [4096];
+      strcpy(ctemp,filename);
+      strcat(ctemp,".bz2");
+      
+      if(libjeff::file_check_exist(ctemp)){
+	file = new libjeff::bz_file;
+	file->open(ctemp);
+	
+	strcpy(filename,ctemp);
+      }
+      else{
+	file = NULL;
+      }
+      delete [] ctemp;
+    }
+  }
+  */
+  delete [] temp_filename;
+}
+xml_block::xml_block():data_block(){
+}
+xml_block::xml_block(const xml_block &in):data_block(){
+  *this = in;
+}
+xml_block::~xml_block(){
+  this->destroy();
+}
+xml_block& xml_block::operator=(const xml_block &in){
+  if(this == &in){
+    return *this;
+  }
+
+  this->destroy();
+  if(in.get_allocated_size() > 0){
+    this->create(in.get_allocated_size());
+    strcpy(block_data,in.get_block_data());
+  }
+
+  return *this;
+}
+int xml_block::parse(char *in){
+  this->destroy();
+
+  int i;
+  int lv = 0;
+  int error = _ERRORCODE_NOERROR;
+
+  for(i=0;i<strlen(in);i++){
+    if(in[i] == '<'){
+      lv++;
+    }
+    else if(in[i] == '>'){
+      lv --;
+    }
+
+    if(lv < 0 || lv > 1){
+      error = _ERRORCODE_XMLINVALIDFORMAT;
+      break;
+    }
+  }
+
+  if(!error){
+    this->create(strlen(in)+100);
+    strcpy(this->get_block_data(),in);
+  }
+
+  return error;
+}
+xml_block* xml_block::extract(char *key,xml_block *out) const{
+  return this->extract(key,0,out);
+}
+xml_block* xml_block::extract(char *key,int index,xml_block *out) const{
+  if(out == NULL){
+    return NULL;
+  }
+  if(this->get_allocated_size() <= 0){
+    return NULL;
+  }
+
+  char *st_tag = new char [strlen(key)+20];
+  char *end_tag = new char [strlen(key)+20];
+
+  strcpy(st_tag,"<");
+  strcat(st_tag,key);
+  strcpy(end_tag,"</");
+  strcat(end_tag,key);
+  strcat(end_tag,">");
+
+  char *curr_loc = this->get_block_data();
+  int error = _ERRORCODE_NOERROR;
+  
+  int i;
+  for(i=0;i<index;i++){
+    if(strstr(curr_loc,st_tag) != NULL){
+      curr_loc = strstr(curr_loc,st_tag) + strlen(st_tag);
+
+      if(curr_loc[0] == '>'){
+	if(strstr(curr_loc,end_tag) != NULL){
+	  curr_loc = strstr(curr_loc,end_tag) + strlen(end_tag);
+	}
+	else{
+	  error = _ERRORCODE_XMLBLOCKNOTENDED;
+	  break;
+	}
+      }
+    }
+    else{
+      error = _ERRORCODE_XMLBLOCKNOTFOUND;
+    }
+  }
+    
+  if(!error){
+    if(strstr(curr_loc,st_tag) != NULL){
+      curr_loc = strstr(curr_loc,st_tag) + strlen(st_tag);
+      if(curr_loc[0] == '>'){
+	curr_loc++;
+	if(strstr(curr_loc,end_tag) != NULL){
+	  int length = strstr(curr_loc,end_tag) - curr_loc;
+	  out->create(length+100);
+	  strncpy(out->get_block_data(),curr_loc,length);
+	  (out->get_block_data())[length] = '\0';
+	}
+	else{
+	  error = _ERRORCODE_XMLBLOCKNOTENDED;
+	}
+      }
+      else{
+	curr_loc++;
+	if(strstr(curr_loc,">") != NULL){
+	  int length = strstr(curr_loc,">") - curr_loc;
+	  out->create(length+100);
+	  strncpy(out->get_block_data(),curr_loc,length);
+	  (out->get_block_data())[length] = '\0';
+	}
+	else{
+	  error = _ERRORCODE_XMLBLOCKNOTENDED;
+	}
+      }
+    }
+    else{
+      error = _ERRORCODE_XMLBLOCKNOTFOUND;
+    }
+
+  }
+
+
+  delete [] st_tag;
+  delete [] end_tag;
+
+  if(!error){
+    return out;
+  }
+  else{
+    return NULL;
+  }
+}
+
+int file_handler_extract_data_from_csv(char *filename,int numfield,char **fields,char*** &csvdata,int skiplines,int commentlines,int &numdata){ //assuming there is n lines of comment (to be skipped), 1 line of header, m lines of header comments, x lines of data 
+  int nline = libjeff::file_check_length(filename);
+  nline -= skiplines + 1 + commentlines;
+  if(nline > 0){
+    std::ifstream fin;
+    
+    fin.open(filename);
+    int i,j,k;
+    char *ctemp = new char [FILENAMEBUFFSIZE];
+    char *ctemp2 = new char [FILENAMEBUFFSIZE];
+    char *loc, *temp_loc;
+    for(i=0;i<skiplines;i++){
+      fin.getline(ctemp,FILENAMEBUFFSIZE);
+    }
+    fin.getline(ctemp,FILENAMEBUFFSIZE);
+
+    int *field_loc = new int [numfield];
+    for(i=0;i<numfield;i++){
+      field_loc[i] = -1;
+      loc = strstr(ctemp,fields[i]);
+      if(loc!=NULL){
+	field_loc[i] = 0;
+	temp_loc = ctemp;
+	while(temp_loc != loc){
+	  temp_loc = strstr(temp_loc,",")+1;
+	  field_loc[i]++;
+	}
+      }
+    }
+
+    csvdata = new char **[numfield];
+    for(i=0;i<numfield;i++){
+      if(field_loc[i] >= 0){
+	csvdata[i] = new char *[nline];
+	for(j=0;j<nline;j++){
+	  csvdata[i][j] = new char [FILENAMEBUFFSIZE];
+	}
+      }
+      else{
+	csvdata[i] = NULL;
+      }
+    }
+
+    for(i=0;i<commentlines;i++){
+      fin.getline(ctemp,FILENAMEBUFFSIZE);
+    }
+
+    for(i=0;i<nline;i++){
+      fin.getline(ctemp,FILENAMEBUFFSIZE);
+      for(j=0;j<numfield;j++){
+	if(field_loc[j]>=0){
+	  temp_loc = ctemp;
+	  for(k=0;k<field_loc[j];k++){
+	    temp_loc = strstr(temp_loc,",")+1;
+	  }
+	  strcpy(ctemp2,temp_loc);
+	  if(strstr(ctemp2,",")!=NULL){
+	    *(strstr(ctemp2,","))='\0';
+	  }
+	  strcpy(csvdata[j][i],ctemp2);
+	}
+      }
+    }
+
+    delete [] field_loc;
+    delete [] ctemp;
+    delete [] ctemp2;
+    
+    fin.close();
+
+    numdata = nline;
+  }
+  else{
+    return _ERRORCODE_FILEINSUFFICIENTDATA;
+  }
+
+  return _ERRORCODE_NOERROR;
+}
+int file_handler_extract_data_from_csv(char *filename,int numfield,char **fields,char**** &csvdata,int *skiplines,int headerlines,int &numdata,int *&frequency){
+  //extract a column of data from csv by the header field
+  int nline = libjeff::file_check_length(filename);
+  nline -= headerlines;
+  if(nline > 0){
+    std::ifstream fin;
+
+    fin.open(filename);
+    int i,j,k;
+    char **ctemp = new char *[headerlines];
+    for(i=0;i<headerlines;i++){
+      ctemp[i] = new char [FILENAMEBUFFSIZE];
+    }
+    char *ctemp2 = new char [FILENAMEBUFFSIZE];
+    char *loc, *temp_loc;
+    for(i=0;i<headerlines;i++){
+      fin.getline(ctemp[i],FILENAMEBUFFSIZE);
+    }
+
+    int *field_loc = new int [numfield];
+    frequency = new int [numfield];
+    for(i=0;i<numfield;i++){
+      frequency[i] = 0;
+      field_loc[i] = -1;
+      loc = strstr(ctemp[skiplines[i]],fields[i]);
+      if(loc!=NULL){
+        field_loc[i] = 0;
+        temp_loc = ctemp[skiplines[i]];
+        while(temp_loc != loc){
+          temp_loc = strstr(temp_loc,",")+1;
+          field_loc[i]++;
+        }
+	frequency[i] = file_handler_csv_header_enquiry(filename,fields[i],skiplines[i]);
+      }
+    }
+
+    csvdata = new char ***[numfield];
+    for(i=0;i<numfield;i++){
+      if(field_loc[i] >= 0){
+        csvdata[i] = new char **[nline];
+        for(j=0;j<nline;j++){
+	  csvdata[i][j] = new char *[frequency[i]];
+	  for(k=0;k<frequency[i];k++){
+	    csvdata[i][j][k] = new char [FILENAMEBUFFSIZE];
+	  }
+        }
+      }
+      else{
+        csvdata[i] = NULL;
+      }
+    }
+
+    for(i=0;i<nline;i++){
+      fin.getline(ctemp[0],FILENAMEBUFFSIZE);
+      for(j=0;j<numfield;j++){
+        if(field_loc[j]>=0){
+          temp_loc = ctemp[0];
+          for(k=0;k<field_loc[j];k++){
+            temp_loc = strstr(temp_loc,",")+1;
+          }
+	  for(k=0;k<frequency[j];k++){
+	    strcpy(ctemp2,temp_loc);
+	    if(strstr(ctemp2,",")!=NULL){
+	      *(strstr(ctemp2,","))='\0';
+	    }
+	    strcpy(csvdata[j][i][k],ctemp2);
+	    if(strstr(temp_loc,",")!=NULL){
+	      temp_loc = strstr(temp_loc,",")+1;
+	    }
+	  }
+        }
+      }
+    }
+
+    delete [] field_loc;
+    for(i=0;i<headerlines;i++){
+      delete [] ctemp[i];
+    }
+    delete [] ctemp;
+    delete [] ctemp2;
+
+    fin.close();
+
+    numdata = nline;
+  }
+  else{
+    return _ERRORCODE_FILEINSUFFICIENTDATA;
+  }
+  
+  return _ERRORCODE_NOERROR;
+}
+int file_handler_extract_data_from_csv(char *filename,int numfield,int *num_keys,char ***fields,char**** &csvdata,int **skiplines,int headerlines,int &numdata,int *&frequency){
+  //extract a column of data from csv by the header field
+  int nline = libjeff::file_check_length(filename);
+  nline -= headerlines;
+  if(nline > 0){
+    std::ifstream fin;
+
+    fin.open(filename);
+    int i,j,k;
+    char **ctemp = new char *[headerlines];
+    for(i=0;i<headerlines;i++){
+      ctemp[i] = new char [FILENAMEBUFFSIZE];
+    }
+    char *ctemp2 = new char [FILENAMEBUFFSIZE];
+    char *loc, *temp_loc;
+    for(i=0;i<headerlines;i++){
+      fin.getline(ctemp[i],FILENAMEBUFFSIZE);
+      if(strstr(ctemp[i],"\r")!=NULL){
+	*strstr(ctemp[i],"\r")='\0';
+      }
+    }
+
+    int *field_loc = new int [numfield];
+    frequency = new int [numfield];
+    for(i=0;i<numfield;i++){
+      frequency[i] = 0;
+      field_loc[i] = -1;
+
+      bool match;
+      int num_col = string_count_pattern(ctemp[skiplines[i][0]],",");
+      //std::cout << "Number of column " << num_col << std::endl;
+      for(j=0;j<=num_col;j++){
+	match = true;
+	for(k=0;k<num_keys[i];k++){
+	  string_extract_field(ctemp[skiplines[i][k]],",",j,ctemp2);
+	  //	  std::cout << "Comparing " << ctemp2 << " against " << fields[i][k] << std::endl; 
+	  if(strcmp(ctemp2,fields[i][k])!=0){
+	    match = false;
+	    break;
+	  }
+	}
+
+	if(match){
+	  frequency[i]++;
+	  if(field_loc[i] < 0){
+	    field_loc[i] = j;
+	  }
+	}
+      }
+    }
+
+    csvdata = new char ***[numfield];
+    for(i=0;i<numfield;i++){
+      if(field_loc[i] >= 0){
+        csvdata[i] = new char **[nline];
+        for(j=0;j<nline;j++){
+	  csvdata[i][j] = new char *[frequency[i]];
+	  for(k=0;k<frequency[i];k++){
+	    csvdata[i][j][k] = new char [FILENAMEBUFFSIZE];
+	  }
+        }
+      }
+      else{
+        csvdata[i] = NULL;
+      }
+    }
+
+    for(i=0;i<nline;i++){
+      fin.getline(ctemp[0],FILENAMEBUFFSIZE);
+      for(j=0;j<numfield;j++){
+        if(field_loc[j]>=0){
+          temp_loc = ctemp[0];
+	  bool outofbound = false;
+          for(k=0;k<field_loc[j];k++){
+            temp_loc = strstr(temp_loc,",");
+	    if(temp_loc == NULL){
+	      outofbound = true;
+	      break;
+	    }
+	    else{
+	      temp_loc = temp_loc + 1;
+	    }
+          }
+	  if(!outofbound){
+	    for(k=0;k<frequency[j];k++){
+	      strcpy(ctemp2,temp_loc);
+	      if(strstr(ctemp2,",")!=NULL){
+		*(strstr(ctemp2,","))='\0';
+	      }
+	      strcpy(csvdata[j][i][k],ctemp2);
+	      if(strstr(temp_loc,",")!=NULL){
+		temp_loc = strstr(temp_loc,",")+1;
+	      }
+	    }
+	  }
+	  else{
+	    for(k=0;k<frequency[j];k++){
+	      strcpy(csvdata[j][i][k],"");
+	    }
+	  }
+        }
+      }
+    }
+
+    delete [] field_loc;
+    for(i=0;i<headerlines;i++){
+      delete [] ctemp[i];
+    }
+    delete [] ctemp;
+    delete [] ctemp2;
+
+    fin.close();
+
+    numdata = nline;
+  }
+  else{
+    return _ERRORCODE_FILEINSUFFICIENTDATA;
+  }
+  
+  return _ERRORCODE_NOERROR;
+}
+char* file_handler_csv_extract_cell(char *filename,char *field,int row_number,int column_number,char *outbuff){
+  int nline = libjeff::file_check_length(filename);
+  nline -= row_number + 1;
+  int result = 0;
+  if(nline > 0){
+    std::ifstream fin;
+    
+    fin.open(filename);
+    char *ctemp2 = new char [FILENAMEBUFFSIZE];
+
+    int i;
+    for(i=0;i<row_number;i++){
+      fin.getline(ctemp2,FILENAMEBUFFSIZE);
+    }
+    fin.getline(ctemp2,FILENAMEBUFFSIZE);
+
+    string_extract_field(ctemp2,",",column_number,outbuff);
+
+    delete [] ctemp2;    
+    
+    return outbuff;
+  }
+
+  return NULL;
+}
+int file_handler_csv_header_enquiry(char *filename,char *field,int skiplines){
+  return file_handler_csv_header_enquiry(filename,1,&field,&skiplines);
+}
+int file_handler_csv_header_enquiry(char *filename,int num_header_line,char **field, int* skiplines){
+  int i,j;
+  int max_skiplines, min_skiplines;
+  max_skiplines = skiplines[0];
+  min_skiplines = skiplines[0];
+  for(i=1;i<num_header_line;i++){
+    if(skiplines[i] > max_skiplines){
+      max_skiplines = skiplines[i];
+    }
+    if(skiplines[i] < min_skiplines){
+      min_skiplines = skiplines[i];
+    }
+  }
+
+  int nline = libjeff::file_check_length(filename);
+  nline -= max_skiplines + 1;
+
+  int result = 0;
+  if(nline > 0){
+    bool found = false;
+    std::ifstream fin;
+
+    char **file_buff;
+    file_buff = new char *[max_skiplines - min_skiplines + 1];
+    for(i=0;i<=max_skiplines - min_skiplines;i++){
+      file_buff[i] = new char [FILENAMEBUFFSIZE];
+    }
+    
+    fin.open(filename);
+
+    char *ctemp = new char [FILENAMEBUFFSIZE];
+
+    for(i=0;i<min_skiplines;i++){
+      fin.getline(ctemp,FILENAMEBUFFSIZE);
+    }
+    for(i=0;i<=max_skiplines - min_skiplines;i++){
+      fin.getline(file_buff[i],FILENAMEBUFFSIZE);
+      if(strstr(file_buff[i],"\r")!=NULL){
+	*strstr(file_buff[i],"\r") = '\0';
+      }
+    }
+
+    fin.close();
+
+    int max_column = string_count_pattern(file_buff[0],",");
+
+    bool match;
+    for(i=0;i<=max_column;i++){
+      match = true;
+      for(j=0;j<num_header_line;j++){
+	string_extract_field(file_buff[skiplines[j] - min_skiplines],",",i,ctemp);
+	/*
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "Comparing " << ctemp << " against " << field[j] << std::endl;
+	}
+	*/
+	if(strcmp(ctemp,field[j])!=0){
+	  match = false;
+	  break;
+	}
+      }
+
+      if(match){
+	result++;
+      }
+    }
+
+    delete [] ctemp;
+
+    for(i=0;i<=max_skiplines - min_skiplines;i++){
+      delete [] file_buff[i];
+    }
+    delete [] file_buff;
+
+    return result;
+  }
+  else{
+    return result;
+  }
+}
+json_block* file_handler_read_json(char *filename,int &num_block,json_block* &out){
+  libjeff::file_handler *file = NULL;
+  //cout << filename << endl;
+  openfile(file,filename);
+  if(file==NULL){
+    std::cout << "Fail to read file " << filename << std::endl;
+  }
+  file_handler_read_json(file,num_block,out);
+
+  //std::cout << "here" << std::endl;
+  file->close();
+  //std::cout << "here2" << std::endl;
+  delete file;
+
+  return out;
+}
+json_block* file_handler_read_json(libjeff::file_handler* file,int &num_block,json_block* &out){
+  if(file==NULL){
+    num_block = 0;
+    return out;
+  }
+
+  size_t size;
+  char *temp_buff = NULL;
+  //cout << "Going to read file." << endl;
+  file->read_file(temp_buff,size);
+  //    std::cout << temp_buff << std::endl;
+  //cout << "Read success." << endl;
+  
+  char *buff = new char [size+10];
+  memcpy(buff,temp_buff,size);
+  delete [] temp_buff;
+  buff[size]='\0';
+
+  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+    std::cout << buff << std::endl;
+  }
+  
+  num_block = 0;
+  int i,j, parentheses_level = 0, norm_parentheses_level = 0;
+  for(i=0;i<size;i++){
+    if(buff[i]=='{'){
+      parentheses_level++;
+    }
+    else if(buff[i]=='}'){
+      parentheses_level--;
+
+      if(parentheses_level == 0 && norm_parentheses_level == 0){
+	num_block++;
+      }
+    }
+
+    if(buff[i]=='['){
+      norm_parentheses_level++;
+    }
+    else if(buff[i]==']'){
+      norm_parentheses_level--;
+
+      if(parentheses_level == 0 && norm_parentheses_level == 0){
+	num_block++;
+      }
+    }
+  }
+
+  if(out != NULL){
+    delete [] out;
+  }
+
+  if(libjeff::debug_setting::get_debug_mode_debug_message()){
+    std::cout << "Number of block: " << num_block << endl;
+  }
+
+  if(num_block > 0){
+    out = new json_block [num_block];
+    int loc = 0;
+    int block_size;
+    for(i=0;i<num_block;i++){
+      parentheses_level = 0;
+      norm_parentheses_level = 0;
+      for(j=loc;j<size;j++){
+	if(buff[j]=='{'){
+	  parentheses_level++;
+	}
+	else if(buff[j]=='}'){
+	  parentheses_level--;
+	  
+	  if(parentheses_level == 0 && norm_parentheses_level == 0){
+	    break;
+	  }
+	}
+
+	if(buff[j]=='['){
+	  norm_parentheses_level++;
+	}
+	else if(buff[j]==']'){
+	  norm_parentheses_level--;
+	  
+	  if(parentheses_level == 0 && norm_parentheses_level == 0){
+	    break;
+	  }
+	}
+      }
+      
+      block_size = j - loc + 1;
+      out[i].create(block_size+1);
+      strncpy(out[i].get_block_data(),buff+loc,block_size);
+      (out[i].get_block_data())[block_size]='\0';
+
+      out[i].trim_empty_space();
+      
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << i << "\t" << out[i].get_block_data() << std::endl;
+      }
+      
+      if(i!=num_block-1 && strstr(buff+j,"{")==NULL){
+	loc = strstr(buff+j,"[") - buff;
+      }
+      else if(i!=num_block-1 && strstr(buff+j,"[")==NULL){
+	loc = strstr(buff+j,"{") - buff;
+      }
+      else if(i!=num_block-1 && strstr(buff+j,"[")!=NULL && strstr(buff+j,"{")!=NULL){
+	loc = strstr(buff+j,"[") - buff;
+	int loc2 = strstr(buff+j,"{") - buff;
+	if(loc2 < loc){
+	  loc = loc2;
+	}
+      }
+      else if(strstr(buff+j,"{")==NULL && strstr(buff+j,"[")==NULL){
+	break;
+      }
+    }
+  }
+
+  delete [] buff;
+  //cout << "Done with " << filename << endl;
+  return out;
+}
+ostream &operator<<(ostream &cout, json_block in){
+  cout << in.get_block_data();
+  return cout;
+}

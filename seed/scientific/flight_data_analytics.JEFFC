@@ -1,0 +1,501 @@
+#include <cmath>
+#include <cstring>
+
+#include "flight_data_analytics.h"
+
+#include "error_code.h"
+
+#include "date_time.h"
+#include "debug_mode.h"
+#include "earth.h"
+#include "flight_data.h"
+#include "geometry.h"
+#include "meteorology.h"
+
+#define UNKNOWNRUNWAYNAME "unknown runway"
+#define NORUNWAY "nil"
+
+const double min_flight_time=10 * 60.; //ten minutes
+const double runway_angle_tolerance=10.;
+const double adsb_height_error = 200.;
+const date_time flight_data_cal_direction_interval(0,0,0,0,0,30);
+
+namespace libjeff{
+  runway::runway(const polygon<double>& in){
+    corners = in;
+  }
+  runway::runway(double lon0,double lat0,double lon1,double lat1,double lon2,double lat2,double lon3,double lat3){
+    this->set(lon0,lat0,lon1,lat1,lon2,lat2,lon3,lat3);
+  }
+  runway::~runway(){
+    corners.destroy();
+  }
+  bool runway::isset() const{
+    if(this->corners.get_num_vertices()!=5){
+      return false;
+    }
+    return true;
+  }
+  int runway::set(double lon0,double lat0,double lon1,double lat1,double lon2,double lat2,double lon3,double lat3){
+    double *temp = new double [2];
+
+    this->corners.destroy();
+
+    temp[1] = lat0;
+    temp[0] = lon0;
+    this->corners.add_vertex(0,temp);
+    temp[1] = lat1;
+    temp[0] = lon1;
+    this->corners.add_vertex(1,temp);
+    temp[1] = lat2;
+    temp[0] = lon2;
+    this->corners.add_vertex(2,temp);
+    temp[1] = lat3;
+    temp[0] = lon3;
+    this->corners.add_vertex(3,temp);
+    this->corners.close();
+
+    delete [] temp;
+    return _ERRORCODE_NOERROR;
+  }
+
+  bool runway::is_on_runway(double* lonlat) const{
+    return geometry_is_pt_inside_polygon(corners,lonlat);
+  }
+  bool runway::is_along_runway(double* lonlat,double dir) const{
+    double dir_diff = fabs(this->get_direction()-dir);
+    if(dir_diff > 180.){
+      dir_diff = 360. - dir_diff;
+    }
+    //std::cout << lonlat[0] << " " << lonlat[1] << " " << is_on_runway(lonlat) << " " << dir_diff << endl;
+    if(this->is_on_runway(lonlat) && dir_diff < runway_angle_tolerance){
+      return true;
+    }
+    else{
+      return false;
+    }
+  }
+  double runway::get_direction() const{
+    if(!this->isset()){
+      return -9999.;
+    }
+    else{
+      double dir = earth_lonlat_cal_bearing(this->corners.get_vertices(0),this->corners.get_vertices(1));
+      //std::cout << "Runway direction: " << dir << endl;
+      return dir;
+    }
+  }
+
+  bool is_on_known_runway(double *lonlat){
+    return (VHHH07L.is_on_runway(lonlat) || VHHH07R.is_on_runway(lonlat) || VHHH25L.is_on_runway(lonlat) || VHHH25R.is_on_runway(lonlat));
+  }
+  flight_data_pt* flight_data_get_landing_pt(const flight_data* in){
+    libjeff::print_trace(1,"flight_data_get_landing_pt(const flight_data*)");
+    flight_data_pt *result = NULL;
+
+    if(in->get_num_data_pt()<2 || in->get_duration() < min_flight_time){
+      libjeff::print_trace(0,"flight_data_get_landing_pt(const flight_data*)");
+      return result;
+    }
+
+    int i;
+    bool isfail;
+    flight_data_pt *ago,*after, *temp;
+    double speedago, speedafter;
+    for(i=1;i<in->get_num_data_pt()-1;i++){
+      if(in->get_data_pt(i)->get_geometric_height()<=0 && in->get_data_pt(i-1)->get_geometric_height()>0 && in->get_data_pt(i-1)->get_geometric_height()<=1500){
+	isfail = false;
+	ago = in->get_data_pt(in->get_data_pt(i)->get_time()-date_time(0,0,0,0,0,(int) min_flight_time/2),date_time(0,0,0,0,0,(int) min_flight_time/2));
+	after = in->get_data_pt(in->get_data_pt(i)->get_time()+date_time(0,0,0,0,0,(int) min_flight_time/2),date_time(0,0,0,0,0,(int) min_flight_time/2));
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "Landing point candidiate: " << i << std::endl;
+	  std::cout << "Checking information between: " << std::endl;
+	  if(ago!=NULL){
+	    std::cout << ago->get_time();
+	  }
+	  else{
+	    std::cout << "NULL";
+	  }
+	  std::cout << " - ";
+	  if(after!=NULL){
+	    std::cout << after->get_time() << endl;
+	  }
+	  else{
+	    std::cout << "NULL" << std::endl;
+	  }
+	}
+
+	if(ago==NULL){
+	  isfail = true;
+	}
+	else{
+	  for(temp=ago;temp <in->get_data_pt(i);temp++){ //make sure it is not landed 
+	    if(temp->get_geometric_height()==0){
+	      isfail = true;
+	      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		std::cout << "Candidate failed before the flight landed before" << std::endl;
+	      }
+	      break;
+	    }
+	  }
+	}
+	
+	for(temp=in->get_data_pt(i+1);temp<=after&&!isfail;temp++){//make sure it is on ground
+	  if(temp->get_geometric_height()>adsb_height_error){
+	    isfail = true;
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      std::cout << "Candidate failed because the flight is going around" << std::endl;
+	    }
+	    break;
+	  }
+	}
+
+	if(!isfail){
+	  if(ago!=NULL && after!=NULL){
+	    speedago = flight_data_cal_ground_speed(ago,in->get_data_pt(i));
+	    speedafter = flight_data_cal_ground_speed(after,in->get_data_pt(i));
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      std::cout << "Speed check: " << speedago << " " << speedafter << endl;
+	    }
+	  
+	    if(speedago >= speedafter){ //check for deceleration
+	      result=in->get_data_pt(i);
+	      break;
+	    }
+	  }
+	  else{
+	    result = NULL;
+	  }
+	}
+      }
+    }
+    
+    libjeff::print_trace(0,"flight_data_get_landing_pt(const flight_data*)");
+    return result;
+  }
+
+  flight_data_pt* flight_data_get_takeoff_pt(const flight_data* in){
+    flight_data_pt *result = NULL;
+
+    if(in->get_num_data_pt()<2 || in->get_duration() < min_flight_time){
+      return result;
+    }
+
+    int i;
+    bool isfail;
+    flight_data_pt *ago,*after, *temp;
+    double speedago, speedafter;
+    for(i=1;i<in->get_num_data_pt()-1;i++){
+      if(in->get_data_pt(i)->get_geometric_height()>=0 && in->get_data_pt(i-1)->get_geometric_height()<0  && in->get_data_pt(i)->get_geometric_height()<=1500){
+	isfail = false;
+	ago = in->get_data_pt(in->get_data_pt(i)->get_time()-date_time(0,0,0,0,0,(int) min_flight_time),date_time(0,0,0,0,0,(int) min_flight_time));
+	after = in->get_data_pt(in->get_data_pt(i)->get_time()+date_time(0,0,0,0,0,(int) min_flight_time),date_time(0,0,0,0,0,(int) min_flight_time));
+
+	if(ago==NULL){
+	  isfail = true;
+	}
+	else{
+	  for(temp=ago;temp <in->get_data_pt(i);temp++){ //make sure it is on ground
+	    if(temp->get_geometric_height()>0){
+	      isfail = true;
+	      break;
+	    }
+	  }
+	}
+
+	for(temp=in->get_data_pt(i+1);temp<=after&&!isfail;temp++){//make sure it is not on ground
+	  if(temp->get_geometric_height()<=0){
+	    isfail = true;
+	    break;
+	  }
+	}
+
+	if(!isfail){
+	  if(ago!=NULL && after!=NULL){
+	    speedago = flight_data_cal_ground_speed(ago,in->get_data_pt(i));
+	    speedafter = flight_data_cal_ground_speed(after,in->get_data_pt(i));
+	    
+	    if(speedago <= speedafter){ //check for acceleration
+	      result=in->get_data_pt(i);
+	      break;
+	    }
+	  }
+	  else{
+	    result = NULL;
+	  }
+	}
+      }
+    }
+
+    return result;
+  }
+
+  double flight_data_cal_ground_speed(const flight_data_pt* pt1,const flight_data_pt* pt2){
+    return earth_latlon2dist(pt1->get_latlon(),pt2->get_latlon())/fabs(pt1->get_time().numberOfSecondFrom(pt2->get_time()));
+  }
+  double *flight_data_cal_ground_speed(const flight_data* in,double *out){
+    int i;
+    for(i=0;i<in->get_num_data_pt()-1;i++){
+      out[i] = flight_data_cal_ground_speed(in->get_data_pt(i),in->get_data_pt(i+1));
+    }
+
+    return out;
+  }
+  double flight_data_cal_direction(const flight_data_pt* from,const flight_data_pt* to){
+    return earth_latlon_cal_bearing(from->get_latlon(),to->get_latlon()); 
+  }
+
+  void flight_data_cal_head_and_cross_wind(double direction,double u,double v,double &head,double &cross){
+    double winds,windd;
+    winds = meteorology_uv_to_speed(u,v);
+    windd = meteorology_uv_to_dir(u,v);
+
+    windd -= direction;
+
+    head = -meteorology_sd_to_v(winds,windd);
+    cross = meteorology_sd_to_u(winds,windd);
+  }
+
+  char* flight_data_landing_runway(const flight_data* in,char *out_runway){
+    libjeff::print_trace(1,"flight_data_landing_runway(const flight_data*,char*)");
+    flight_data_pt* landingpt = flight_data_get_landing_pt(in);
+    double *temp = new double [2];
+    if(landingpt==NULL){
+      strcpy(out_runway,"nil");
+    }
+    else{
+      strcpy(out_runway,"unknown runway");
+      flight_data_pt* ref_pt = in->get_data_pt(landingpt->get_time() + flight_data_cal_direction_interval);
+      /*
+      if(ref_pt==NULL){
+	std::cout << "Error! Unable to find reference point." << in->get_t_address() << " " << in->get_remarks() << " " << landingpt->get_time() << " " << in->get_data_pt(in->get_num_data_pt()-1)->get_time() << endl;
+      }
+      */
+      double landdir = earth_latlon_cal_bearing(landingpt->get_latlon(),ref_pt->get_latlon());
+      //std::cout <<  in->get_t_address() << " " << in->get_remarks() << " " << landingpt->get_time() << " " << landdir << endl;
+      if(VHHH07L.is_along_runway(landingpt->get_lonlat(temp),landdir)){
+	strcpy(out_runway,"VHHH07L");
+      }
+      else if(VHHH07R.is_along_runway(landingpt->get_lonlat(temp),landdir)){
+	strcpy(out_runway,"VHHH07R");
+      }
+      else if(VHHH25L.is_along_runway(landingpt->get_lonlat(temp),landdir)){
+	strcpy(out_runway,"VHHH25L");
+      }
+      else if(VHHH25R.is_along_runway(landingpt->get_lonlat(temp),landdir)){
+	strcpy(out_runway,"VHHH25R");
+      }
+    }
+
+    delete [] temp;
+
+    libjeff::print_trace(0,"flight_data_landing_runway(const flight_data*,char*)");
+    return out_runway;
+  }
+  char* flight_data_takeoff_runway(const flight_data* in,char *out_runway){
+    libjeff::print_trace(1,"flight_data_takeoff_runway(const flight_data*,char*)");
+    flight_data_pt* takeoffpt = flight_data_get_takeoff_pt(in);
+    double *temp = new double [2];
+    if(takeoffpt==NULL){
+      strcpy(out_runway,"nil");
+    }
+    else{
+      strcpy(out_runway,"unknown runway");
+      double landdir = earth_latlon_cal_bearing(takeoffpt->get_latlon(),in->get_data_pt(takeoffpt->get_time() + flight_data_cal_direction_interval)->get_latlon());
+      //std::cout << landdir << std::endl;
+      if(VHHH07L.is_along_runway(takeoffpt->get_lonlat(temp),landdir)){
+	strcpy(out_runway,"VHHH07L");
+      }
+      else if(VHHH07R.is_along_runway(takeoffpt->get_lonlat(temp),landdir)){
+	strcpy(out_runway,"VHHH07R");
+      }
+      else if(VHHH25L.is_along_runway(takeoffpt->get_lonlat(temp),landdir)){
+	strcpy(out_runway,"VHHH25L");
+      }
+      else if(VHHH25R.is_along_runway(takeoffpt->get_lonlat(temp),landdir)){
+	strcpy(out_runway,"VHHH25R");
+      }
+    }
+
+    delete [] temp;
+    libjeff::print_trace(0,"flight_data_takeoff_runway(const flight_data*,char*)");
+    return out_runway;
+  }
+  bool flight_data_is_landing(const flight_data *in){
+    flight_data_pt* landingpt = flight_data_get_landing_pt(in);
+    if(landingpt==NULL){
+      return false;
+    }
+    else{
+      return true;
+    }
+  }
+  bool flight_data_is_takeoff(const flight_data *in){
+    flight_data_pt* takeoffpt = flight_data_get_takeoff_pt(in);
+    if(takeoffpt==NULL){
+      return false;
+    }
+    else{
+      return true;
+    }
+  }
+
+  namespace flight_route_recognition{
+    double cal_flight_route_score(flight_route* route,const flight_data* to_score,int num_weight,int *weight_pt,double *weight){
+      double score = 0;
+
+      int i,j;
+      double temp_score, temp_min_score;
+      double pt_weight;
+      double *lonlat = new double [2];
+      int last_waypt = 0;
+      for(i=0;i<route->get_num_way_points();i++){
+	temp_min_score = 999999.;
+
+	int store_waypt;
+	for(j=last_waypt;j<to_score->get_num_data_pt();j++){
+	  temp_score = earth_lonlat2dist(route->get_way_point(i)->get_lonlat(),to_score->get_data_pt(j)->get_lonlat(lonlat));
+	  
+	  if(j==last_waypt || temp_score < temp_min_score){
+	    temp_min_score = temp_score;
+	    store_waypt = j;
+	  }
+	}
+	last_waypt = store_waypt;
+	pt_weight = 1.;
+	for(j=0;j<num_weight;j++){
+	  if(weight[j] >= 0 && ((weight_pt[j]>=0 && weight_pt[j]==i) || (weight_pt[j]<0 && (route->get_num_way_points()+weight_pt[j])==i))){ //ignore ngetive weight
+	    pt_weight = weight[j];
+	  }
+	}
+	score+=temp_min_score*pt_weight;
+      }
+
+      delete [] lonlat;
+
+      return score;
+    }
+    double* cal_flight_route_list_score(const flight_route_list& list,const flight_data* to_recognize,int num_weight,int *weight_pt,double *weight,double *out){
+      if(list.get_num_route() > 0){
+	int i;
+	for(i=0;i<list.get_num_route();i++){
+	  out[i] = cal_flight_route_score(list.get_route(i),to_recognize,num_weight,weight_pt,weight);
+	}
+      }
+
+      return out;
+    }
+    flight_route* way_point_scoring(const flight_route_list& list,const flight_data* to_recognize,int num_weight,int *weight_pt,double *weight,double tolerance){
+      flight_route *result = NULL;
+
+      if(list.get_num_route() > 0){
+	double *scores = new double [list.get_num_route()];
+	scores = cal_flight_route_list_score(list,to_recognize,num_weight,weight_pt,weight,scores);
+	
+	double min_score;
+	min_score = scores[0];
+	result = list.get_route(0);
+	int i;
+	for(i=1;i<list.get_num_route();i++){
+	  if(scores[i] < min_score){
+	    min_score = scores[i];
+	    result = list.get_route(i);
+	  }
+	}
+
+	if(min_score > tolerance){
+	  result = NULL;
+	}
+      }
+
+      return result;
+    }
+    int way_point_scoring(const flight_route_list &list,flight_data* to_recognize,int num_fix_pt,char **fix_pt,flight_route_list& out){
+      if(list.get_num_route()<=0){
+	return _ERRORCODE_DATAYETTOBEINITIATED;
+      }
+      if(num_fix_pt>1){
+	return _ERRORCODE_NOTIMPLEMENTED;
+      }
+      
+      flight_route_list temp_out, *temp_list, work_list;;
+      temp_out.set_way_point_db(list.get_way_point_db());
+      flight_route* st_point, *temp_point;
+
+      int i;
+      //starting point
+      if(num_fix_pt > 0){
+	//fixed_route = new flight_route *[num_fix_pt];
+	temp_list = new flight_route_list [num_fix_pt];
+	for(i=0;i<num_fix_pt;i++){
+	  temp_list[i].extract_containing(list,fix_pt[i]);
+	}
+	  //fixed_route[i] = way_point_scoring(temp_list[i],to_recognize,0,NULL,NULL,10000.);
+	st_point =  way_point_scoring(temp_list[0],to_recognize,0,NULL,NULL,10000.);
+      }
+      else{
+	st_point =  way_point_scoring(list,to_recognize,0,NULL,NULL,10000.);
+      }
+
+      if(st_point != NULL){
+	temp_out.add_route(0,st_point);
+	
+	bool end = false;	
+	//forward iteration
+	while(!end){
+	  flight_route *end_route = temp_out.get_route(temp_out.get_num_route()-1);
+	  work_list.extract_containing(list,end_route->get_way_point(end_route->get_num_way_points()-1)->get_name());
+	  for(i=work_list.get_num_route()-1;i>=0;i--){
+	    if(strcmp(work_list.get_route(i)->get_way_point(0)->get_name(),end_route->get_way_point(-1)->get_name())!=0){
+	      work_list.delete_route(i);
+	    }
+	  }
+	  
+	  if(work_list.get_num_route()==0){
+	    end = true;
+	  }
+	  else{
+	    temp_point = way_point_scoring(work_list,to_recognize,0,NULL,NULL,10000.);
+	    if(temp_point!=NULL){
+	      temp_out.add_route(-1,temp_point);
+	    }
+	    else{
+	      end = true;
+	    }
+	  }
+	}
+	
+	end = false;
+	//backward iteration
+	while(!end){
+	  flight_route *st_route = temp_out.get_route(0);
+	  work_list.extract_containing(list,st_route->get_way_point(0)->get_name());
+	  for(i=work_list.get_num_route()-1;i>=0;i--){
+	    if(strcmp(work_list.get_route(i)->get_way_point(-1)->get_name(),st_route->get_way_point(0)->get_name())!=0){
+	      work_list.delete_route(i);
+	    }
+	  }
+	  
+	  if(work_list.get_num_route()==0){
+	    end = true;
+	  }
+	  else{
+	    temp_point = way_point_scoring(work_list,to_recognize,0,NULL,NULL,10000.);
+	    if(temp_point!=NULL){
+	      temp_out.add_route(0,temp_point);
+	    }
+	    else{
+	      end = true;
+	    }
+	  }	
+	}
+      }
+
+      if(num_fix_pt > 0){
+	delete [] temp_list;
+      }
+
+      return _ERRORCODE_NOERROR;
+    }
+  }
+}

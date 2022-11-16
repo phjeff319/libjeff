@@ -1,0 +1,32 @@
+#include<cuda.h>
+#ifndef O2MPM93
+#define O2MPM93
+#include"lbl_scatterer.h"
+class o2_mpm93 : public lbl_scatterer {
+ public:
+  o2_mpm93();
+  o2_mpm93(char *filename);
+  ~o2_mpm93();
+  virtual int host2device();
+  virtual int add_cross_section(double *frequency,int nfre,double *sigma);
+  /*
+  virtual void add_cross_section(double *pressure_d,double *pressure_e,double *temperature,double *density,int nstate,double *frequency,int nfre,double *sigma); //all arrays are assumed to be on GPU
+  virtual void add_cross_section(double *pressure_d,double *pressure_e,double *temperature,double *density,int nstate,int nconfig,double *frequency,int nfre,double *sigma); //all arrays are assumed to be on GPU
+   virtual void add_cross_section(double *height,double *pressure,double *temperature,double *dew_point,double *uwind,double *vwind,double *wwind,double *reflectivity1,double *reflectivity2,double *efield,double *bfield,int nstate,int nconifg,double *frequency,int nfre,double *sigma); //all arrays are assumed to be on GPU
+  */
+  int add_cross_section(double *pressure_d,double *pressure_e,double *temperature,int nstate,double *frequency,int nfre,double *sigma); //all arrays are assumed to be on GPU
+  void init();
+  void init(char *parm_file);
+
+  virtual int set_data_field_index(char *fieldname,int in);
+  virtual int get_data_field_index(char *fieldname) const;
+  
+ private:
+  int pressure_index, temperature_index, qvapor_index;
+  //default: 0 - pressure
+  //            1 - temperature
+  //            2 - qvapour
+
+  
+};
+#endif

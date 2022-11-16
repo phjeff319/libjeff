@@ -1,0 +1,738 @@
+#include<fstream>
+#include<cstdlib>
+#include<cstring>
+
+#include "upper_air_data.h"
+
+#include "date_time.h"
+#include "error_code.h"
+#include "file_check.h"
+#include "meteorology.h"
+#include "physics_constants.h"
+#include "tags.h"
+#include "tools.h"
+
+#include"regular_grid.h"
+
+#define FILENAMEBUFFSIZE 4096
+#define HKWINDPROFILER_HEADER_LINE 35
+
+namespace libjeff{
+  char *little_r_code_conversion(char *equipment,char *out_code){
+    if(strcmp(equipment,"radiosonde")==0){
+      strcpy(out_code,"FM-35 TEMP");
+    }
+    else if(strcmp(equipment,"wind profiler")==0){
+      strcpy(out_code,"FM-132 WIND PROFILER");
+    }
+    else{
+      return NULL;
+    }
+
+    return out_code;
+  }
+
+  upper_air_data::upper_air_data(){
+    profile = NULL;
+    equipment_type = new char [FILENAMEBUFFSIZE];
+  }
+  upper_air_data::~upper_air_data(){
+    delete [] equipment_type;
+  }
+  
+  int upper_air_data::read_profile_kp2s(char *nameformat,date_time obstime,int xindex,int yindex){ //using ###obs time### and ###dir time### in the nameformat
+    char *ctemp = new char [FILENAMEBUFFSIZE];
+    char *filename = new char [FILENAMEBUFFSIZE];
+    
+    strcpy(filename,nameformat);
+
+    tags obs_time("obs time");
+    tags dir_time("dir time");
+
+    obs_time.replace(filename,obstime.get_time("yyyymmddhh",ctemp));
+    dir_time.replace(filename,obstime.get_time("yymm",ctemp));
+
+    int error = this->read_profile_kp2s(filename,xindex,yindex);
+
+    delete [] filename;
+    delete [] ctemp;
+    return error;
+  }
+  int upper_air_data::read_profile_kp2s(char *filename,int xindex,int yindex){
+    if(profile==NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    int no_line = file_check_length(filename);
+    int offset;
+    int i,j;
+    char ctemp[512];
+
+    if(no_line>3){
+      ifstream fin;
+      fin.open(filename);
+      for(i=0;i<no_line;i++){
+	fin.getline(ctemp,200,'\n');
+	if(strncmp(ctemp,"   Time",7)==0){
+	  offset = i+3;
+	  break;
+	}
+      }
+      fin.close();
+    }		 
+
+    if(no_line>offset){
+      double *height,*temperature,*pressure,*dew_point,*wind_s,*wind_d;
+      height = new double [no_line-offset];
+      temperature = new double [no_line-offset];
+      pressure = new double [no_line-offset];
+      dew_point = new double [no_line-offset];
+      wind_s = new double [no_line-offset];
+      wind_d = new double [no_line-offset];
+
+      ifstream fin;
+      fin.open(filename);
+      double rtemp;
+      for(i=0;i<offset;i++){
+	fin.getline(ctemp,200,'\n');
+      }
+      for(i=0;i<no_line-offset;i++){
+	fin.get(ctemp,13);
+	fin >> height[i] >> pressure[i] >> temperature[i] >> rtemp >> dew_point[i];
+	fin.get(ctemp,6);
+	if(isdigit(ctemp[4])){
+	  wind_d[i]=atof(ctemp);
+	}
+	else{
+	  wind_d[i]=0;
+	}
+	fin.getline(ctemp,20,'\n');
+	if(isdigit(ctemp[3])){
+	  wind_s[i]=atof(ctemp);
+	}
+	else{
+	  wind_s[i]=0;
+	}
+	//fin >> rtemp >> rtemp >> rtemp >> temp_profile.level[i].height >> temp_profile.level[i].pressure >> temp_profile.level[i].temperature >> rtemp >> temp_profile.level[i].dew_point >> temp_profile.level[i].wind_d >> temp_profile.level[i].wind_s;
+      }
+      fin.close();
+
+      int no_data = 0;
+      //remove error data
+      for(i=0;i<no_line-offset;i++){
+	if(!check_data_error(pressure[i]) && pressure[i] >= 1 && !check_data_error(temperature[i]) && !check_data_error(dew_point[i])){
+	  pressure[no_data] = pressure[i];
+	  height[no_data] = height[i];
+	  temperature[no_data] = temperature[i] + meteorology_C_to_K;
+	  dew_point[no_data] = dew_point[i] + meteorology_C_to_K;
+	  wind_s[no_data] = wind_s[i];
+	  wind_d[no_data] = wind_d[i];
+	  //	  cout << height[no_data] << " " << pressure[no_data] << " " << temperature[no_data] << " " << dew_point[no_data] << endl;
+	  no_data++;
+	}
+      }
+
+      double *wind_u = new double [no_data];
+      double *wind_v = new double [no_data];
+      double *qvapor = new double [no_data];
+
+      for(i=0;i<no_data;i++){
+	wind_u[i] = meteorology_sd_to_u(wind_s[i],wind_d[i]);
+	wind_v[i] = meteorology_sd_to_v(wind_s[i],wind_d[i]);
+	qvapor[i] = meteorology_cal_mixing_ratio(pressure[i],temperature[i],dew_point[i]);
+	//cout << height[i] << " " << pressure[i] << " " << temperature[i] << " " << qvapor[i] << " " << wind_u[i] << " " << wind_v[i] << endl;
+      }
+
+      delete [] wind_s;
+      delete [] wind_d;
+      delete [] dew_point;
+
+      int max_index = profile->get_max_index();
+      if(profile->get_data_grid()->get_nz() <= 0){
+	if(max_index < 0){
+	  delete [] height;
+	  delete [] temperature;
+	  delete [] pressure;
+	  delete [] wind_u;
+	  delete [] wind_v;
+	  delete [] qvapor;
+
+	  return _ERRORCODE_DATAYETTOBEINITIATED;
+	}
+	//define the data_grid mode
+	profile->get_data_grid()->create(1,1,no_data,max_index+1);
+
+	profile->get_data_grid()->set_z(height);
+	profile->set_pressure(pressure);
+	profile->set_temperature(temperature);
+	profile->set_qvapor(qvapor);
+	profile->set_windu(wind_u);
+	profile->set_windv(wind_v);
+      }
+      else{
+	//cout << "Interpolation mode." << endl;
+	//interpolate to data_grid mode
+
+	regular_grid *temp_data = new regular_grid;
+	temp_data->create(no_data,1,1,max_index+1);
+	temp_data->set_x(height);
+	temp_data->set_data4dim(profile->get_p_index(),pressure);
+	temp_data->set_data4dim(profile->get_t_index(),temperature);
+	temp_data->set_data4dim(profile->get_q_index(),qvapor);
+	temp_data->set_data4dim(profile->get_u_index(),wind_u);
+	temp_data->set_data4dim(profile->get_v_index(),wind_v);
+
+	double *temp_value = new double [profile->get_data_grid()->get_ndim()];
+
+	for(i=0;i<profile->get_data_grid()->get_nz();i++){
+	  temp_value = temp_data->multiple_linear_interpolate(profile->get_data_grid()->get_z(0,0,i),0.,0.,temp_value);
+	  //cout << temp_value[p_index()] << endl;
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_p_index()] = temp_value[profile->get_p_index()];
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_t_index()] = temp_value[profile->get_t_index()];
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_q_index()] = temp_value[profile->get_q_index()];
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_u_index()] = temp_value[profile->get_u_index()];
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_v_index()] = temp_value[profile->get_v_index()];
+	}
+	delete temp_data;
+	delete [] temp_value;
+      }
+
+      delete [] height;
+      delete [] temperature;
+      delete [] pressure;
+      delete [] wind_u;
+      delete [] wind_v;
+      delete [] qvapor;
+
+    }
+    else{
+      return _ERRORCODE_FILEREADERROR;
+    }
+
+    strcpy(equipment_type,"radiosonde");
+
+    return _ERRORCODE_NOERROR;
+  }
+  int upper_air_data::read_radiometer(char *nameformat,date_time obstime,int xindex,int yindex){ //using ###obs time### and ###dir time### in the nameformat
+    char *ctemp = new char [FILENAMEBUFFSIZE];
+    char *filename = new char [FILENAMEBUFFSIZE];
+    
+    strcpy(filename,nameformat);
+
+    tags obs_time("obs time");
+    tags dir_time("dir time");
+
+    obs_time.replace(filename,obstime.get_time("yymmddhhmm",ctemp));
+    dir_time.replace(filename,obstime.get_time("yyyy/yyyymm/yyyymmdd",ctemp));
+
+    int error = this->read_radiometer(filename,xindex,yindex);
+
+    delete [] filename;
+    delete [] ctemp;
+    return error;
+  }
+  int upper_air_data::read_radiometer(char *filename,int xindex,int yindex){
+    if(profile==NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    int no_line = file_check_length(filename);
+
+    if(no_line>0){
+      double *height,*temperature,*pressure,*dew_point;
+      height = new double [no_line];
+      temperature = new double [no_line];
+      pressure = new double [no_line];
+      dew_point = new double [no_line];
+
+      ifstream fin;
+      fin.open(filename);
+      int i,j;
+      double rtemp;
+      for(i=0;i<no_line;i++){
+	fin >> height[i] >> pressure[i] >> temperature[i] >> dew_point[i] >> rtemp;
+	//fin >> rtemp >> rtemp >> rtemp >> temp_profile.level[i].height >> temp_profile.level[i].pressure >> temp_profile.level[i].temperature >> rtemp >> temp_profile.level[i].dew_point >> temp_profile.level[i].wind_d >> temp_profile.level[i].wind_s;
+      }
+      fin.close();
+
+      int no_data = 0;
+      //remove error data
+      for(i=0;i<no_line;i++){
+	if(!check_data_error(pressure[i]) && pressure[i] >= 1 && !check_data_error(temperature[i]) && !check_data_error(dew_point[i])){
+	  pressure[no_data] = pressure[i];
+	  height[no_data] = height[i];
+	  temperature[no_data] = temperature[i];
+	  dew_point[no_data] = dew_point[i];
+	  //	  cout << height[no_data] << " " << pressure[no_data] << " " << temperature[no_data] << " " << dew_point[no_data] << endl;
+	  no_data++;
+	}
+      }
+
+      double *wind_u = new double [no_data];
+      double *wind_v = new double [no_data];
+      double *qvapor = new double [no_data];
+
+      for(i=0;i<no_data;i++){
+	wind_u[i] = -9999.;
+	wind_v[i] = -9999.;
+	qvapor[i] = meteorology_cal_mixing_ratio(pressure[i],temperature[i],dew_point[i]);
+	//cout << height[i] << " " << pressure[i] << " " << temperature[i] << " " << qvapor[i] << " " << wind_u[i] << " " << wind_v[i] << endl;
+      }
+
+      delete [] dew_point;
+
+      int max_index = profile->get_max_index();
+      if(profile->get_data_grid()->get_nz() <= 0){
+	if(max_index < 0){
+	  delete [] height;
+	  delete [] temperature;
+	  delete [] pressure;
+	  delete [] wind_u;
+	  delete [] wind_v;
+	  delete [] qvapor;
+
+	  return _ERRORCODE_DATAYETTOBEINITIATED;
+	}
+	//define the data_grid mode
+	profile->get_data_grid()->create(1,1,no_data,max_index+1);
+
+	profile->get_data_grid()->set_z(height);
+	profile->set_pressure(pressure);
+	profile->set_temperature(temperature);
+	profile->set_qvapor(qvapor);
+	profile->set_windu(wind_u);
+	profile->set_windv(wind_v);
+      }
+      else{
+	//cout << "Interpolation mode." << endl;
+	//interpolate to data_grid mode
+
+	regular_grid *temp_data = new regular_grid;
+	temp_data->create(no_data,1,1,max_index+1);
+	temp_data->set_x(height);
+	temp_data->set_data4dim(profile->get_p_index(),pressure);
+	temp_data->set_data4dim(profile->get_t_index(),temperature);
+	temp_data->set_data4dim(profile->get_q_index(),qvapor);
+	temp_data->set_data4dim(profile->get_u_index(),wind_u);
+	temp_data->set_data4dim(profile->get_v_index(),wind_v);
+
+	double *temp_value = new double [profile->get_data_grid()->get_ndim()];
+
+	for(i=0;i<profile->get_data_grid()->get_nz();i++){
+	  temp_value = temp_data->multiple_linear_interpolate(profile->get_data_grid()->get_z(0,0,i),0.,0.,temp_value);
+	  //cout << temp_value[p_index()] << endl;
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_p_index()] = temp_value[profile->get_p_index()];
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_t_index()] = temp_value[profile->get_t_index()];
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_q_index()] = temp_value[profile->get_q_index()];
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_u_index()] = temp_value[profile->get_u_index()];
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_v_index()] = temp_value[profile->get_v_index()];
+	}
+	delete temp_data;
+	delete [] temp_value;
+      }
+
+      delete [] height;
+      delete [] temperature;
+      delete [] pressure;
+      delete [] wind_u;
+      delete [] wind_v;
+      delete [] qvapor;
+
+    }
+    else{
+      return _ERRORCODE_FILEREADERROR;
+    }
+
+    strcpy(equipment_type,"radiometer");
+
+    return _ERRORCODE_NOERROR;
+  }
+  int upper_air_data::read_hkwind_profiler_data(char *filename,date_time obs_time,date_time tolerance,int xindex,int yindex,int strict_qc){
+    if(profile==NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    int numline=file_check_length(filename)-1;
+    char *ctemp = new char [FILENAMEBUFFSIZE];
+    char *ctemp2 = new char [FILENAMEBUFFSIZE];
+    char *ctemp3 = new char [FILENAMEBUFFSIZE];
+    date_time temptime;
+    if(numline>HKWINDPROFILER_HEADER_LINE){
+      std::ifstream fin;
+      fin.open(filename);
+      int i,j;
+      //throw away the first 35 line as it is a header only
+      for(i=0;i<HKWINDPROFILER_HEADER_LINE;i++){
+	fin.getline(ctemp,500,'\n');
+      }
+      int num_record;
+      bool record_found=0;
+      for(i=HKWINDPROFILER_HEADER_LINE;i<numline;i++){
+	for(j=0;j<2;j++){
+	  fin.clear();
+	  fin.getline(ctemp2,7,'\n');
+	  
+	  switch(j){
+	  case 0:
+	    strncpy(ctemp,ctemp2,2);
+	    ctemp[2] = '\0';
+	    strncpy(ctemp3,ctemp2+2,2);
+	    ctemp3[2] = '\0';
+	    temptime.set_time(obs_time.get_year(),obs_time.get_month(),obs_time.get_day(),atoi(ctemp),atoi(ctemp3));
+	    break;
+	  case 1:
+	    num_record = atoi(ctemp2);
+	    break;
+	  }
+	}
+	fin.clear();
+	fin.getline(ctemp2,500,'\n');
+	
+	if(num_record<0){
+	  delete [] ctemp;
+	  delete [] ctemp2;
+	  delete [] ctemp3;
+
+	  return _ERRORCODE_FILEREADERROR;
+	}
+	
+	if(temptime >= (obs_time-tolerance) && temptime <= (obs_time+tolerance)){
+	  record_found = 1;
+	  break;
+	}
+	else{
+	  //skip the records completely
+	  for(j=0;j<num_record;j++){
+	    fin.getline(ctemp2,500,'\n');
+	  }
+	  i+=num_record;
+	}
+      }
+
+      //record found
+      if(record_found){
+	double *winds, *windd, *height;
+	winds = new double [num_record];
+	windd = new double [num_record];
+	height = new double [num_record];
+	
+	this->obs_time = temptime;
+
+	for(i=0;i<num_record;i++){
+	  winds[i]=32767.0;
+	  windd[i]=32767.0;
+	  height[i]=32767.0;
+	}
+
+	int num_valid_record = 0;
+	for(i=0;i<num_record;i++){
+	  fin.getline(ctemp2,5,'\n');
+	  //determine if we are going to read the data or just throw it away
+	  //checking the qc flag
+	  if(!strict_qc || atoi(ctemp2)<strict_qc){
+	    fin.clear();
+	    fin.getline(ctemp2,9,'\n');
+	    height[i]=atof(ctemp2);
+	    fin.clear();
+	    fin.getline(ctemp2,9,'\n');
+	    winds[i]=atof(ctemp2);
+	    fin.clear();
+	    fin.getline(ctemp2,9,'\n');
+	    windd[i]=atof(ctemp2);
+	    num_valid_record++;
+	  }
+	  fin.clear();
+	  fin.getline(ctemp2,500,'\n');
+	}
+
+	//remove the invalid records  and transform speed+dir to u+v
+	if(num_valid_record > 0){
+	  double *windu = new double [num_valid_record];
+	  double *windv = new double [num_valid_record];
+	  double *valid_height = new double [num_valid_record];
+
+	  j=0;
+	  for(i=0;i<num_record;i++){
+	    if(winds[i] != 32767.0){
+	      valid_height[j] = height[i];
+	      windu[j] = meteorology_sd_to_u(winds[i],windd[i]);
+	      windv[j] = meteorology_sd_to_v(winds[i],windd[i]);
+	      j++;
+	    }
+	  }
+	  
+	  //write the read data into the data structure
+	  int max_index = profile->get_max_index();
+	  if(profile->get_data_grid()->get_nz() <= 0){
+	    if(max_index < 0){
+	      delete [] height;
+	      delete [] winds;
+	      delete [] windd;
+
+	      delete [] windu;
+	      delete [] windv;
+	      delete [] valid_height;
+	      
+	      delete [] ctemp3;
+	      delete [] ctemp2;
+	      delete [] ctemp;
+	      
+	      return _ERRORCODE_DATAYETTOBEINITIATED;
+	    }
+	    //define the data_grid mode
+	    profile->get_data_grid()->create(1,1,num_valid_record,max_index+1);
+	    
+	    profile->get_data_grid()->set_z(valid_height);
+	    profile->set_windu(windu);
+	    profile->set_windv(windv);
+	  }
+	  else{
+	    //cout << "Interpolation mode." << endl;
+	    //interpolate to data_grid mode
+	    
+	    regular_grid *temp_data = new regular_grid;
+	    temp_data->create(num_valid_record,1,1,max_index+1);
+	    temp_data->set_x(valid_height);
+	    temp_data->set_data4dim(profile->get_u_index(),windu);
+	    temp_data->set_data4dim(profile->get_v_index(),windv);
+	    
+	    double *temp_value = new double [profile->get_data_grid()->get_ndim()];
+
+	    for(i=0;i<profile->get_data_grid()->get_nz();i++){
+	      temp_value = temp_data->multiple_linear_interpolate(profile->get_data_grid()->get_z(0,0,i),0.,0.,temp_value);
+	      //cout << temp_value[p_index()] << endl;
+	      (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_u_index()] = temp_value[profile->get_u_index()];
+	      (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_v_index()] = temp_value[profile->get_v_index()];
+	    }
+	    delete temp_data;
+	    delete [] temp_value;
+	  }
+
+	  delete [] windu;
+	  delete [] windv;
+	  delete [] valid_height;
+	}
+
+	delete [] winds;
+	delete [] windd;
+	delete [] height;
+      }
+      fin.close();
+    }
+
+    strcpy(equipment_type,"wind profiler");
+
+    delete [] ctemp3;
+    delete [] ctemp2;
+    delete [] ctemp;
+
+    return _ERRORCODE_NOERROR;
+  }
+  int upper_air_data::read_profile_nhm_ascii(char *filename,int xindex,int yindex){
+    if(profile==NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    int no_line = file_check_length(filename);
+    if(no_line!=0){
+      double *height,*temperature,*pressure,*dew_point,*wind_s,*wind_d;
+      height = new double [no_line];
+      temperature = new double [no_line];
+      pressure = new double [no_line];
+      dew_point = new double [no_line];
+      wind_s = new double [no_line];
+      wind_d = new double [no_line];
+
+      ifstream fin;
+      fin.open(filename);
+      int i;
+      char* ctemp = new char [512];
+      for(i=0;i<no_line;i++){
+	fin >> pressure[i];
+	fin.get(ctemp,13);
+	temperature[i] = atof(ctemp);
+	fin.get(ctemp,13);
+	dew_point[i] = atof(ctemp);
+	fin.get(ctemp,13);
+	wind_d[i] = atof(ctemp);
+	fin.get(ctemp,13);
+	wind_s[i] = atof(ctemp);
+	fin >> height[i];
+	//      temp_profile.level[i].height = atof(ctemp) ;
+      }
+      fin.close();
+      delete [] ctemp;
+
+      int no_data = 0;
+      //remove error data
+      for(i=0;i<no_line;i++){
+	if(!check_data_error(pressure[i]) && !check_data_error(temperature[i]) && !check_data_error(dew_point[i])){
+	  if(pressure[i]>=1){
+	    pressure[no_data] = pressure[i];
+	    height[no_data] = height[i];
+	    temperature[no_data] = temperature[i];
+	    dew_point[no_data] = dew_point[i];
+	    wind_s[no_data] = wind_s[i];
+	    wind_d[no_data] = wind_d[i];
+	    no_data++;
+	  }
+	}
+      }
+
+      double *wind_u = new double [no_data];
+      double *wind_v = new double [no_data];
+      double *qvapor = new double [no_data];
+
+      for(i=0;i<no_data;i++){
+	wind_u[i] = meteorology_sd_to_u(wind_s[i],wind_d[i]);
+	wind_v[i] = meteorology_sd_to_v(wind_s[i],wind_d[i]);
+	qvapor[i] = meteorology_cal_mixing_ratio(pressure[i],temperature[i],dew_point[i]);
+	//cout << height[i] << " " << pressure[i] << " " << temperature[i] << " " << qvapor[i] << " " << wind_u[i] << " " << wind_v[i] << endl;
+      }
+
+      delete [] wind_s;
+      delete [] wind_d;
+      delete [] dew_point;
+
+      int max_index = profile->get_max_index();
+      if(profile->get_data_grid()->get_nz() <= 0){
+	if(max_index < 0){
+	  delete [] height;
+	  delete [] temperature;
+	  delete [] pressure;
+	  delete [] wind_u;
+	  delete [] wind_v;
+	  delete [] qvapor;
+
+	  return _ERRORCODE_DATAYETTOBEINITIATED;
+	}
+	//define the data_grid mode
+	profile->get_data_grid()->create(1,1,no_data,max_index+1);
+
+	profile->get_data_grid()->set_z(height);
+	profile->set_pressure(pressure);
+	profile->set_temperature(temperature);
+	profile->set_qvapor(qvapor);
+	profile->set_windu(wind_u);
+	profile->set_windv(wind_v);
+      }
+      else{
+	//interpolate to data_grid mode
+	regular_grid *temp_data = new regular_grid;
+	temp_data->create(no_data,1,1,max_index+1);
+	temp_data->set_x(height);
+	temp_data->set_data4dim(profile->get_p_index(),pressure);
+	temp_data->set_data4dim(profile->get_t_index(),temperature);
+	temp_data->set_data4dim(profile->get_q_index(),qvapor);
+	temp_data->set_data4dim(profile->get_u_index(),wind_u);
+	temp_data->set_data4dim(profile->get_v_index(),wind_v);
+
+	double *temp_value = new double [profile->get_data_grid()->get_ndim()];
+
+	for(i=0;i<profile->get_data_grid()->get_nz();i++){
+	  temp_value = temp_data->multiple_linear_interpolate(profile->get_data_grid()->get_z(0,0,i),0.,0.,temp_value);
+	  //cout << temp_value[p_index()] << endl;
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_p_index()] = temp_value[profile->get_p_index()];
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_t_index()] = temp_value[profile->get_t_index()];
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_q_index()] = temp_value[profile->get_q_index()];
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_u_index()] = temp_value[profile->get_u_index()];
+	  (profile->get_data_grid()->get_data(xindex,yindex,i))[profile->get_v_index()] = temp_value[profile->get_v_index()];
+	}
+	delete temp_data;
+	delete [] temp_value;
+      }
+	
+      delete [] height;
+      delete [] temperature;
+      delete [] pressure;
+      delete [] wind_u;
+      delete [] wind_v;
+      delete [] qvapor;
+
+    }
+    else{
+      return _ERRORCODE_FILEREADERROR;
+    }
+
+    strcpy(equipment_type,"model forecast");
+    
+    return _ERRORCODE_NOERROR;
+  }
+
+  int upper_air_data::write_to_little_R(ofstream& fout, int record_no) const{
+    char *ctemp = new char [FILENAMEBUFFSIZE];
+    char *buff = new char [FILENAMEBUFFSIZE];
+    char *timebuff = new char [FILENAMEBUFFSIZE];
+    if(little_r_code_conversion(equipment_type,ctemp)!=NULL){
+      sprintf(buff,"%20.5f%20.5f%-40s%40s%-40s%-40s%20.5f%10i%10i%10i%10i%10i         F         F         F   -888888   -888888%20s%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i%13.5f%7i\n",
+	      this->get_station_info()->get_lat(),this->get_station_info()->get_lon(),this->get_station_info()->get_id(),this->get_station_info()->get_id(),little_r_code_conversion(equipment_type,ctemp),"GTS",this->get_station_info()->get_altitude(),1,-888888,-888888,record_no,-888888,(this->get_obs_time()).get_time("yyyymmddhhmmss",timebuff),-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0,-888888.,0
+	      );
+      fout << buff;
+    }
+    else{
+      delete [] ctemp;
+      delete [] buff;
+      delete [] timebuff;
+      return _ERRORCODE_DATAERROR_UNKNOWN;
+    }
+
+    int i;
+    for(i=0;i<this->get_profile()->get_nz();i++){
+      if(this->get_profile()->get_p_index()>=0){
+	sprintf(buff,"%13.5f%7i",*(this->get_profile()->get_pressure()->get_data(0,0,i))*100.,0);
+      }
+      else{
+	sprintf(buff,"%13.5f%7i",-888888.,0);
+      }
+      fout << buff;
+      sprintf(buff,"%13.5f%7i",(this->get_profile()->get_data_grid()->get_z(0,0,i)),0);
+      fout << buff;
+      if(this->get_profile()->get_t_index()>=0){
+	sprintf(buff,"%13.5f%7i",*(this->get_profile()->get_temperature()->get_data(0,0,i)),0);
+      }
+      else{
+	sprintf(buff,"%13.5f%7i",-888888.,0);
+      }
+      fout << buff;
+      sprintf(buff,"%13.5f%7i",-888888.,0);
+      fout << buff;
+      sprintf(buff,"%13.5f%7i",-888888.,0);
+      fout << buff;
+      sprintf(buff,"%13.5f%7i",-888888.,0);
+      fout << buff;
+      if(this->get_profile()->get_u_index()>=0){
+	sprintf(buff,"%13.5f%7i",*(this->get_profile()->get_windu()->get_data(0,0,i)),0);
+      }
+      else{
+	sprintf(buff,"%13.5f%7i",-888888.,0);
+      }
+      fout << buff;
+      if(this->get_profile()->get_u_index()>=0){
+	sprintf(buff,"%13.5f%7i",*(this->get_profile()->get_windv()->get_data(0,0,i)),0);
+      }
+      else{
+	sprintf(buff,"%13.5f%7i",-888888.,0);
+      }
+      fout << buff;
+      if(this->get_profile()->get_q_index()>=0 && this->get_profile()->get_p_index()>=0 && this->get_profile()->get_t_index()>=0){
+	sprintf(buff,"%13.5f%7i",*(this->get_profile()->get_qvapor()->get_data(0,0,i))/meteorology_cal_mixing_ratio(*(this->get_profile()->get_pressure()->get_data(0,0,i)),*(this->get_profile()->get_temperature()->get_data(0,0,i)),*(this->get_profile()->get_temperature()->get_data(0,0,i)))*100.,0);
+      }
+      else{
+	sprintf(buff,"%13.5f%7i",-888888.,0);
+      }
+      fout << buff;
+      sprintf(buff,"%13.5f%7i",-888888.,0);
+      fout << buff;
+    }
+    
+    sprintf(buff,"-777777.00000      0-777777.00000      0-888888.00000      0-888888.00000      0-888888.00000      0-888888.00000      0-888888.00000      0-888888.00000      0-888888.00000      0-888888.00000      0\n%7i      0      0\n",
+	    this->get_profile()->get_nz()
+	    );
+    fout << buff;
+
+    delete [] ctemp;
+    delete [] buff;
+    delete [] timebuff;
+    return _ERRORCODE_NOERROR;
+  }
+}

@@ -1,0 +1,42 @@
+#ifndef RANDOM
+#define RANDOM
+###CUDA####include<curand_kernel.h>
+
+namespace libjeff{
+  class random_number{
+  public:
+    random_number();
+    random_number(int seed);
+    virtual int set_param(double a,double b) = 0;
+    virtual double rand() const = 0;
+  };
+
+  class random_uniform : public random_number{
+    public:
+    random_uniform();
+    random_uniform(int seed);
+    random_uniform(double min,double max);
+    random_uniform(int seed,double min,double max);
+    virtual int set_param(double min,double max);
+    virtual double rand() const;
+
+  private:
+    double min, max;
+  };
+
+  class random_gaussian : public random_number{
+  public:
+    random_gaussian();
+    random_gaussian(int seed);
+    virtual int set_param(double mu,double sigma);
+    virtual double rand() const;
+
+  private:
+    double mu, sigma;
+  };
+
+  //double gaussian_random(double mu,double sigma);
+  ###CUDA### ###GLOBAL### void curand_init_kernel(int n,unsigned long long seed,curandState_t *state);
+  ###CUDA### ###GLOBAL### void curand_uniform_double_kernel(int n,curandState_t *state,double *randout);
+}
+#endif

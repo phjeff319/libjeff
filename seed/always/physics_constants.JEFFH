@@ -1,0 +1,78 @@
+#ifndef physics_constants
+#define physics_constants
+#define phys_k0 1.3806503e-23
+#define phys_h 6.626068957e-34
+#define phys_c 299792458e0
+#define phys_hbar 1.054571726e-34
+#define phys_R 8.314462175
+#define phys_avogadro 6.0221417930e23
+#endif
+
+#ifndef constants
+#define constants
+#define c_zero 1.e-10
+#define pi (acos(-1.))
+#define ang_to_rad (pi/180.e0)
+#define kt_to_ms 0.514444444444444444444
+#define meter_to_ft 3.28084
+#define nautical_mile_to_meter 1852
+#endif
+
+#ifndef meteorology_constants
+#define meteorology_constants
+#define meteorology_R 287.0
+#define meteorology_g0 9.80665
+#define meteorology_Rv 461.e0
+#define meteorology_Lv 2510.e3
+#define meteorology_Lvice 2834.1e3
+#define meteorology_C_to_K 273.15e0
+#define meteorology_CC_T0 273.e0
+#define meteorology_CC_es0 6.11e0
+#define meteorology_teten_T0 273.15e0
+#define meteorology_teten_es0 6.11e0
+#define meteorology_tice 250.16;
+#define meteorology_epsilon (meteorology_R/meteorology_Rv)
+#define meteorology_zero 1.e7
+#define meteorology_mslp0 1013.25e0
+#define meteorology_air_mm 28.97e-3
+#define meteorology_H2O_mm 18.0152833e-3
+#define meteorology_Cpd 1003.5
+#define meteorology_Lv0 2500000.
+#endif
+
+#ifndef derived_constants
+#define derived_constants
+#define derived_density_air_mass_to_mole (phys_avogadro/meteorology_air_mm)
+#define derived_density_H2O_mass_to_mole (phys_avogadro/meteorology_H2O_mm)
+#endif
+
+#ifndef marshall_palmer_constants
+#define marshall_palmer_constants
+#define marshall_palmer_n 8000000.
+#endif
+
+#ifndef EARTH_PARAMETER
+#define EARTH_PARAMETER
+#define Earth_radius 6371000.
+#define Earth_WGS88_equator_radius 6378137.
+#define Earth_WGS88_polar_radius 6356752.3
+#define Earth_mass 5.9736e24
+#define Earth_coriolis_const 1.45842e-4
+#endif
+
+#ifndef UNITCONVERSION
+#define UNITCONVERSION
+#define FT2METER 0.3048
+#endif
+
+#ifndef HK80PARAMETER
+#define HK80PARAMETER
+#define HK80N0 819069.8
+#define HK80E0 836694.05
+#define HK80E2 6.722670022e-3
+#define HK80M0 2468395.728
+#define HK80PHI0 (22.+18./60+43.68/3600.)
+#define HK80LAMDA0 (114.+10./60+42.8/3600)
+#define HK80m0 1
+#define HK80a 6378388
+#endif

@@ -1,0 +1,649 @@
+###CUDA####include<cuda.h>
+#include<iostream>
+#include<cstring>
+#include<cmath>
+using namespace std;
+
+###CUDA####include "cuda_setting.h"
+#include "grid_data.h"
+#include "lambertConN_grid.h"
+#include "map_projection.h"
+#include "math_special_function.h"
+#include "physics_constants.h"
+#include "regular_grid.h"
+#include "tags.h"
+#include "tools.h"
+using namespace libjeff;
+
+###CPP### ###CUDA### ###HOST### lambertConN_grid::lambertConN_grid():regular_grid(){
+  truelat = new double [2];
+  ref_latlon = new double [2];
+}
+###CPP### ###CUDA### ###HOST### lambertConN_grid::lambertConN_grid(int nx,int ny,int nz,int ndim):regular_grid(){
+  truelat = new double [2];
+  ref_latlon = new double [2];
+  this->create(nx,ny,nz,ndim);
+}
+###CPP### ###CUDA### ###HOST### lambertConN_grid::lambertConN_grid(double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,int latloc,int lonloc,int nx,int ny,int nz,int ndim):regular_grid(){
+  truelat = new double [2];
+  ref_latlon = new double [2];
+  this->create(truelat1,truelat2,ref_lat,ref_lon,lat_res,lon_res,latloc,lonloc,nx,ny,nz,ndim);
+}
+###CPP### ###CUDA### ###HOST### lambertConN_grid::~lambertConN_grid(){
+  grid_data::destroy();
+  delete [] truelat;
+  delete [] ref_latlon;
+}
+
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::create(double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,int latloc,int lonloc,int nx,int ny,int nz,int ndim){
+  this->create(nx,ny,nz,ndim);
+  this->set_truelat(truelat1,truelat2);
+  this->set_ref_latlon(ref_lat,ref_lon);
+  this->set_res(lat_res,lon_res);
+  this->set_latlonloc(latloc,lonloc);
+  
+  this->gen_grid();
+}
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::create(int nx,int ny,int nz,int ndim){
+  grid_data::create(nx,ny,nz,ndim);
+  
+  if(nx > 0 && ny > 0 && nz > 0 && ndim > 0){
+    x = new double [nx*ny];
+    y = new double [nx*ny];
+    z = new double [nz];
+  }
+}
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::create(int nx,int ny,int nz,int ndim,int *idummy,double* ddummy){
+  if(idummy != NULL && ddummy != NULL){
+    this->create(ddummy[0],ddummy[1],ddummy[2],ddummy[3],ddummy[4],ddummy[5],idummy[0],idummy[1],nx,ny,nz,ndim);
+  }
+  else{
+    this->create(nx,ny,nz,ndim);
+  }
+}
+###CUDA### ###HOST### void lambertConN_grid::create_gpu(int nx,int ny,int nz,int ndim){
+  grid_data::create_gpu(nx,ny,nz,ndim);
+  
+  if(nx > 0 && ny > 0 && nz > 0 && ndim > 0){
+    cudaMalloc(&d_x,d_nx*d_ny*sizeof(double));
+    cudaMalloc(&d_y,d_nx*d_ny*sizeof(double));
+    cudaMalloc(&d_z,d_nz*sizeof(double));
+  }
+}
+###CUDA### ###HOST### void lambertConN_grid::host2device(){
+  cudaMemcpy(d_x,x,nx*ny*sizeof(double),cudaMemcpyHostToDevice);
+  cudaMemcpy(d_y,y,nx*ny*sizeof(double),cudaMemcpyHostToDevice);
+  cudaMemcpy(d_z,z,nz*sizeof(double),cudaMemcpyHostToDevice);
+  cudaMemcpy(d_grid1D,grid1D,nx*ny*nz*ndim*sizeof(double),cudaMemcpyHostToDevice);
+}
+###CUDA### ###HOST### void lambertConN_grid::host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim){
+  //double *temp_grid1D = new double [(to_x-from_x+1)*(to_y-from_y+1)*(to_z-from_z+1)*(to_dim-from_dim+1)];
+  double *temp_grid1D;
+  cudaMallocHost(&temp_grid1D,(to_x-from_x+1)*(to_y-from_y+1)*(2+(to_z-from_z+1)*(to_dim-from_dim+1))*sizeof(double));
+  
+  this->host2device(from_x,to_x,from_y,to_y,from_z,to_z,from_dim,to_dim,temp_grid1D);
+  //delete [] temp_grid1D;
+  cudaFreeHost(temp_grid1D);
+}
+###CUDA### ###HOST### void lambertConN_grid::host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work,int nstream){
+  int i,j,k,m,n;
+  int temp_nx, temp_ny,temp_nz, temp_ndim;
+  temp_nx = (to_x-from_x+1);
+  temp_ny = (to_y-from_y+1);
+  temp_nz = (to_z-from_z+1);
+  temp_ndim = (to_dim-from_dim+1);
+  
+  cudaStream_t *stream;
+  if(nstream > 3){
+    stream = new cudaStream_t [nstream];
+    for(i=0;i<nstream;i++){
+      cudaStreamCreate(&stream[i]);
+    }
+  }
+  
+  if(temp_nx <= d_nx && temp_ny <= d_ny){
+    for(i=0;i<temp_nx;i++){
+      for(j=0;j<temp_ny;j++){
+	work[i*temp_ny + j] = x[(i+from_x)*(ny) + (j+from_y)];
+      }
+    }
+    
+    if(nstream > 3){
+      cudaMemcpyAsync(d_x,work,temp_nx*temp_ny*sizeof(double),cudaMemcpyHostToDevice,stream[0]);
+    }
+    else{
+      cudaMemcpy(d_x,work,temp_nx*temp_ny*sizeof(double),cudaMemcpyHostToDevice);
+    }
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy1@host2device" << endl;
+    
+    for(i=0;i<temp_nx;i++){
+      for(j=0;j<temp_ny;j++){
+	work[temp_nx*temp_ny+i*temp_ny + j] = y[(i+from_x)*(ny) + (j+from_y)];
+      }
+    }
+    if(nstream > 3){
+      cudaMemcpyAsync(d_y,work+temp_nx*temp_ny,temp_nx*temp_ny*sizeof(double),cudaMemcpyHostToDevice,stream[1]);
+    }
+    else{
+      cudaMemcpy(d_y,work+temp_nx*temp_ny,temp_nx*temp_ny*sizeof(double),cudaMemcpyHostToDevice);
+    }
+    if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy2@host2device" << endl;
+  }
+  else{
+    cout << "Error! There is not enough memory allocated on GPU." << endl;
+  }
+  
+  cudaMemcpy(d_z,&z[from_z],temp_nz*sizeof(double),cudaMemcpyHostToDevice);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy3@host2device" << endl;
+  
+  if(nstream > 3){
+    for(n=0;n<nstream-2;n++){
+      for(i=(n*temp_nx)/(nstream-2);i<((n+1)*temp_nx)/(nstream-2);i++){
+	for(j=0;j<temp_ny;j++){
+	  for(k=0;k<temp_nz;k++){
+	    for(m=0;m<temp_ndim;m++){
+	      work[(((i*temp_ny + j)*temp_nz + k)*temp_ndim+m)+2*temp_nx*temp_ny] = grid1D[((((i+from_x)*ny + (j+from_y))*nz + (k+from_z))*ndim + (m+from_dim))];
+	    }
+	  }
+	}
+      }
+      cudaMemcpyAsync(d_grid1D+(n*temp_nx)/(nstream-2)*temp_ny*temp_nz*temp_ndim,work+(n*temp_nx)/(nstream-2)*temp_ny*temp_nz*temp_ndim,(((n+1)*temp_nx)/(nstream-2) - (n*temp_nx)/(nstream-2))*temp_ny*temp_nz*temp_ndim*sizeof(double),cudaMemcpyHostToDevice,stream[n+2]);
+    }
+    
+    for(i=0;i<nstream;i++){
+      cudaStreamSynchronize(stream[i]);
+      cudaStreamDestroy(stream[i]);
+    }
+    delete [] stream;
+  }
+  else{
+    for(i=0;i<temp_nx;i++){
+      for(j=0;j<temp_ny;j++){
+	for(k=0;k<temp_nz;k++){
+	  for(m=0;m<temp_ndim;m++){
+	    work[(((i*temp_ny + j)*temp_nz + k)*temp_ndim+m)] = grid1D[((((i+from_x)*(ny) + (j+from_y))*nz + (k+from_z))*ndim + (m+from_dim))];
+	  }
+	}
+      }
+    }
+    cudaMemcpy(d_grid1D,work,temp_nx*temp_ny*temp_nz*temp_ndim*sizeof(double),cudaMemcpyHostToDevice);
+  }
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@cudaMemcpy4@host2device" << endl;
+}
+###CUDA### ###HOST### void lambertConN_grid::device2host(){
+  regular_grid::device2host();
+}
+###CUDA### ###HOST### void lambertConN_grid::device2host(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim){
+  regular_grid::device2host(from_x,to_x,from_y,to_y,from_z,to_z,from_dim,to_dim);
+}
+
+###CPP### ###CUDA### ###HOST### double* lambertConN_grid::get_z_address(int ix,int iy,int iz) const{
+  return z+iz;
+}
+###CPP### ###CUDA### ###HOST### double* lambertConN_grid::get_y_address(int ix,int iy,int iz) const{
+  return y+ix*ny+iy;
+}
+###CPP### ###CUDA### ###HOST### double* lambertConN_grid::get_x_address(int ix,int iy,int iz) const{
+  return x+ix*ny+iy;
+}
+###CPP### ###CUDA### ###HOST### double *lambertConN_grid::get_coordinate(int index,double *work) const{
+  work[0] = this->get_x(index/(ny*nz),(index/nz)%ny,index%nz);
+  work[1] = this->get_y(index/(ny*nz),(index/nz)%ny,index%nz);
+  work[2] = this->get_z(index/(ny*nz),(index/nz)%ny,index%nz);
+  return work;
+}
+###CPP### ###CUDA### ###HOST### double *lambertConN_grid::get_coordinate(int ix,int iy,int iz,double *work) const{
+  work[0] = this->get_x(ix,iy,iz);
+  work[1] = this->get_y(ix,iy,iz);
+  work[2] = this->get_z(ix,iy,iz);
+  return work;
+}
+
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::set_x(double *indata){
+  int i;
+  for(i=0;i<nx*ny;i++){
+    this->x[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::set_x(float *indata){
+  int i;
+  for(i=0;i<nx*ny;i++){
+    this->x[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::set_x(int ix,int iy,int iz,double x){
+  this->x[ix*ny+iy] = x;
+}
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::set_x(int ix,int iy,int iz,float x){
+  this->x[ix*ny+iy] = x;
+}
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::set_y(double *indata){
+  int i;
+  for(i=0;i<nx*ny;i++){
+    this->y[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::set_y(float *indata){
+  int i;
+  for(i=0;i<nx*ny;i++){
+    this->y[i] = indata[i];
+  }
+}
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::set_y(int ix,int iy,int iz,double y){
+  this->y[ix*ny+iy] = y;
+}
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::set_y(int ix,int iy,int iz,float y){
+  this->y[ix*ny+iy] = y;
+}
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::set_truelat(double truelat1,double truelat2){
+  this->truelat[0]=truelat1;
+  this->truelat[1]=truelat2;
+}
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::set_ref_latlon(double ref_lat,double ref_lon){
+  this->ref_latlon[0]=ref_lat;
+  this->ref_latlon[1]=ref_lon;
+}
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::set_res(double lat_res,double lon_res){
+  this->lat_res=lat_res;
+  this->lon_res=lon_res;
+}
+###CPP### ###CUDA### ###HOST### void lambertConN_grid::set_latlonloc(int latloc,int lonloc){
+  this->latloc=latloc;
+  this->lonloc=lonloc;
+}
+
+###CPP### ###CUDA### ###HOST### double lambertConN_grid::cal_xindex(double *latlon) const{
+  double truelat1_rad,truelat2_rad,ref_lat_rad;
+  double nn,ff,rho0;
+  
+  truelat1_rad = this->truelat[0]*ang_to_rad;
+  truelat2_rad = this->truelat[1]*ang_to_rad;
+  ref_lat_rad = ref_latlon[0]*ang_to_rad;
+  
+  cal_lambertConN_parameter_rad(truelat1_rad,truelat2_rad,ref_lat_rad,nn,ff,rho0);
+  double rho = cal_lambertConN_parameter_rad_rho(latlon[0]*ang_to_rad,nn,ff);
+  
+  return lonloc + rho*sin(nn*(latlon[1] - ref_latlon[1])*ang_to_rad)/cal_lambertConN_x_scale(ref_latlon[0],ref_latlon[1],truelat[0],truelat[1],lon_res,nn,ff);
+}
+###CPP### ###CUDA### ###HOST### double lambertConN_grid::cal_yindex(double *latlon) const{
+  double truelat1_rad,truelat2_rad,ref_lat_rad;
+  double nn,ff,rho0;
+  
+  truelat1_rad = this->truelat[0]*ang_to_rad;
+  truelat2_rad = this->truelat[1]*ang_to_rad;
+  ref_lat_rad = ref_latlon[0]*ang_to_rad;
+  
+  cal_lambertConN_parameter_rad(truelat1_rad,truelat2_rad,ref_lat_rad,nn,ff,rho0);
+  double rho = cal_lambertConN_parameter_rad_rho(latlon[0]*ang_to_rad,nn,ff);
+  
+  return latloc + (rho0 - rho*cos(nn*(latlon[1] - ref_latlon[1])*ang_to_rad))/cal_lambertConN_y_scale(ref_latlon[0],ref_latlon[1],truelat[0],truelat[1],lat_res,nn,ff);
+}
+###CPP### ###CUDA### ###HOST### double *lambertConN_grid::cal_xyindex(double *latlon,double* xyindex_work) const{
+  xyindex_work = cal_lambertConN_xyindex(latlon,this->truelat[0],this->truelat[1],this->ref_latlon[0],this->ref_latlon[1],this->lat_res,this->lon_res,xyindex_work);
+  
+  xyindex_work[0] += this->lonloc;
+  xyindex_work[1] += this->latloc;
+  
+  return xyindex_work;
+}
+
+###CUDA### ###HOST### double *lambertConN_grid::cal_xyindex(int npt,double *latlon,double* xyindex_work) const{
+  xyindex_work = cal_lambertConN_xyindex(npt,latlon,this->truelat[0],this->truelat[1],this->ref_latlon[0],this->ref_latlon[1],this->lat_res,this->lon_res,this->latloc,this->lonloc,xyindex_work);
+  
+  return xyindex_work;
+}
+
+###CPP### ###CUDA### ###HOST### grid_data& lambertConN_grid::operator=(const grid_data& in){
+  if(this == &in){
+    return *this;
+  }
+  
+  this->create(truelat[0],truelat[1],ref_latlon[0],ref_latlon[1],lat_res,lon_res,latloc,lonloc,in.get_nx(),in.get_ny(),in.get_nz(),in.get_ndim());
+  this->set_x(in.get_x());
+  this->set_y(in.get_y());
+  this->set_z(in.get_z());
+  this->set_data(in.get_data());
+###CUDA###  if(in.get_d_nx()>0){
+    this->create_gpu(in.get_d_nx(),in.get_d_ny(),in.get_d_nz(),in.get_d_ndim());
+    
+    cudaMemcpy(d_x,in.get_d_x(),in.get_d_nx()*sizeof(double),cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_y,in.get_d_y(),in.get_d_ny()*sizeof(double),cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_z,in.get_d_z(),in.get_d_nz()*sizeof(double),cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_grid1D,in.get_d_data(),in.get_d_nx()*in.get_d_ny()*in.get_d_nz()*in.get_d_ndim()*sizeof(double),cudaMemcpyDeviceToDevice);
+  }
+  
+  return *this;
+}
+/*
+###CPP### ###CUDA### ###HOST### int lambertConN_grid::read_NHM_fortrain_binarydata(char *name_format,int nelements,char **elements,int nlevels,char **level_names){
+  //This function will perform memory allocation if the read in data size does not match the allocated data size
+  bool reallocation=false;
+  int ndim,nz;
+  if(nelements > this->ndim){
+    ndim = nelements;
+    reallocation = true;
+  }
+  else{
+    ndim = this->ndim;
+  }
+
+  if(nlevels > this->nz){
+    nz = nlevels;
+    reallocation = true;
+  }
+  else{
+    nz = this->nz;
+  }
+
+  int temp_nx, temp_ny;
+  tags element_tag("element");
+  tags level_tag("level");
+
+  int i,j,k,m;
+  char *filename = new char [2048];
+  ifstream fin;
+  float *ftemp;
+  for(i=0;i<nelements;i++){
+    for(j=0;j<nlevels;j++){
+      strcpy(filename,name_format);
+      element_tag.replace(filename,elements[i]);
+      if(level_names==NULL){
+	level_tag.replace(filename,j+1);
+      }
+      else{
+	level_tag.replace(filename,level_names[j]);
+      }
+
+      fin.open(filename);
+      if(!fin.good()){
+	return -1;
+      }
+      read_fortran_binary_line(fin,1,&temp_nx,"big");
+      read_fortran_binary_line(fin,1,&temp_ny,"big");
+
+      if(((temp_nx != this->nx || temp_ny != this->ny) && i==0 && j==0) || reallocation){
+	//reallocating memory
+	cout << "Warning! Memory reallocated in read_NHM_fortrain_binarydata." << endl;
+	cout << "Memory reallocated to: " << temp_nx << " x " << temp_ny << " x " << nz << " x " << ndim << endl;
+	this->create(temp_nx,temp_ny,nz,ndim);
+      }
+      else if((temp_nx != this->nx || temp_ny != this->ny) && (i!=0 || j!=0)){
+	cout << "Inconsistent binary files." << endl;
+	return 1;
+      }
+
+      if(i==0 && j==0){
+	ftemp = new float[temp_nx*temp_ny];
+      }
+      read_fortran_binary_line(fin,temp_nx*temp_ny,ftemp,"big");
+      if(i==0 && j==0){
+	reorder_from_nhm(temp_nx,temp_ny,ftemp);
+	this->set_y(ftemp);
+      }
+      read_fortran_binary_line(fin,temp_nx*temp_ny,ftemp,"big");
+      if(i==0 && j==0){
+	reorder_from_nhm(temp_nx,temp_ny,ftemp);
+	this->set_x(ftemp);
+      }
+
+      read_fortran_binary_line(fin,temp_nx*temp_ny,ftemp,"big");
+      reorder_from_nhm(temp_nx,temp_ny,ftemp);
+      for(k=0;k<temp_nx;k++){
+	for(m=0;m<temp_ny;m++){
+	  (this->get_data(k,m,j))[i] = ftemp[k*temp_ny+m];
+	}
+      }
+      fin.close();
+    }
+  }
+
+  delete [] ftemp;
+  delete [] filename;
+
+  return 0;
+}
+*/
+###CPP### ###CUDA### ###HOST### double* lambertConN_grid::multiple_linear_interpolate(double lon, double lat, double ptz, double *temp){
+  int grid_dim;
+  if(nz>1){
+    grid_dim = 3;
+  }
+  else{
+    grid_dim = 2;
+  }
+  
+  if(grid_dim == 2 || (ptz > fmin(z[0],z[nz-1]) && ptz <= fmax(z[0],z[nz-1]))){
+    double *grid_loc = new double [6]; 
+    double *grid_data = new double [8]; 
+    double *latlon = new double [2];
+    double *xyz = new double [3];
+    latlon[0] = lat;
+    latlon[1] = lon;
+    int xloc, yloc, zloc;
+    if(grid_dim > 2){
+      //need to work on the z dimension
+      if(z[nz-1] > z[0]){
+	for(zloc=1;zloc<nz;zloc++){
+	  if(ptz< z[zloc]){
+	    grid_loc[4] = z[zloc-1];
+	    grid_loc[5] = z[zloc];
+	    break;
+	  }
+	}
+      }
+      else{
+	for(zloc=1;zloc<nz;zloc++){
+	  if(ptz> z[zloc]){
+	    grid_loc[4] = z[zloc-1];
+	    grid_loc[5] = z[zloc];
+	    break;
+	  }
+	}
+      }
+      xyz[2] = ptz;
+    }
+    else{
+	zloc = 0;
+    }
+    
+    this->cal_xyindex(latlon,xyz);
+    xloc = (int) ceil(xyz[0]);
+    yloc = (int) ceil(xyz[1]);
+
+    grid_loc[0] = xloc-1;
+    grid_loc[1] = xloc;
+    grid_loc[2] = yloc-1;
+    grid_loc[3] = yloc;
+
+    if(xloc > 0 && xloc < nx && yloc > 0 && yloc < ny ){
+      int i;
+      for(i=0;i<ndim;i++){
+	switch(grid_dim){
+	case 2:
+	  grid_data[0] = this->grid1D[(xloc-1)*ndim*ny+(yloc-1)*ndim+i];
+	  grid_data[1] = this->grid1D[(xloc)*ndim*ny+(yloc-1)*ndim+i];
+	  grid_data[2] = this->grid1D[(xloc-1)*ndim*ny+(yloc)*ndim+i];
+	  grid_data[3] = this->grid1D[(xloc)*ndim*ny+(yloc)*ndim+i];
+	  break;
+	case 3:
+	  grid_data[0] = this->grid1D[(xloc-1)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc-1)*ndim+i];
+	  grid_data[1] = this->grid1D[(xloc)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc-1)*ndim+i];
+	  grid_data[2] = this->grid1D[(xloc-1)*ndim*ny*nz+(yloc)*ndim*nz+(zloc-1)*ndim+i];
+	  grid_data[3] = this->grid1D[(xloc)*ndim*ny*nz+(yloc)*ndim*nz+(zloc-1)*ndim+i];	
+	  grid_data[4] = this->grid1D[(xloc-1)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc)*ndim+i];
+	  grid_data[5] = this->grid1D[(xloc)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc)*ndim+i];
+	  grid_data[6] = this->grid1D[(xloc-1)*ndim*ny*nz+(yloc)*ndim*nz+(zloc)*ndim+i];
+	  grid_data[7] = this->grid1D[(xloc)*ndim*ny*nz+(yloc)*ndim*nz+(zloc)*ndim+i];
+	  break;
+	}
+	
+	temp[i] = math_multilinear_interpolate(grid_dim,xyz,grid_loc,grid_data);
+      }
+    }
+    
+    delete [] grid_data;
+    delete [] grid_loc;
+    delete [] latlon;
+    delete [] xyz;
+  }
+  
+  return temp;
+}
+###CUDA### ###HOST### double* lambertConN_grid::multiple_linear_interpolate(int npt,double *lon, double *lat, double *ptz, double *temp){
+  int grid_dim;
+  if(nz>1){
+    grid_dim = 3;
+  }
+  else{
+    grid_dim = 2;
+  }
+  
+  double *latlonheight = new double [3*npt];
+  double *d_latlonheight, *d_xyz;
+  double *grid_loc, *grid_data;
+  
+  int i,j;
+  for(i=0;i<npt;i++){
+    latlonheight[3*i] = lat[i];
+    latlonheight[3*i+1] = lon[i];
+    latlonheight[3*i+2] = ptz[i];
+  }
+  
+  cudaMalloc(&d_latlonheight,3*npt*sizeof(double));
+  cudaMemcpy(d_latlonheight,latlonheight,3*npt*sizeof(double),cudaMemcpyHostToDevice);
+  
+  cudaMalloc(&d_xyz,3*npt*sizeof(double));
+  cudaMalloc(&grid_loc,6*npt*sizeof(double));
+  cudaMemset(grid_loc,0,6*npt*sizeof(double));
+  cudaMalloc(&grid_data,8*npt*ndim*sizeof(double));
+  
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+  grid.x = (int) ceil(((double) npt)/numthreads);
+  int nbatch_x,nbatch_y;
+  int error = this->determine_nbatchxy(nbatch_x,nbatch_y,(2*nx*ny+nz+((double) nx)*ny*nz*ndim)*8.);
+  if(error){
+    exit(0);
+  }
+  this->create_gpu(nx/nbatch_x+2,ny/nbatch_y+2,nz,ndim);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << endl;
+  int x_lowbound,x_upbound,y_lowbound,y_upbound;
+  
+  for(i=0;i<nx;i+=nx/nbatch_x){
+    for(j=0;j<ny;j+=ny/nbatch_y){
+      x_lowbound = max(i-1,0);
+      x_upbound = min(i+nx/nbatch_x,nx-1);
+      y_lowbound = max(j-1,0);
+      y_upbound = min(j+ny/nbatch_y,ny-1);
+      this->host2device(x_lowbound,x_upbound,y_lowbound,y_upbound,0,nz-1,0,ndim-1);
+      lambertConN_grid_set_date4multilinear_interpolate<<<grid,numthreads>>>(npt,ndim,grid_dim,d_latlonheight,d_xyz,x_lowbound,x_upbound,y_lowbound,y_upbound,0,nz-1,0,ndim-1,truelat[0],truelat[1],ref_latlon[0],ref_latlon[1],lat_res,lon_res,latloc,lonloc,d_z,d_grid1D,grid_loc,grid_data);
+      if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@lambertConN_grid_set_date4multilinear_interpolate" << endl;
+    }
+  }
+  this->destroy_gpu();
+  cudaFree(d_latlonheight);
+  
+  double *results;
+  cudaMalloc(&results,npt*ndim*sizeof(double));
+  cudaMemcpy(results,temp,npt*ndim*sizeof(double),cudaMemcpyHostToDevice);
+
+  grid.x = (int) ceil((double) npt*ndim/((double) numthreads));
+  regular_grid_multiple_linear_interpolate_kernel<<<grid,numthreads>>>(npt,ndim,grid_dim,grid_loc,grid_data,d_xyz,results);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << "@regular_grid_multiple_linear_interpolate_kernel" <<endl;
+  
+  cudaMemcpy(temp,results,npt*ndim*sizeof(double),cudaMemcpyDeviceToHost);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << endl;
+  
+  cudaFree(d_xyz);
+  cudaFree(grid_loc);
+  cudaFree(grid_data);
+  
+  delete [] latlonheight;
+  
+  return temp;
+}
+
+###CUDA### ###GLOBAL### void lambertConN_grid_set_date4multilinear_interpolate(int npt,int outer_ndim,int grid_dim,double *latlonheight,double *xyz,int nx_st,int nx_end,int ny_st,int ny_end,int nz_st,int nz_end,int ndim_st,int ndim_end,double truelat1,double truelat2,double ref_lat,double ref_lon,double lat_res,double lon_res,int latloc,int lonloc,double *z,double *data,double *grid_loc,double *grid_data){
+  int i = blockDim.x*blockIdx.x + threadIdx.x;
+  
+  int ny = ny_end-ny_st+1;
+  int nz = nz_end-nz_st+1;
+  int ndim = ndim_end-ndim_st+1;
+  
+  if(i<npt){
+    if(grid_dim < 3 || (latlonheight[3*i+2] >= fmin(z[0],z[nz-1]) && latlonheight[3*i+2] <= fmax(z[0],z[nz-1]))){
+      int xloc, yloc, zloc;
+      
+      if(grid_dim >= 3){
+	if(z[nz-1] > z[0]){
+	  if(latlonheight[3*i+2] >= z[0] && latlonheight[3*i+2] <= z[nz-1]){
+	    for(zloc=1;zloc<nz;zloc++){
+	      if(latlonheight[3*i+2]< z[zloc]){
+		grid_loc[i*6+4] = z[zloc-1];
+		grid_loc[i*6+5] = z[zloc];
+		break;
+	      }
+	    }
+	  }
+	}
+	else{
+	  if(latlonheight[3*i+2] <= z[0] && latlonheight[3*i+2] >= z[nz-1]){
+	    for(zloc=1;zloc<nz;zloc++){
+	      if(latlonheight[3*i+2]> z[zloc]){
+		grid_loc[i*6+4] = z[zloc-1];
+		grid_loc[i*6+5] = z[zloc];
+		break;
+	      }
+	    }
+	  }
+	}
+	
+	xyz[3*i+2] = latlonheight[3*i+2];
+      }
+      else{
+	zloc = 0;
+      }
+      
+      cal_lambertConN_xyindex(latlonheight+3*i,truelat1,truelat2,ref_lat,ref_lon,lat_res,lon_res,latloc,lonloc,xyz+3*i);
+      xloc = (int) ceil(xyz[3*i]);
+      yloc = (int) ceil(xyz[3*i+1]);
+
+      grid_loc[i*6] = xloc-1;
+      grid_loc[i*6+1] = xloc;
+      grid_loc[i*6+2] = yloc-1;
+      grid_loc[i*6+3] = yloc;
+      
+      int j;
+      if(xloc > nx_st && xloc <= nx_end && yloc > ny_st && yloc <= ny_end){
+	xloc -= lonloc;
+	yloc -= latloc;
+	for(j=0;j<ndim;j++){
+	  switch(grid_dim){
+	  case 2:
+	    grid_data[i*outer_ndim*8+j*8+0] = data[(xloc-1)*ndim*ny+(yloc-1)*ndim+j];
+	    grid_data[i*outer_ndim*8+j*8+1] = data[(xloc)*ndim*ny+(yloc-1)*ndim+j];
+	    grid_data[i*outer_ndim*8+j*8+2] = data[(xloc-1)*ndim*ny+(yloc)*ndim+j];
+	    grid_data[i*outer_ndim*8+j*8+3] = data[(xloc)*ndim*ny+(yloc)*ndim+j];
+	    break;
+	  case 3:
+	    grid_data[i*outer_ndim*8+j*8+0] = data[(xloc-1)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc-1)*ndim+j];
+	    grid_data[i*outer_ndim*8+j*8+1] = data[(xloc)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc-1)*ndim+j];
+	    grid_data[i*outer_ndim*8+j*8+2] = data[(xloc-1)*ndim*ny*nz+(yloc)*ndim*nz+(zloc-1)*ndim+j];
+	    grid_data[i*outer_ndim*8+j*8+3] = data[(xloc)*ndim*ny*nz+(yloc)*ndim*nz+(zloc-1)*ndim+j];	
+	    grid_data[i*outer_ndim*8+j*8+4] = data[(xloc-1)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc)*ndim+j];
+	    grid_data[i*outer_ndim*8+j*8+5] = data[(xloc)*ndim*ny*nz+(yloc-1)*ndim*nz+(zloc)*ndim+j];
+	    grid_data[i*outer_ndim*8+j*8+6] = data[(xloc-1)*ndim*ny*nz+(yloc)*ndim*nz+(zloc)*ndim+j];
+	    grid_data[i*outer_ndim*8+j*8+7] = data[(xloc)*ndim*ny*nz+(yloc)*ndim*nz+(zloc)*ndim+j];	
+	    break;
+	  default:
+	    break;
+	  }
+	}
+      }
+    }
+  }
+}
+
+###CPP### ###CUDA### ###HOST### void lambertConN_grid_allocation(grid_data* &in){
+  in = new lambertConN_grid;
+}

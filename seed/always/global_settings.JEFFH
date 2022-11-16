@@ -1,0 +1,15 @@
+#ifndef GLOBAL_SETTINGS
+#define GLOBAL_SETTINGS
+
+namespace libjeff{
+  class global_settings{
+  public:
+    global_settings();
+    
+    static void set_auto_resize(bool in);
+    static inline bool get_auto_resize() {return auto_resize;}
+  private:
+    static bool auto_resize;
+  };
+};
+#endif

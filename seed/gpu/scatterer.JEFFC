@@ -1,0 +1,23 @@
+#include"scatterer.h"
+
+scatterer::scatterer(){
+  num_data_field = 0;
+  data_field = NULL;
+}
+scatterer::~scatterer(){
+  this->destroy();
+}
+void scatterer::create(int num_data_field){
+  this->destroy();
+
+  if(num_data_field > 0){
+    this->num_data_field = num_data_field;
+    this->data_field = new grid_data_field [this->num_data_field];
+  }
+}
+void scatterer::destroy(){
+  if(this->num_data_field  > 0){
+    delete [] this->data_field;
+  }
+  this->num_data_field = 0;
+}

@@ -1,0 +1,95 @@
+#ifndef MERCATOR
+#define MERCATOR
+#include "grid_data.h"
+#include "regular_grid.h"
+
+//lon is x in regular_grid
+//lat is y in regular_grid
+//height is z in regular_grid
+
+class mercator_grid : public regular_grid{
+ public:
+  ###CPP### ###CUDA### ###HOST### mercator_grid();
+  ###CPP### ###CUDA### ###HOST### mercator_grid(int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### mercator_grid(double truelat,double ref_lat,double ref_lon,double lat_res,double lon_res,double latloc,double lonloc,int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### ~mercator_grid();
+  
+  ###CPP### ###CUDA### ###HOST### void create(double truelat,double ref_lat,double ref_lon,double lat_res,double lon_res,double latloc,double lonloc,int nx,int ny,int nz,int ndim);
+  ###CPP### ###CUDA### ###HOST### inline virtual void create(int nx,int ny,int nz,int ndim) {regular_grid::create(nx,ny,nz,ndim);}
+  ###CPP### ###CUDA### ###HOST### virtual void create(int nx,int ny,int nz,int ndim,int *idummy1,double* ddummy);
+  /*
+    ddummy[0]=truelat
+    ddummy[1]=ref_lat
+    ddummy[2]=ref_lon
+    ddummy[3]=lat_res
+    ddummy[4]=lon_res
+
+    idummy[0]=latloc
+    idummy[1]=lonloc
+   */
+
+  ###CUDA### ###HOST### inline virtual void create_gpu(int nx,int ny,int nz,int ndim) {regular_grid::create_gpu(nx,ny,nz,ndim);}
+  ###CUDA### ###HOST### inline virtual void host2device() {regular_grid::host2device();}
+  ###CUDA### ###HOST### inline virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim) {regular_grid::host2device(from_x,to_x,from_y,to_y,from_z,to_z,from_dim,to_dim);}
+  ###CUDA### ###HOST### inline virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work) {host2device(from_x,to_x,from_y,to_y,from_z,to_z,from_dim,to_dim,work,1);}
+  ###CUDA### ###HOST### inline virtual void host2device(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim,double *work,int nstream) {regular_grid::host2device(from_x,to_x,from_y,to_y,from_z,to_z,from_dim,to_dim,work,nstream);}
+  ###CUDA### ###HOST### inline virtual void device2host() {regular_grid::device2host();}
+  ###CUDA### ###HOST### inline virtual void device2host(int from_x,int to_x,int from_y,int to_y,int from_z,int to_z,int from_dim,int to_dim) {regular_grid::device2host(from_x,to_x,from_y,to_y,from_z,to_z,from_dim,to_dim);}   
+  
+  ###CPP### ###CUDA### ###HOST### inline virtual double get_z(int ix,int iy,int iz) const {return regular_grid::get_z(ix,iy,iz);}
+  ###CPP### ###CUDA### ###HOST### inline virtual double get_z(double ix,double iy,double iz) const {return regular_grid::get_z(ix,iy,iz);}
+  using grid_data::get_z;
+  ###CPP### ###CUDA### ###HOST### inline virtual double get_y(int ix,int iy,int iz) const {return regular_grid::get_y(ix,iy,iz);}
+  ###CPP### ###CUDA### ###HOST### inline virtual double get_y(double ix,double iy,double iz) const {return regular_grid::get_y(ix,iy,iz);}
+  using grid_data::get_y;
+  ###CPP### ###CUDA### ###HOST### inline virtual double get_x(int ix,int iy,int iz) const {return regular_grid::get_x(ix,iy,iz);}
+  ###CPP### ###CUDA### ###HOST### inline virtual double get_x(double ix,double iy,double iz) const {return regular_grid::get_x(ix,iy,iz);}
+  using grid_data::get_x;
+  
+  ###CPP### ###CUDA### ###HOST### inline virtual double *get_data(int ix,int iy,int iz) const {return grid_data::get_data(ix*ny*nz + iy*nz + iz);}
+  ###CPP### ###CUDA### ###HOST### inline virtual double *get_data() const {return grid_data::get_data();}
+  ###CPP### ###CUDA### ###HOST### inline virtual double *get_data4dim(int dim,double *work) const {return regular_grid::get_data4dim(dim,work);}
+  ###CPP### ###CUDA### ###HOST### inline virtual float *get_data4dim(int dim,float *work) const {return regular_grid::get_data4dim(dim,work);}
+  
+  ###CPP### ###CUDA### ###HOST### inline virtual double *get_coordinate(int index,double *work) const {return regular_grid::get_coordinate(index,work);}
+  ###CPP### ###CUDA### ###HOST### inline virtual double *get_coordinate(int ix,int iy,int iz,double *work) const {return regular_grid::get_coordinate(ix,iy,iz,work);}
+  
+  ###CPP### ###CUDA### ###HOST### inline virtual void set_data4dim(int dim,double* indata) {regular_grid::set_data4dim(dim,indata);}
+  ###CPP### ###CUDA### ###HOST### inline virtual void set_data4dim(int dim,float* indata) {regular_grid::set_data4dim(dim,indata);}
+  
+  ###CPP### ###CUDA### ###HOST### inline virtual void set_x(double *indata) {regular_grid::set_x(indata);}
+  ###CPP### ###CUDA### ###HOST### inline virtual void set_x(float *indata) {regular_grid::set_x(indata);}
+  ###CPP### ###CUDA### ###HOST### inline virtual void set_y(double *indata) {regular_grid::set_y(indata);}
+  ###CPP### ###CUDA### ###HOST### inline virtual void set_y(float *indata) {regular_grid::set_y(indata);}
+  ###CPP### ###CUDA### ###HOST### inline virtual void set_z(double *indata) {regular_grid::set_z(indata);}
+  ###CPP### ###CUDA### ###HOST### inline virtual void set_z(float *indata) {regular_grid::set_z(indata);}
+  
+  ###CPP### ###CUDA### ###HOST### void set_truelat(double truelat);
+  ###CPP### ###CUDA### ###HOST### void set_ref_latlon(double *in);
+  ###CPP### ###CUDA### ###HOST### void set_ref_latlon(double ref_lat,double ref_lon);
+  ###CPP### ###CUDA### ###HOST### void set_res(double lat_res,double lon_res);
+  ###CPP### ###CUDA### ###HOST### void set_latlonloc(double latloc,double lonloc);
+  
+  ###CPP### ###CUDA### ###HOST### virtual grid_data& operator=(const grid_data& in);
+  
+  //###CPP### ###CUDA### ###HOST### virtual int readWRF3NetCDF(char *filename, char *variableName,char *stagger,date_time *datatime,int ndim,int dim_index);
+
+    /*
+    ###CPP### ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(double lon, double lat, double *temp);// {return regular_grid::multiple_linear_interpolate(lon,lat,temp);}
+    ###CPP### ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(double lon, double lat, double ptz, double *temp);// {return regular_grid::multiple_linear_interpolate(lon,lat,ptz,temp);}
+    ###CPP### ###CUDA### ###HOST### virtual double* multiple_linear_interpolate(int npt,double *lon, double *lat, double *ptz, double *temp);// {return regular_grid::multiple_linear_interpolate(npt,lon,lat,ptz,temp);}
+    */
+  ###CPP### ###CUDA### ###HOST### double *cal_xyindex(double *latlon,double* xyindex_work) const;
+  ###CPP### ###CUDA### ###HOST### double *cal_xyindex(int npt,double *latlon,double* xyindex_work) const;
+
+  ###CPP### ###CUDA### ###HOST### virtual inline int get_grid_code() const { return MERCATOR_GRID_CODE; }
+
+ private:
+  ###CPP### ###CUDA### ###HOST### void gen_grid();
+  
+  double truelat,*ref_latlon;
+  double lat_res,lon_res;
+  double latloc,lonloc;
+};
+###CPP### ###CUDA### ###HOST### void mercator_grid_allocation(grid_data* &in);
+#endif

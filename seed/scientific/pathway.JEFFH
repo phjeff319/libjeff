@@ -1,0 +1,58 @@
+#ifndef PATHWAY
+#define PATHWAY
+
+namespace libjeff{
+  class pathway_waypoints{
+  public:
+    pathway_waypoints();
+    pathway_waypoints(int ndim);
+    ~pathway_waypoints();
+
+    int get_ndim();
+    double *get_coord();
+    char *get_name();
+    
+  private:
+    int set_ndim(int ndim);
+    
+    int ndim;
+    double *coord;
+    char *name;
+  };
+
+  class pathway_waypoints_database{
+  public:
+    pathway_waypoints_database();
+    pathway_waypoints_database(char* waypoints_file);
+    ~pathway_waypoints_database();
+
+    int read_waypoints_csv_file(char *waypoints_file);
+    inline int get_num_waypoints() const {return num_waypoints;}
+    pathway_waypoints* get_waypoints(int index);
+    pathway_waypoints* get_waypoints(char *name);
+    
+  protected:
+    int num_waypoints;
+    pathway_waypoints** waypoints;
+  };
+  
+  class flight_route{
+  public:
+    flight_route();
+    ~flight_route();
+
+    void destroy();
+
+    int set_waypoints(int num_waypoints,char **waypoints_names,pathway_waypoints_database *waypoints_db);
+    void set_name(char *name);
+
+  protected:
+    int num_waypoints;
+    pathway_waypoints** waypoints;
+    char *name;
+  };
+
+  int read_flight_routes_file(char *filename,pathway_waypoints_database *waypoints_db,flight_route *& routes,int &num_routes);
+  
+}
+#endif

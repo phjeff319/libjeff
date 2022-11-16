@@ -1,0 +1,6139 @@
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include "eccodes.h"
+#include <fstream>
+#include <iostream>
+#include <iomanip>
+
+#include "flight_data.h"
+
+#include "error_code.h"
+
+#include "date_time.h"
+#include "debug_mode.h"
+#include "earth.h"
+#include "file_check.h"
+#include "flight_data_analytics.h"
+#include "meteorology.h"
+#include "physics_constants.h"
+#include "sorting.h"
+#include "statistics.h"
+#include "string_man.h"
+#include "tags.h"
+#include "timed_grid_data.h"
+#include "tools.h"
+
+#define FILENAMEBUFFSIZE 4096
+#define MISSINGVALUE -9999.
+
+const int init_allocated_size = 1000;
+
+#define DEFAULTTADDRESS "NIL"
+
+const date_time adsb_append_cutoff(0,0,0,0,30);
+
+namespace libjeff{
+  flight_data_pt::flight_data_pt(){
+    latlon = new double[2];
+    ground_speed = -9999.;
+    pt_time = NOTIME;
+    geometric_height = -9999.;
+    flight_level = -9999.;
+    mach_no = -9999.;
+    tas = -9999.;
+    sat = -9999.;
+    windu = -9999.;
+    windv = -9999.;
+    temperature = -9999.;
+    ti = -9999.;
+    edr = -9999.;
+    delta_g = -9999.;
+    ground_speed = -9999.;
+    on_ground = -1;
+    fuelflow = new double [2];
+    fuelflow[0] = -9999.;
+    fuelflow[1] = -9999.;
+    weight = -9999.;
+
+    frame_no = -9999;
+    frame_sec = -9999;
+    error = 0;
+  }
+  flight_data_pt::flight_data_pt(const flight_data_pt &in){
+    latlon = new double[2];
+    fuelflow = new double [2];
+    *this = in;
+  }
+  flight_data_pt::~flight_data_pt(){
+    delete [] latlon;
+    delete [] fuelflow;
+  }
+  
+  double* flight_data_pt::get_lonlat(double *out){
+    int i;
+    for(i=0;i<2;i++){
+      out[i] = latlon[1-i];
+    }
+    return out;
+  }
+  void flight_data_pt::set_latlon(double *in){
+    int i;
+    for(i=0;i<2;i++){
+      latlon[i] = in[i];
+    }
+  }
+  void flight_data_pt::set_lonlat(double *in){
+    int i;
+    for(i=0;i<2;i++){
+      latlon[i] = in[1-i];
+    }
+  }
+
+  double flight_data_pt::get(char *field) const{
+    if(strcmp(field,"angle of attack")==0){
+      return this->angle_of_attack;
+    }
+    else if(strcmp(field,"vertical speed")==0){
+      return this->vertical_speed;
+    }
+    else if(strcmp(field,"pitch")==0){
+      return this->pitch;
+    }
+    else if(strcmp(field,"roll")==0){
+      return this->roll;
+    }
+    else if(strcmp(field,"tas")==0){
+      return this->tas;
+    }
+    else if(strcmp(field,"sat")==0){
+      return this->sat;
+    }
+    else if(strcmp(field,"flap")==0){
+      return this->flap;
+    }
+    else if(strcmp(field,"lon")==0){
+      return this->latlon[1];
+    }
+    else if(strcmp(field,"lat")==0){
+      return this->latlon[0];
+    }
+    else if(strcmp(field,"flight level")==0){
+      return this->flight_level;
+    }
+    else if(strcmp(field,"delta G")==0){
+      return this->delta_g;
+    }
+    else if(strcmp(field,"edr")==0){
+      return this->edr;
+    }
+    else if(strcmp(field,"fuelflow")==0){
+      return this->fuelflow[0]+this->fuelflow[1];
+    }
+    else if(strcmp(field,"fuelflowL")==0){
+      return this->fuelflow[0];
+    }
+    else if(strcmp(field,"fuelflowR")==0){
+      return this->fuelflow[1];
+    }
+    else if(strcmp(field,"weight")==0){
+      return this->weight;
+    }
+    else{
+      return MISSINGVALUE;
+    }
+  }
+  void flight_data_pt::set(char *field,double value){
+    if(strcmp(field,"angle of attack")==0){
+      this->set_angle_of_attack(value);
+    }
+    else if(strcmp(field,"vertical speed")==0){
+      this->set_vertical_speed(value);
+    }
+    else if(strcmp(field,"pitch")==0){
+      this->set_pitch(value);
+    }
+    else if(strcmp(field,"roll")==0){
+      this->set_roll(value);
+    }
+    else if(strcmp(field,"tas")==0){
+      this->set_tas(value);
+    }
+    else if(strcmp(field,"sat")==0){
+      this->set_sat(value);
+    }
+    else if(strcmp(field,"flap")==0){
+      this->set_flap(value);
+    }
+    else if(strcmp(field,"flight level")==0){
+      this->set_flight_level(value);
+    }
+    else if(strcmp(field,"delta G")==0){
+      this->set_delta_g(value);
+    }
+    else if(strcmp(field,"lon")==0){
+      this->latlon[1] = value;
+    }
+    else if(strcmp(field,"lat")==0){
+      this->latlon[0] = value;
+    }
+    else if(strcmp(field,"edr")==0){
+      this->set_edr(value);
+    }
+    else if(strcmp(field,"fuelflowR")==0){
+      this->set_fuelflow(1,value);
+    }
+    else if(strcmp(field,"fuelflowL")==0){
+      this->set_fuelflow(0,value);
+    }
+    else if(strcmp(field,"weight")==0){
+      this->set_weight(value);
+    }
+    else{
+      std::cout << "Error! Unknown input field name " << field << std::endl;
+    }
+  }
+
+  flight_data_pt& flight_data_pt::operator=(const flight_data_pt& in){
+    if(this == &in){
+      return *this;
+    }
+
+    this->set_latlon(in.get_latlon());
+    this->pt_time = in.pt_time;
+    this->geometric_height = in.geometric_height;
+    this->flight_level = in.flight_level;
+    this->mach_no = in.mach_no;
+    this->sat = in.sat;
+    this->windu = in.windu;
+    this->windv = in.windv;
+    this->temperature = in.temperature;
+    this->pressure = in .pressure;
+    this->ti = in.ti;
+    this->edr = in.edr;
+    this->delta_g = in.delta_g;
+    this->ground_speed = in.ground_speed;
+    this->tas = in.tas;
+    this->vertical_speed = in.vertical_speed;
+    this->angle_of_attack = in.angle_of_attack;
+    this->pitch = in.pitch;
+    this->roll = in.roll;
+    this->flap = in.flap;
+    this->on_ground = in.on_ground;
+    this->error = in.error;
+    this->set_fuelflow(0,in.get_fuelflow()[0]);
+    this->set_fuelflow(1,in.get_fuelflow()[1]);
+    this->set_weight(in.get_weight());
+
+    this->frame_no = in.frame_no;
+    this->frame_sec = in.frame_sec;
+
+    return *this;
+  }
+
+  flight_data::flight_data(){
+    //cout << "flight data default constructor called." << endl;
+    allocated_size = 0;
+    n_data_pt = 0;
+    data_pt = NULL;
+    remarks = new char [30];
+    tAddr = new char [30];
+    this->set_t_address(DEFAULTTADDRESS);
+  }
+  flight_data::flight_data(const flight_data &in){
+    //cout << "flight data copy constructor called." << endl;
+    allocated_size = 0;
+    n_data_pt = 0;
+    data_pt = NULL;
+    remarks = new char [30];
+    tAddr = new char [30];
+    this->set_t_address(DEFAULTTADDRESS);
+    *this = in;
+  }
+  flight_data::~flight_data(){
+    //cout << "flight data destructor called." << endl;
+    this->destroy();
+    delete [] remarks;
+    delete [] tAddr;
+  }
+
+  void flight_data::destroy(){
+    if(allocated_size > 0){
+      delete [] data_pt;
+    }
+    strcpy(remarks,"");
+    n_data_pt = 0;
+    allocated_size = 0;
+  }
+  int flight_data::create(int n_pt){
+    if(n_pt <= 0){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+
+    this->destroy();
+    if(init_allocated_size < n_pt){
+      allocated_size = n_pt;
+    }
+    else{
+      allocated_size = init_allocated_size;
+    }
+    data_pt = new flight_data_pt [allocated_size];
+    n_data_pt = n_pt;
+
+    if(data_pt == NULL){
+      return _ERRORCODE_FAILEDMEMORYALLOCATION;
+    }
+    else{
+      return _ERRORCODE_NOERROR;
+    }
+  }
+
+  flight_data_pt* flight_data::get_data_pt(date_time pt_time) const{
+    return this->get_data_pt(pt_time,ONE_MINUTE);
+  }
+  flight_data_pt* flight_data::get_data_pt(date_time pt_time,date_time tolerance) const{
+    flight_data_pt* result = NULL;
+
+    int index = this->get_index(pt_time,tolerance);
+    if(index >= 0){
+      result = this->get_data_pt(index);
+    }
+
+    return result;
+  }
+  int flight_data::get_index(date_time pt_time) const{
+    return this->get_index(pt_time,ONE_MINUTE);
+  }
+  int flight_data::get_index(date_time pt_time,date_time tolerance) const{
+    libjeff::print_trace(1,"flight_data::get_index(date_time,date_time) const");
+    int result = -1;
+
+    int i;
+    double diffs = tolerance.get_hour()*3600 + tolerance.get_minute()*60 + tolerance.get_second() + tolerance.get_sec_decimal();
+    double tempdiff;
+    for(i=0;i<this->get_num_data_pt();i++){
+      if(this->get_data_pt(i)->get_time() >= pt_time && this->get_data_pt(i)->get_time() <= pt_time + tolerance){
+	//std::cout << "Flight data get index: " << i << " " << pt_time << " ";
+	tempdiff = this->get_data_pt(i)->get_time().numberOfSecondFrom(pt_time);
+	//std::cout << tempdiff << std::endl;
+	if(tempdiff < diffs){
+	  diffs = tempdiff;
+	  result = i;
+	}
+      }
+      else if(this->get_data_pt(i)->get_time() < pt_time && this->get_data_pt(i)->get_time()+tolerance >= pt_time){
+	//std::cout << "Flight data get index: " << i << " " << pt_time << " ";
+	tempdiff = pt_time.numberOfSecondFrom(this->get_data_pt(i)->get_time());
+	//std::cout << -tempdiff << std::endl;
+	if(tempdiff < diffs){
+	  diffs = tempdiff;
+	  result = i;
+	}
+      }
+    }
+
+    libjeff::print_trace(0,"flight_data::get_index(date_time,date_time) const");
+    return result;
+  }
+
+  double flight_data::get_duration() const{
+    libjeff::print_trace(1,"flight_data::get_duration() const");
+    double result=0.;
+    
+    if(this->get_num_data_pt()>=2){
+      result = this->get_data_pt(this->get_num_data_pt()-1)->get_time().numberOfSecondFrom(this->get_data_pt(0)->get_time());
+    }
+    libjeff::print_trace(0,"flight_data::get_duration() const");
+    return result;
+  }
+
+  void flight_data::set_remarks(char *in){
+    if(strlen(in)>=30){
+      std::cout << "Warning! Remark length >= 30." << std::endl;
+    }
+    strcpy(remarks,in);
+  }
+  void flight_data::set_t_address(char *in){
+    if(strlen(in)>=30){
+      std::cout << "Warning! T Address length >= 30." << std::endl;
+    }
+    strcpy(tAddr,in);
+  }
+
+  int flight_data::get_max_frame_sf() const{
+    int result = -1;
+    if(this->get_num_data_pt()>0){
+      result = this->get_data_pt(0)->get_frame_sec();
+      int i;
+      for(i=get_num_data_pt()-1;i>=1;i--){
+	if(result < this->get_data_pt(i)->get_frame_sec()){
+	  result = this->get_data_pt(i)->get_frame_sec();
+	}
+      }
+    }
+
+    return result;
+  }
+  int flight_data::get_data_frequency() const{
+    int result = -1;
+
+    int i;
+    for(i=1;i<this->get_num_data_pt();i++){
+      if(this->get_data_pt(i)->get_frame_sec()!=this->get_data_pt(i-1)->get_frame_sec()){
+	result=1;
+	while(true){
+	  if(this->get_data_pt(i+result)->get_frame_sec()!=this->get_data_pt(i+result-1)->get_frame_sec() || this->get_data_pt(i+result)->get_frame_no()!=this->get_data_pt(i+result-1)->get_frame_no()){
+	    return result;
+	  }
+	  result++;
+	}
+      }
+    }
+
+    if(result==-1){
+      std::cout << "Error! Failed to get data frequency" << std::endl;
+    }
+
+    return result;
+  }
+  int flight_data::check() const{
+    int i;
+    for(i=1;i<this->get_num_data_pt();i++){
+      if(this->get_data_pt(i)->get_time() < this->get_data_pt(0)->get_time()){
+	return _ERRORCODE_FLIGHTDATANOTINTIMEORDER;
+      }
+      else if(this->get_data_pt(i)->get_time() > this->get_data_pt(0)->get_time() + MAX_FLIGHT_TIME){
+	return _ERRORCODE_FLIGHTDATASPANTOOLONG;
+      }
+    }
+
+    return _ERRORCODE_NOERROR;;
+  }
+
+  bool flight_data::is_t_address_set() const{
+    return (strcmp(tAddr,DEFAULTTADDRESS));
+  }
+
+  flight_data& flight_data::operator=(const flight_data& in){
+    if(this == &in){
+      return *this;
+    }
+
+    if(in.get_num_data_pt() > 0){
+      this->create(in.get_num_data_pt());
+      int i;
+      for(i=0;i<in.get_num_data_pt();i++){
+	this->data_pt[i] = in.data_pt[i];
+      }
+      strcpy(remarks,in.remarks);
+      strcpy(tAddr,in.tAddr);
+    }
+    else{
+      this->destroy();
+    }
+	
+    return *this;
+  }
+  flight_data flight_data::operator+=(const flight_data& in){
+    this->append(in);
+    return *this;
+  }
+  int flight_data::match_and_append(int num_flight_data,const flight_data* in,bool (*match_function)(const flight_data &a,const flight_data &b)){
+    int i;
+    for(i=0;i<num_flight_data;i++){
+      if((*match_function)(*this,in[i])){
+	this->append(in[i]);
+	return i;
+      }
+    }
+
+    return _ERRORCODE_DATANOTMATCH;
+  }
+  void flight_data::append(const flight_data& in){
+    if(in.get_num_data_pt() > 0){
+      int i;
+
+      if(this->get_num_data_pt()+in.get_num_data_pt() >= allocated_size){
+	flight_data temp;
+	temp = *this;
+
+	//if(allocated_size > in.allocated_size){
+	  this->create(allocated_size + in.allocated_size);
+	  strcpy(this->remarks,temp.get_remarks());
+	  /*}
+	else{
+	  this->create(in.allocated_size*2);
+	  }*/
+
+	this->n_data_pt = temp.n_data_pt;
+	for(i=0;i<temp.get_num_data_pt();i++){
+	  *(this->get_data_pt(i)) = *(temp.get_data_pt(i));
+	}
+      }
+
+      for(i=0;i<in.get_num_data_pt();i++){
+	*(this->get_data_pt(i+this->get_num_data_pt())) = *(in.get_data_pt(i));
+      }
+      this->n_data_pt += in.get_num_data_pt();
+    }    
+  }
+  void flight_data::append(const flight_data_pt *in){
+    int i;
+
+    if(this->get_num_data_pt()+1 >= allocated_size){
+      this->expand_allocation((allocated_size==0?1:allocated_size*2));
+    }
+
+    *(this->get_data_pt(this->get_num_data_pt())) = *in;
+    this->n_data_pt++;
+  }
+  int flight_data::insert(int index_to_insert,const flight_data_pt *in){
+    if(index_to_insert < 0){
+      index_to_insert += this->get_num_data_pt();
+    }
+
+    if(index_to_insert < 0 || index_to_insert > this->get_num_data_pt()){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+
+    if(index_to_insert == this->get_num_data_pt()){
+      this->append(in);
+    }
+    else{
+      int i;
+
+      if(this->get_num_data_pt()+1 >= allocated_size){
+	this->expand_allocation((allocated_size==0?1:allocated_size*2));
+      }
+
+      for(i=this->get_num_data_pt()-1;i>=index_to_insert;i--){
+	*(this->get_data_pt(i+1)) = *(this->get_data_pt(i));
+      }
+      *(this->get_data_pt(index_to_insert)) = *in;
+      this->n_data_pt++;
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+
+  int flight_data::read_flight_plan_csv(char *filename){
+    int error;
+
+    int nline=file_check_length(filename);
+    if(nline > 1){
+      error = this->create(nline-1);
+      if(error != _ERRORCODE_NOERROR){
+	return error;
+      }
+
+      std::ifstream fin;
+      fin.open(filename);
+
+      double *temp_latlon = new double [2];
+      date_time temp_time;
+
+      char *ctemp = new char [FILENAMEBUFFSIZE];
+      fin.getline(ctemp,FILENAMEBUFFSIZE);
+      int i;
+      for(i=0;i<nline-1;i++){
+	fin.getline(ctemp,FILENAMEBUFFSIZE,',');
+	fin.getline(ctemp,FILENAMEBUFFSIZE,',');
+	temp_latlon[0] = atof(ctemp);
+	fin.getline(ctemp,FILENAMEBUFFSIZE,',');
+	temp_latlon[1] = atof(ctemp);
+	fin.getline(ctemp,FILENAMEBUFFSIZE,',');
+	fin.getline(ctemp,FILENAMEBUFFSIZE,',');
+	fin.getline(ctemp,FILENAMEBUFFSIZE,',');
+	temp_time.set_time(ctemp);
+	fin.getline(ctemp,FILENAMEBUFFSIZE,'\n');
+	if(is_all_digit(ctemp)){
+	  data_pt[i].set_flight_level(atof(ctemp));
+	}
+	else{
+	  data_pt[i].set_flight_level(-999.);
+	}
+	data_pt[i].set_latlon(temp_latlon);
+	data_pt[i].set_time(temp_time);
+      }
+
+      delete [] temp_latlon;
+
+      delete [] ctemp;
+
+      fin.close();
+    }
+
+    return error;
+  }
+
+  struct qar_data_key{
+    int num_key;
+    char **keys;
+    char **units;
+  };
+
+  namespace qar_keys{
+    void keys_allocate(qar_data_key &in){
+      int i;
+      in.keys = new char* [in.num_key];
+      in.units = new char* [in.num_key];
+      for(i=0;i<in.num_key;i++){
+	in.keys[i] = new char [FILENAMEBUFFSIZE];
+	in.units[i] = new char [FILENAMEBUFFSIZE];
+      }
+    }
+
+    // This section of code is added by Felix Chong (CUHK intern 2017)
+    void set_frame_key(qar_data_key &in){
+      in.num_key = 3;
+      int i;
+
+      keys_allocate(in);
+
+      strcpy(in.keys[0],"Frame-SF");
+      strcpy(in.keys[1],"\"Frame-Sf\"");
+      strcpy(in.keys[2],"\"Frame-SF\"");
+
+      strcpy(in.units[0],"\"\"");
+      strcpy(in.units[1],"\"\"");;
+      strcpy(in.units[2],"\"\"");;
+    }
+
+    void set_time_key(qar_data_key &in){
+      in.num_key = 8;
+      int i;
+
+      keys_allocate(in);
+
+      strcpy(in.keys[0],"GMT");
+      strcpy(in.keys[1],"\"GMT\"");
+      strcpy(in.keys[2],"\"GMT\"");
+      strcpy(in.keys[3],"UTC");
+      strcpy(in.keys[4],"\"UTC\"");
+      strcpy(in.keys[5],"\"UTC (HRS/MINS)\"");
+      strcpy(in.keys[6],"\"GMT TIME HHMMSS\"");
+      strcpy(in.keys[7],"\"Time\"");
+
+      strcpy(in.units[0],"\"\"");
+      strcpy(in.units[1],"\"HHMMSS\"");
+      strcpy(in.units[2],"\"hhmmss\"");
+      strcpy(in.units[3],"\"\"");
+      strcpy(in.units[4],"\"hhmmss\"");
+      strcpy(in.units[5],"\"HHMMSS\"");
+      strcpy(in.units[6],"\"HHMMSS\"");
+      strcpy(in.units[7],"\"\"");
+     }
+     void set_status_key(qar_data_key &in){
+      in.num_key = 2;
+      int i;
+
+      keys_allocate(in);
+
+      strcpy(in.keys[0],"Status");
+      strcpy(in.keys[1],"\"Status\"");
+      //      strcpy(in.keys[2],"\"Frame-SF\"");
+
+      strcpy(in.units[0],"\"\"");
+      strcpy(in.units[1],"\"\"");;
+      //      strcpy(in.units[2],"\"\"");;
+    }
+
+    void set_lat_key(qar_data_key &in){
+      int field_key = 13;
+      int unit_key = 4;
+      in.num_key = field_key*unit_key+2;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"LATITUDE");
+	strcpy(in.keys[1+j*field_key],"\"LATITUDE\"");
+	strcpy(in.keys[2+j*field_key],"LAT");
+	strcpy(in.keys[3+j*field_key],"\"LAT\"");
+	strcpy(in.keys[4+j*field_key],"\"LATP_GPS_CAP\"");
+	strcpy(in.keys[5+j*field_key],"\"PRESNT GPS POS  LAT+=N\"");
+	strcpy(in.keys[6+j*field_key],"\"PRESNT POS  LAT+=N\"");
+	strcpy(in.keys[7+j*field_key],"\"PRSNT POSN LAT CAP\"");
+	strcpy(in.keys[8+j*field_key],"\"Present Position Latitude\"");
+	strcpy(in.keys[9+j*field_key],"\"GPSLAT\"");
+	strcpy(in.keys[10+j*field_key],"\"POSLATF\"");
+	strcpy(in.keys[11+j*field_key],"\"POSLATC\"");
+	strcpy(in.keys[12+j*field_key],"\"LATP\"");
+      }
+
+      strcpy(in.keys[field_key*unit_key],"\"LATP_GPS_CAP\"");
+      strcpy(in.keys[field_key*unit_key+1],"\"LATP_CAPT\"");
+
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i],"\"deg\"");
+	strcpy(in.units[i+field_key],"\"DEGS\"");
+	strcpy(in.units[i+2*field_key],"\"\"");
+	strcpy(in.units[i+3*field_key],"\"DEG\"");
+      }
+      strcpy(in.units[field_key*unit_key],"\" \"");
+      in.units[field_key*unit_key][1] = 176;
+      strcpy(in.units[field_key*unit_key+1],"\" \"");
+      in.units[field_key*unit_key+1][1] = 176;
+    }
+
+    void set_lon_key(qar_data_key &in){
+      int field_key = 14;
+      int unit_key = 3;//3;
+      in.num_key = field_key*unit_key+2;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"LONGITUDE");
+	strcpy(in.keys[1+j*field_key],"\"LONGITUDE\"");
+	strcpy(in.keys[2+j*field_key],"LONG");
+	strcpy(in.keys[3+j*field_key],"\"LONG\"");
+	strcpy(in.keys[4+j*field_key],"\"LONP_GPS_CAP\"");
+	strcpy(in.keys[5+j*field_key],"\"PRESNT GPS POS  LON+=E\"");
+	strcpy(in.keys[6+j*field_key],"\"PRESNT POS  LON+=E\"");
+	strcpy(in.keys[7+j*field_key],"\"PRESENT POSN LONG CAP\"");
+	strcpy(in.keys[8+j*field_key],"\"Present Position Longitude\"");
+	strcpy(in.keys[9+j*field_key],"\"GPSLNG\"");
+	strcpy(in.keys[10+j*field_key],"\"POSLNGF\"");
+	strcpy(in.keys[11+j*field_key],"\"POSLNGC\"");
+	strcpy(in.keys[12+j*field_key],"\"LON\"");
+	strcpy(in.keys[13+j*field_key],"\"LONP\"");
+      }
+
+      strcpy(in.keys[field_key*unit_key],"\"LONP_GPS_CAP\"");
+      strcpy(in.keys[field_key*unit_key+1],"\"LONP_CPT\"");
+
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i],"\"deg\"");
+	strcpy(in.units[i+field_key],"\"DEGS\"");
+	strcpy(in.units[i+2*field_key],"\"DEG\"");
+	//	strcpy(in.units[i+2*field_key],"\"\"");
+      }
+      strcpy(in.units[field_key*unit_key],"\" \"");
+      in.units[field_key*unit_key][1] = 176;
+      strcpy(in.units[field_key*unit_key+1],"\" \"");
+      in.units[field_key*unit_key+1][1] = 176;
+    }
+
+    void set_altitude_key(qar_data_key &in){
+      int field_key = 13;
+      int unit_key = 3;//3;
+      in.num_key = field_key*unit_key;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"ALT");
+	strcpy(in.keys[1+j*field_key],"\"ALT\"");
+	strcpy(in.keys[2+j*field_key],"\"ALT_BARO_CORR_CA\"");
+	strcpy(in.keys[3+j*field_key],"\"ALT  STAND-ARD\"");
+	strcpy(in.keys[4+j*field_key],"\"DSPY ALT\"");
+	strcpy(in.keys[5+j*field_key],"\"ALTITUDE (1013)\"");
+	strcpy(in.keys[6+j*field_key],"\"PRESS  ALT\"");
+	strcpy(in.keys[7+j*field_key],"\"Altitude (1013.25mb)\"");
+	strcpy(in.keys[8+j*field_key],"\"RADALTL\"");
+	strcpy(in.keys[9+j*field_key],"\"DISPALT\"");
+	strcpy(in.keys[10+j*field_key],"\"PALT\"");
+	strcpy(in.keys[11+j*field_key],"\"ALTDSP\"");
+	strcpy(in.keys[12+j*field_key],"\"_ALT_BARO\"");
+      }
+
+      for(i=0;i<field_key;i++){
+      	strcpy(in.units[i],"\"ft\"");
+	strcpy(in.units[i+field_key],"\"FEET\"");
+	strcpy(in.units[i+2*field_key],"\"FT\"");
+      }
+    }
+
+    void set_deltaG_key(qar_data_key &in){
+      int field_key = 10;
+      int unit_key = 3;//3;
+      in.num_key = field_key*unit_key;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"CGBRMACL1");
+	strcpy(in.keys[1+j*field_key],"\"CGBRMACL\"");
+	strcpy(in.keys[2+j*field_key],"GVRT1");
+	strcpy(in.keys[3+j*field_key],"\"VRTG\"");
+	strcpy(in.keys[4+j*field_key],"\"VERT  ACCEL\"");
+	strcpy(in.keys[5+j*field_key],"\"NORM ACCEL\"");
+	strcpy(in.keys[6+j*field_key],"\"COG NORM ACCEL\"");
+	strcpy(in.keys[7+j*field_key],"\"COG NORMAL ACCEL\"");
+	strcpy(in.keys[8+j*field_key],"\"Normal Acceleration\"");
+	strcpy(in.keys[9+j*field_key],"\"GVRT\"");
+      }
+	
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i],"\"g\"");
+	strcpy(in.units[i+field_key],"\"G\"");
+	strcpy(in.units[i+2*field_key],"\"GEES\"");
+      }
+    }
+    void set_aoa_key(qar_data_key &in){
+      int field_key = 8;
+      int unit_key = 3;//3;
+      in.num_key = field_key*unit_key+2;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"\"AOA_CORRECTED_LH\"");
+	strcpy(in.keys[1+j*field_key],"\"AOACORR\"");
+	strcpy(in.keys[2+j*field_key],"\"AOAL\"");
+	strcpy(in.keys[3+j*field_key],"\"IAOA\"");
+	strcpy(in.keys[4+j*field_key],"\"AOACCP\""); //NOT SURE IF I SHOULD US AOACFO
+	strcpy(in.keys[5+j*field_key],"\"AOA\"");
+	strcpy(in.keys[6+j*field_key],"\"C_AOA_LH\"");
+	strcpy(in.keys[7+j*field_key],"\"C_AOA_RH\"");
+      }
+
+      strcpy(in.keys[field_key*unit_key],"\"AOA_CORRECTED_LH\""); //A350-900
+      strcpy(in.keys[field_key*unit_key+1],"\"AOA_INDICATED_LH\""); //A350-1000
+
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i],"\"deg\"");
+	strcpy(in.units[i+field_key],"\"DEGS\"");
+	strcpy(in.units[i+2*field_key],"\"DEG\"");
+      }
+
+      strcpy(in.units[field_key*unit_key],"\" \"");
+      in.units[field_key*unit_key][1] = 176;
+      strcpy(in.units[field_key*unit_key+1],"\" \"");
+      in.units[field_key*unit_key+1][1] = 176;
+    }
+    void set_vertical_speed_key(qar_data_key &in){
+      int field_key = 6;
+      int unit_key = 5;//3;
+      in.num_key = field_key*unit_key;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"\"VERT_SPEED_CAP\"");
+	strcpy(in.keys[1+j*field_key],"\"VERTSPEED\"");
+	strcpy(in.keys[2+j*field_key],"\"IVV\"");
+	strcpy(in.keys[3+j*field_key],"\"IVRTSPD\"");
+	strcpy(in.keys[4+j*field_key],"\"VRTSPD\"");
+	strcpy(in.keys[5+j*field_key],"\"VERTICAL_SPD_CDS_CPT\"");
+      }
+
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i],"\"ft/min\"");
+	strcpy(in.units[i+field_key],"\"FEET/MIN\"");
+	strcpy(in.units[i+2*field_key],"\"FT/MIN\"");
+	strcpy(in.units[i+3*field_key],"\"fpm\"");
+	strcpy(in.units[i+4*field_key],"\"ft.min\"");
+      }
+    }
+    void set_tas_key(qar_data_key &in){
+      int field_key = 3;
+      int unit_key = 3;//3;
+      in.num_key = field_key*unit_key;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"\"TAS\"");
+	strcpy(in.keys[1+j*field_key],"\"AIRSPDT\"");
+	strcpy(in.keys[2+j*field_key],"\"TAS_ISIS\"");
+      }
+
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i],"\"kts\"");
+	strcpy(in.units[i+field_key],"\"KNTS\"");
+	strcpy(in.units[i+2*field_key],"\"\"");
+      }
+    }
+    void set_pitch_key(qar_data_key &in){
+      int field_key = 5;
+      int unit_key = 3;//3;
+      in.num_key = field_key*unit_key+2;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"\"PITCH_CAPT\"");
+	strcpy(in.keys[1+j*field_key],"\"PITCH\"");
+	strcpy(in.keys[2+j*field_key],"\"PTCHATTC\"");
+	strcpy(in.keys[3+j*field_key],"\"PTCHANGE\"");
+	strcpy(in.keys[4+j*field_key],"\"PTCH\"");
+      }
+
+      strcpy(in.keys[field_key*unit_key],"\"PITCH_CAPT\""); //A350-900
+      strcpy(in.keys[field_key*unit_key+1],"\"PITCH_ANG_CAP\""); //A350-1000
+
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i],"\"deg\"");
+	strcpy(in.units[i+field_key],"\"DEGS\"");
+	strcpy(in.units[i+2*field_key],"\"DEG\"");
+      }
+      strcpy(in.units[field_key*unit_key],"\" \"");
+      in.units[field_key*unit_key][1] = 176;
+      strcpy(in.units[field_key*unit_key+1],"\" \"");
+      in.units[field_key*unit_key+1][1] = 176;
+    }
+    void set_mach_key(qar_data_key &in){
+      int field_key = 3;
+      int unit_key = 2;//3;
+      in.num_key = field_key*unit_key;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"\"MN\"");
+	strcpy(in.keys[1+j*field_key],"\"MACHSPD\"");
+	strcpy(in.keys[2+j*field_key],"\"MACH\"");
+      }
+
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i],"\"MACH\"");
+	strcpy(in.units[i+field_key],"\"\"");
+      }
+    }
+    void set_sat_key(qar_data_key &in){
+      int field_key = 1;
+      int unit_key = 3;//3;
+      in.num_key = field_key*unit_key;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"\"SAT\"");
+      }
+
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i+0*field_key],"\"degC\"");
+	strcpy(in.units[i+1*field_key],"\"DEG C\"");
+	strcpy(in.units[i+2*field_key],"\"DEGC\"");
+      }
+    }
+    void set_roll_key(qar_data_key &in){
+      int field_key = 4;
+      int unit_key = 3;//3;
+      in.num_key = field_key*unit_key+2;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"\"ROLL_CAPT\"");
+	strcpy(in.keys[1+j*field_key],"\"ROLL\"");
+	strcpy(in.keys[2+j*field_key],"\"ROLLATTC\"");
+	strcpy(in.keys[3+j*field_key],"\"ROLANGE\"");
+      }
+
+      strcpy(in.keys[field_key*unit_key],"\"ROLL_CAPT\""); //A350-900
+      strcpy(in.keys[field_key*unit_key+1],"\"RollAngle_CPT\"");  //A350-1000
+
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i],"\"deg\"");
+	strcpy(in.units[i+field_key],"\"DEGS\"");
+	strcpy(in.units[i+2*field_key],"\"DEG\"");
+      }
+      strcpy(in.units[field_key*unit_key],"\" \"");
+      in.units[field_key*unit_key][1] = 176;
+      strcpy(in.units[field_key*unit_key+1],"\" \"");
+      in.units[field_key*unit_key+1][1] = 176;
+    }
+    void set_flap_key(qar_data_key &in){
+      int field_key = 7;
+      int unit_key = 4;//3;
+      in.num_key = field_key*unit_key;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"\"Actual Flaps angle\"");
+	strcpy(in.keys[1+j*field_key],"\"FLAP ANG\"");
+	strcpy(in.keys[2+j*field_key],"\"FLAPS POSITN\"");
+	strcpy(in.keys[3+j*field_key],"\"FLPSFAG\"");
+	strcpy(in.keys[4+j*field_key],"\"FLAPLO\"");
+	strcpy(in.keys[5+j*field_key],"\"_FLAPS_ANGLE\"");
+	strcpy(in.keys[6+j*field_key],"\"FLPANGL\"");
+      }
+	
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i],"\"deg\"");
+	strcpy(in.units[i+field_key],"\"\"");
+	strcpy(in.units[i+2*field_key],"\"d\"");
+	strcpy(in.units[i+3*field_key],"\"DEGS\"");
+      }
+    }
+    void set_weight_key(qar_data_key &in){
+      int field_key = 1;
+      int unit_key = 1;//3;
+      in.num_key = field_key*unit_key;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"\"FMFGROSSWT\"");
+      }
+	
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i],"\"kg\"");
+      }
+    }
+    void set_is_on_ground_key(qar_data_key &in){
+      in.num_key = 12;
+      int i;
+
+      keys_allocate(in);
+
+      strcpy(in.keys[0],"\"ANY_GEAR_GND\"");
+      strcpy(in.keys[1],"\"LH_GEAR_GND\"");
+      strcpy(in.keys[2],"\"RH_GEAR_GND\"");
+      strcpy(in.keys[3],"\"LGSQL\"");
+      strcpy(in.keys[4],"\"LGSQR\"");
+      strcpy(in.keys[5],"\"AGOG\"");
+      strcpy(in.keys[6],"\"AIRGND\"");
+      strcpy(in.keys[7],"\"SQTSWL\"");
+      strcpy(in.keys[8],"\"LBGDL\"");
+      strcpy(in.keys[9],"\"LDG_NOSE\"");
+      strcpy(in.keys[10],"\"LDG_LH\"");
+      strcpy(in.keys[11],"\"LDG_RH\"");
+
+      for(i=0;i<in.num_key;i++){
+	strcpy(in.units[i],"\"\"");;
+      }
+    }
+    void set_fuel_flow_r_key(qar_data_key &in){
+      int field_key = 3;
+      int unit_key = 2;//3;
+      in.num_key = field_key*unit_key;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"\"FUEL FLOW (kg/h) (R)\"");
+	strcpy(in.keys[1+j*field_key],"\"FFKGH.R\"");
+	strcpy(in.keys[2+j*field_key],"\"FFWF.R\"");
+      }
+	
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i],"\"kg/h\"");
+	strcpy(in.units[i+field_key],"\"KGH\"");
+      }
+    }
+    void set_fuel_flow_l_key(qar_data_key &in){
+      int field_key = 3;
+      int unit_key = 2;//3;
+      in.num_key = field_key*unit_key;
+      int i,j;
+
+      keys_allocate(in);
+
+      for(j=0;j<unit_key;j++){
+	strcpy(in.keys[0+j*field_key],"\"FUEL FLOW (kg/h) (L)\"");
+	strcpy(in.keys[1+j*field_key],"\"FFKGH.L\"");
+	strcpy(in.keys[2+j*field_key],"\"FFWF.L\"");
+      }
+	
+      for(i=0;i<field_key;i++){
+	strcpy(in.units[i],"\"kg/h\"");
+	strcpy(in.units[i+field_key],"\"KGH\"");
+      }
+    }
+
+    void free_key(qar_data_key &in){
+      int i;
+      for(i=0;i<in.num_key;i++){
+	delete [] in.keys[i];
+	delete [] in.units[i];
+      }
+      delete [] in.keys;
+      delete [] in.units;
+      in.num_key = 0;
+    }
+    // End of code section by Felix Chong (CUHK intern 2017)
+  };
+  /*
+  int flight_data::read_raw_QAR_append_NRL_csv(char *file_path,char *raw_qar_filename,char *nrl_name_format){
+    tags seq_no("seq_no");
+    tags suffix("suffix");
+
+    char *filename1 = new char [FILENAMEBUFFSIZE];
+    char *filename2 = new char [FILENAMEBUFFSIZE];
+    char* ctemp = new char [FILENAMEBUFFSIZE];
+
+    strcpy(filename1,file_path);
+    strcat(filename1,raw_qar_filename);
+    date_time init_date = read_date_from_QAR_csv(filename1);
+
+    int *numfield = new int [2];
+    numfield[0] = 7;
+    numfield[1] = 2;
+    char ***fields = new char **[2];
+    int i,j,k;
+    for(i=0;i<2;i++){
+      fields[i] = new char *[numfield[i]];
+      for(j=0;j<numfield[i];j++){
+	fields[i][j] = new char [FILENAMEBUFFSIZE];
+      }
+    }
+    char ****data = new char ***[2];
+    int *numdata = new int [2];
+
+    date_time temp_time;
+    double *temp_latlon = new double [2];
+
+    bool found = file_check_exist(filename1);
+    if(found){
+      strcpy(fields[0][0],"Frame-SF");
+      strcpy(fields[0][1],"GMT");
+      if(!file_handler_csv_header_enquiry(filename1,fields[0][1],2)){
+	strcpy(fields[0][1],"UTC");
+	if(!file_handler_csv_header_enquiry(filename1,fields[0][1],2)){
+	  //cout << "Time issue." << endl;
+	  return _ERRORCODE_FILEINSUFFICIENTDATA;
+	}
+      }
+      strcpy(fields[0][2],"LATITUDE");
+      if(!file_handler_csv_header_enquiry(filename1,fields[0][2],2)){
+	strcpy(fields[0][2],"LAT");
+	if(!file_handler_csv_header_enquiry(filename1,fields[0][2],2)){
+	  //cout << "Lat issue." << endl;
+	  return _ERRORCODE_FILEINSUFFICIENTDATA;
+	}
+      }
+      strcpy(fields[0][3],"LONGITUDE");
+      if(!file_handler_csv_header_enquiry(filename1,fields[0][3],2)){
+	strcpy(fields[0][3],"LONG");
+	if(!file_handler_csv_header_enquiry(filename1,fields[0][3],2)){
+	  //cout << "Long issue." << endl;
+	  return _ERRORCODE_FILEINSUFFICIENTDATA;
+	}
+      }
+      strcpy(fields[0][4],"ALT");
+      strcpy(fields[0][5],"CGBRMACL1");
+      if(!file_handler_csv_header_enquiry(filename1,fields[0][5],2)){
+	strcpy(fields[0][5],"GVRT1");
+	if(!file_handler_csv_header_enquiry(filename1,fields[0][5],2)){
+	  //cout << "Long issue." << endl;
+	  return _ERRORCODE_FILEINSUFFICIENTDATA;
+	}
+      }
+
+      file_handler_extract_data_from_csv(filename1,numfield[0],fields[0],data[0],2,numdata[0]);
+
+      this->create(numdata[0]);
+      for(i=0;i<numdata[0];i++){
+	if(strlen(data[0][1][i])>0){
+	  temp_time.set_time(data[0][1][i]);
+	  temp_time += init_date;
+	}
+	else{
+	  temp_time = NOTIME;	  
+	}
+	this->data_pt[i].set_time(temp_time);
+
+	if(strlen(data[0][2][i])>0){
+	  temp_latlon[0] = atof(data[0][2][i]);
+	}
+	else{
+	  temp_latlon[0] = MISSINGVALUE;
+	}
+	if(strlen(data[0][3][i])>0){
+	  temp_latlon[1] = atof(data[0][3][i]);
+	}
+	else{
+	  temp_latlon[1] = MISSINGVALUE;
+	}
+	this->data_pt[i].set_latlon(temp_latlon);
+
+	if(strlen(data[0][4][i])>0){
+	  this->data_pt[i].set_flight_level(atof(data[0][4][i]));
+	}
+	else{
+	  this->data_pt[i].set_flight_level(MISSINGVALUE);
+	}
+	
+	this->data_pt[i].set_delta_g(MISSINGVALUE);
+	this->data_pt[i].set_delta_g(atof(data[0][5][i]));
+
+	strcpy(ctemp,data[0][0][i]);
+	this->data_pt[i].set_frame_sec(atoi(strstr(ctemp,"-")+1));
+	*strstr(ctemp,"-")='\0';
+	this->data_pt[i].set_frame_no(atoi(ctemp));
+
+	this->data_pt[i].set_edr(MISSINGVALUE);
+	for(j=0;j<numdata[1];j++){
+	  if(strstr(data[1][0][j],data[0][0][i])!=NULL){
+	    this->data_pt[i].set_edr(atof(data[1][1][j]));
+	    break;
+	  }
+	}
+
+	this->data_pt[i].set_sat(atof(data[0][6][i])+meteorology_C_to_K);
+      }
+      
+      strcpy(fields[1][0]," FrameNo");
+      strcpy(fields[1][1],"EDR");
+      int seqnum = 1;
+      strcpy(filename2,file_path);
+      strcat(filename2,nrl_name_format);
+      seq_no.replace(filename2,seqnum);
+      suffix.replace(filename2,"-results");
+
+      found = (file_check_exist(filename2));
+      while(found){
+	file_handler_extract_data_from_csv(filename2,numfield[1],fields[1],data[1],0,numdata[1]);
+	
+	for(j=0;j<numfield[1];j++){
+	  for(i=0;i<numdata[0];i++){
+	    if(strstr(data[1][0][j],data[0][0][i])!=NULL){
+	      this->data_pt[i].set_edr(atof(data[1][1][j]));
+	      break;
+	    }
+	  }
+	}
+	  
+	for(j=0;j<numfield[i];j++){
+	  if(data[1][j]!=NULL){
+	    for(k=0;k<numdata[i];k++){
+	      delete [] data[1][j][k];
+	    }
+	    delete [] data[1][j];
+	  }
+	}
+	delete [] data[1];
+	
+	seqnum++;
+	strcpy(filename2,file_path);
+	strcat(filename2,nrl_name_format);
+	seq_no.replace(filename2,seqnum);
+	suffix.replace(filename2,"-results");
+	
+	found = (file_check_exist(filename2));
+      }
+    }
+
+    for(i=0;i<2;i++){
+      for(j=0;j<numfield[i];j++){
+	delete [] fields[i][j];
+      }
+      delete [] fields[i];
+    }
+    delete [] fields;
+    delete [] numfield;
+
+    delete [] filename1;
+    delete [] filename2;
+
+    delete [] ctemp;
+    return _ERRORCODE_NOERROR;
+  }
+  */
+  int flight_data::read_NRL_csv(char *file_path,char *name_format,date_time init_date,char* aircrafttype){
+    this->destroy();
+    tags seq_no("seq_no");
+    tags suffix("suffix");
+    tags aircraft_type("aircraft type");
+    init_date.set_time(init_date.get_year(),init_date.get_month(),init_date.get_day());
+
+    char *filename1 = new char [FILENAMEBUFFSIZE];
+    char *filename2 = new char [FILENAMEBUFFSIZE];
+    char* ctemp = new char [FILENAMEBUFFSIZE];
+
+    int *numfield = new int [2];
+    numfield[0] = 7;
+    numfield[1] = 2;
+    char ***fields = new char **[2];
+    int i,j,k;
+    for(i=0;i<2;i++){
+      fields[i] = new char *[numfield[i]];
+      for(j=0;j<numfield[i];j++){
+	fields[i][j] = new char [FILENAMEBUFFSIZE];
+      }
+    }
+    strcpy(fields[0][0],"Frame-SF");
+    strcpy(fields[0][1],"GMT");
+    strcpy(fields[0][2],"LATITUDE");
+    strcpy(fields[0][3],"LONGITUDE");
+    strcpy(fields[0][4],"ALT");
+    strcpy(fields[0][5],"CGBRMACL1");
+    strcpy(fields[0][6],"SAT");
+
+    strcpy(fields[1][0]," FrameNo");
+    strcpy(fields[1][1],"EDR");
+
+    char ****data = new char ***[2];
+    int *numdata = new int [2];
+
+    date_time temp_time;
+    double *temp_latlon = new double [2];
+
+    int seqnum = 1;
+    strcpy(filename1,file_path);
+    strcat(filename1,name_format);
+    seq_no.replace(filename1,seqnum);
+    suffix.replace(filename1,"");
+    strcpy(filename2,file_path);
+    strcat(filename2,name_format);
+    seq_no.replace(filename2,seqnum);
+    suffix.replace(filename2,"-results");
+    if(aircrafttype != NULL){
+      aircraft_type.replace(filename2,aircrafttype);
+      aircraft_type.replace(filename1,aircrafttype);
+    }
+    //cout << filename1 << " " << filename2 << endl;
+    bool found = (file_check_exist(filename1) && file_check_exist(filename2));
+    if(found){
+      strcpy(fields[0][0],"Frame-SF");
+      strcpy(fields[0][1],"GMT");
+      if(!file_handler_csv_header_enquiry(filename1,fields[0][1],0)){
+	strcpy(fields[0][1],"UTC");
+	if(!file_handler_csv_header_enquiry(filename1,fields[0][1],0)){
+	  //cout << "Time issue." << endl;
+	  return _ERRORCODE_FILEINSUFFICIENTDATA;
+	}
+      }
+      strcpy(fields[0][2],"LATITUDE");
+      if(!file_handler_csv_header_enquiry(filename1,fields[0][2],0)){
+	strcpy(fields[0][2],"LAT");
+	if(!file_handler_csv_header_enquiry(filename1,fields[0][2],0)){
+	  //cout << "Lat issue." << endl;
+	  return _ERRORCODE_FILEINSUFFICIENTDATA;
+	}
+      }
+      strcpy(fields[0][3],"LONGITUDE");
+      if(!file_handler_csv_header_enquiry(filename1,fields[0][3],0)){
+	strcpy(fields[0][3],"LONG");
+	if(!file_handler_csv_header_enquiry(filename1,fields[0][3],0)){
+	  //cout << "Long issue." << endl;
+	  return _ERRORCODE_FILEINSUFFICIENTDATA;
+	}
+      }
+      strcpy(fields[0][4],"ALT");
+      strcpy(fields[0][5],"CGBRMACL1");
+      if(!file_handler_csv_header_enquiry(filename1,fields[0][5],0)){
+	strcpy(fields[0][5],"GVRT1");
+	if(!file_handler_csv_header_enquiry(filename1,fields[0][5],0)){
+	  //cout << "Long issue." << endl;
+	  return _ERRORCODE_FILEINSUFFICIENTDATA;
+	}
+      }
+
+      strcpy(fields[1][0]," FrameNo");
+      strcpy(fields[1][1],"EDR");
+    }
+    //cout << filename1 << " " << filename2 << endl;
+    while(found){
+      //cout << filename1 << " " << filename2 << endl;
+      file_handler_extract_data_from_csv(filename1,numfield[0],fields[0],data[0],0,0,numdata[0]);
+      file_handler_extract_data_from_csv(filename2,numfield[1],fields[1],data[1],0,0,numdata[1]);
+
+      flight_data temp;
+      temp.create(numdata[0]);
+
+      for(i=0;i<numdata[0];i++){
+	if(strlen(data[0][1][i])>0){
+	  temp_time.set_time(data[0][1][i]);
+	  temp_time += init_date;
+	}
+	else{
+	  temp_time = NOTIME;	  
+	}
+	temp.data_pt[i].set_time(temp_time);
+
+	if(strlen(data[0][2][i])>0){
+	  temp_latlon[0] = atof(data[0][2][i]);
+	}
+	else{
+	  temp_latlon[0] = MISSINGVALUE;
+	}
+	if(strlen(data[0][3][i])>0){
+	  temp_latlon[1] = atof(data[0][3][i]);
+	}
+	else{
+	  temp_latlon[1] = MISSINGVALUE;
+	}
+	temp.data_pt[i].set_latlon(temp_latlon);
+
+	if(strlen(data[0][4][i])>0){
+	  temp.data_pt[i].set_flight_level(atof(data[0][4][i]));
+	}
+	else{
+	  temp.data_pt[i].set_flight_level(MISSINGVALUE);
+	}
+	
+	temp.data_pt[i].set_delta_g(MISSINGVALUE);
+	temp.data_pt[i].set_delta_g(atof(data[0][5][i]));
+
+	strcpy(ctemp,data[0][0][i]);
+	temp.data_pt[i].set_frame_sec(atoi(strstr(ctemp,"-")+1));
+	*strstr(ctemp,"-")='\0';
+	temp.data_pt[i].set_frame_no(atoi(ctemp));
+
+	temp.data_pt[i].set_edr(MISSINGVALUE);
+	for(j=0;j<numdata[1];j++){
+	  if(strncmp(data[1][0][j]+1,data[0][0][i],strlen(data[0][0][i]))==0){
+	    temp.data_pt[i].set_edr(atof(data[1][1][j]));
+	    break;
+	  }
+	}
+
+	temp.data_pt[i].set_sat(atof(data[0][6][i])+meteorology_C_to_K);
+      }
+      
+      //check for missing time info
+      found = false;
+      for(i=0;i<numdata[0];i++){
+	if(temp.data_pt[i].get_time() == NOTIME){
+	  //cout << "Need to fill time." << endl;
+	  found = true;
+	  break;
+	}
+      }
+      int frame1, frame2;
+      int loc1, loc2;
+      if(found){
+	date_time time1,time2;
+	for(i=0;i<numdata[0];i++){
+	  if(temp.data_pt[i].get_time() != NOTIME){
+	    time1 = temp.data_pt[i].get_time();
+	    //frame1 = i;
+	    loc1 = i;
+	    frame1 = temp.data_pt[i].get_frame_no()*temp.get_max_frame_sf() + (temp.data_pt[i].get_frame_sec()-1); 
+	    //cout << temp.data_pt[i].get_frame_no() << " " << temp.data_pt[i].get_frame_sec() << endl;
+	    break;
+	  }
+	}
+	for(i=loc1+1;i<numdata[0];i++){
+	  if(temp.data_pt[i].get_time() != NOTIME){
+	    time2 = temp.data_pt[i].get_time();
+	    frame2 = temp.data_pt[i].get_frame_no()*temp.get_max_frame_sf() + (temp.data_pt[i].get_frame_sec()-1); 
+	    //cout << temp.data_pt[i].get_frame_no() << " " << temp.data_pt[i].get_frame_sec() << endl;
+	    break;
+	  }
+	}
+	double num_sec = time2.numberOfSecondFrom(time1);
+	num_sec /= (frame2 - frame1);
+	//cout << time1 << " " << time2 << endl;
+	//cout << time2.numberOfHourFrom(time1);
+	//cout << num_sec << endl;
+	//cout << frame1 << " " << frame2 << " " << temp.get_max_frame_sf() << endl;
+
+	//	if(frame1 > 0){
+	  for(i=0;i<numdata[0];i++){
+	    temp.data_pt[i].set_time(temp.data_pt[loc1].get_time() - date_time(0,0,0,0,0,((int) (frame1-(temp.data_pt[i].get_frame_no()*temp.get_max_frame_sf() + (temp.data_pt[i].get_frame_sec()-1)))*num_sec)));
+	  }
+	  //}
+	  /*
+	for(i=frame1+1;i<numdata[0];i++){
+	  if(temp.data_pt[i].get_time() == NOTIME){
+	    temp.data_pt[i].set_time(temp.data_pt[frame1].get_time() + date_time(0,0,0,0,0,((int) ((temp.data_pt[i].get_frame_no()*temp.get_max_frame_sf() + temp.data_pt[i].get_frame_sec())-frame1)*num_sec)));
+	  }
+	}
+	  */
+      }
+
+      //filling missing lat lon
+      double temp_latlon1, temp_latlon2;
+      for(i=0;i<numdata[0];i++){
+	if(temp.data_pt[i].get_latlon()[0] == MISSINGVALUE){
+	  frame1=-99;
+	  frame2=-99;
+	  //loc1 = -99;
+	  //loc2 = -99;
+	  //cout << "Lat: " << temp.data_pt[i].get_time() << endl;
+	  for(j=i-1;j>=0;j--){
+	    if(temp.data_pt[j].get_latlon()[0] != MISSINGVALUE){
+	      frame1 = (temp.data_pt[j].get_frame_no()*temp.get_max_frame_sf() + temp.data_pt[j].get_frame_sec()-1);
+	      loc1 = j;
+	      temp_latlon1 = temp.data_pt[j].get_latlon()[0];
+	      break;
+	    }
+	  }
+	  for(j=i+1;j<numdata[0];j++){
+	    if(temp.data_pt[j].get_latlon()[0] != MISSINGVALUE){
+	      frame2 = (temp.data_pt[j].get_frame_no()*temp.get_max_frame_sf() + temp.data_pt[j].get_frame_sec()-1);
+	      loc2 = j;
+	      temp_latlon2 = temp.data_pt[j].get_latlon()[0];
+	      break;
+	    }
+	  }
+	  //cout << "Lat: " << frame1 << " " << frame2 << " " << loc1 << " " << loc2 << endl;
+	  
+	  if(frame2 < 0 && frame1 >= 0){
+	    frame2 = frame1;
+	    temp_latlon2 = temp_latlon1;
+	    for(j=loc1-2;j>=0;j--){
+	      if(temp.data_pt[j].get_latlon()[0] != MISSINGVALUE){
+		frame1 = (temp.data_pt[j].get_frame_no()*temp.get_max_frame_sf() + temp.data_pt[j].get_frame_sec()-1);
+		temp_latlon1 = temp.data_pt[j].get_latlon()[0];
+		break;
+	      }
+	    }
+	  }
+	  else if(frame1 < 0 && frame2 >= 0){
+	    frame1 = frame2;
+	    loc1 = loc2;
+	    temp_latlon1 = temp_latlon2;
+	    for(j=loc2+1;j<numdata[0];j++){
+	      if(temp.data_pt[j].get_latlon()[0] != MISSINGVALUE){
+		frame2 = (temp.data_pt[j].get_frame_no()*temp.get_max_frame_sf() + temp.data_pt[j].get_frame_sec()-1);
+		temp_latlon2 = temp.data_pt[j].get_latlon()[0];
+		break;
+	      }
+	    }
+	  }
+	  //cout << "Lat: " << frame1 << " " << frame2 << endl;
+	  if(frame1 < 0 || frame2 < 0){
+	    return _ERRORCODE_FILEINSUFFICIENTDATA;
+	  }
+
+	  temp_latlon[1] = temp.data_pt[i].get_latlon()[1];
+	  temp_latlon[0] = temp_latlon1 + ((double) ((temp.data_pt[i].get_frame_no()*temp.get_max_frame_sf() + temp.data_pt[i].get_frame_sec()-1) - frame1))/(frame2 - frame1)*(temp_latlon2-temp_latlon1);
+	  temp.data_pt[i].set_latlon(temp_latlon);
+	}
+      }
+
+      for(i=0;i<numdata[0];i++){
+	if(temp.data_pt[i].get_latlon()[1] == MISSINGVALUE){
+	  frame1 = -99;
+	  frame2 = -99;
+	  //cout << "Long: " << temp.data_pt[i].get_time() << endl;
+	  for(j=i-1;j>=0;j--){
+	    if(temp.data_pt[j].get_latlon()[1] != MISSINGVALUE){
+	      frame1 = (temp.data_pt[j].get_frame_no()*temp.get_max_frame_sf() + temp.data_pt[j].get_frame_sec()-1);
+	      loc1 = j;
+	      temp_latlon1 = temp.data_pt[j].get_latlon()[1];
+	      break;
+	    }
+	  }
+	  for(j=i+1;j<numdata[0];j++){
+	    if(temp.data_pt[j].get_latlon()[1] != MISSINGVALUE){
+	      frame2 = (temp.data_pt[j].get_frame_no()*temp.get_max_frame_sf() + temp.data_pt[j].get_frame_sec()-1);
+	      loc2 = j;
+	      temp_latlon2 = temp.data_pt[j].get_latlon()[1];
+	      break;
+	    }
+	  }
+
+	  //cout << frame1 << " " << frame2 << endl;
+	  
+	  if(frame2 < 0 && frame1 >= 0){
+	    frame2 = frame1;
+	    temp_latlon2 = temp_latlon1;
+	    for(j=loc1-2;j>=0;j--){
+	      if(temp.data_pt[j].get_latlon()[1] != MISSINGVALUE){
+		frame1 = (temp.data_pt[j].get_frame_no()*temp.get_max_frame_sf() + temp.data_pt[j].get_frame_sec()-1);
+		temp_latlon1 = temp.data_pt[j].get_latlon()[1];
+		break;
+	      }
+	    }
+	  }
+	  else if(frame1 < 0 && frame2 >= 0){
+	    frame1 = frame2;
+	    temp_latlon1 = temp_latlon2;
+	    for(j=loc2+1;j<numdata[0];j++){
+	      if(temp.data_pt[j].get_latlon()[1] != MISSINGVALUE){
+		frame2 = (temp.data_pt[j].get_frame_no()*temp.get_max_frame_sf() + temp.data_pt[j].get_frame_sec()-1);
+		temp_latlon2 = temp.data_pt[j].get_latlon()[1];
+		break;
+	      }
+	    }
+	  }
+	  //cout << "Long: " << frame1 << " " << frame2 << endl;
+	  if(frame1 < 0 || frame2 < 0){
+	    return _ERRORCODE_FILEINSUFFICIENTDATA;
+	  }
+
+	  temp_latlon[0] = temp.data_pt[i].get_latlon()[0];
+	  temp_latlon[1] = temp_latlon1 + ((double) ((temp.data_pt[i].get_frame_no()*temp.get_max_frame_sf() + temp.data_pt[i].get_frame_sec()-1) - frame1))/(frame2 - frame1)*(temp_latlon2-temp_latlon1);
+	  temp.data_pt[i].set_latlon(temp_latlon);
+	}
+      }
+
+      this->append(temp);
+
+      for(i=0;i<2;i++){
+	for(j=0;j<numfield[i];j++){
+	  if(data[i][j]!=NULL){
+	    for(k=0;k<numdata[i];k++){
+	      delete [] data[i][j][k];
+	    }
+	    delete [] data[i][j];
+	  }
+	}
+	delete [] data[i];
+      }
+
+      seqnum++;
+      strcpy(filename1,file_path);
+      strcat(filename1,name_format);
+      seq_no.replace(filename1,seqnum);
+      suffix.replace(filename1,"");
+      strcpy(filename2,file_path);
+      strcat(filename2,name_format);
+      seq_no.replace(filename2,seqnum);
+      suffix.replace(filename2,"-results");
+      if(aircrafttype != NULL){
+	aircraft_type.replace(filename2,aircrafttype);
+	aircraft_type.replace(filename1,aircrafttype);
+      }
+      //cout << filename1 << " " << filename2 << endl;
+      found = (file_check_exist(filename1) && file_check_exist(filename2));
+    }
+
+    if(this->get_num_data_pt()>1){
+      for(i=1;i<this->get_num_data_pt();i++){
+	if(this->data_pt[i].get_time() < this->data_pt[i-1].get_time()){
+	  this->data_pt[i].set_time(this->data_pt[i].get_time() + ONE_DAY);
+	}
+      }
+    }
+
+    delete [] filename1;
+    delete [] filename2;
+
+    for(i=0;i<2;i++){
+      for(j=0;j<numfield[i];j++){
+	delete [] fields[i][j];
+      }
+      delete [] fields[i];
+    }
+    delete [] fields;
+    delete [] numfield;
+
+    delete [] ctemp;
+    return _ERRORCODE_NOERROR;
+  }
+  int flight_data::read_NRL_csv_with_flight_num_and_date(char *file_path,char *nameformat,char *flight_number,date_time init_date,char *dateformat,char* aircrafttype){
+    tags date("date");
+    tags flt_no("flight number");
+
+    char *temp_nameformat = new char [FILENAMEBUFFSIZE];
+    strcpy(temp_nameformat,nameformat);
+    char *ctemp = new char [FILENAMEBUFFSIZE];
+    date.replace(temp_nameformat,init_date.get_time(dateformat,ctemp));
+    flt_no.replace(temp_nameformat,flight_number);
+
+    int error = read_NRL_csv(file_path,temp_nameformat,init_date,aircrafttype);
+
+    delete [] ctemp;
+    delete [] temp_nameformat;
+
+    return error;
+  }
+  int flight_data::read_NRL_csv_with_case_number(char *file_path,char *casenumber,date_time (*read_date_func)(char *path,char* filename)){
+    date_time init_date = (*read_date_func)(file_path,casenumber);
+
+    char* flight_number = new char [FILENAMEBUFFSIZE];
+    char* aircraft_type = new char [FILENAMEBUFFSIZE];
+    char* year = new char [FILENAMEBUFFSIZE];
+    char* ctemp = new char [FILENAMEBUFFSIZE];
+    char* name_format = new char [FILENAMEBUFFSIZE];
+    char *filename1 = new char [FILENAMEBUFFSIZE];
+    char *filename2 = new char [FILENAMEBUFFSIZE];
+
+    char **filelist;
+    int numfile;
+    file_check_list_item(file_path,filelist,numfile);
+
+    int i;
+    bool found = false;
+    for(i=0;i<numfile;i++){
+      if(strncmp(filelist[i],casenumber,strlen(casenumber))==0 && strlen(filelist[i]) > strlen(casenumber) + 7 && strstr(filelist[i],"_")!=NULL){
+	found = true;
+	strcpy(ctemp,strstr(filelist[i],"-")+1);
+	*strstr(ctemp,"-")='\0';
+	strcpy(year,ctemp);
+	
+	strcpy(ctemp,strstr(strstr(filelist[i],"-")+1,"-")+1);
+	*strstr(ctemp,"_")='\0';
+	strcpy(flight_number,ctemp);
+
+	strcpy(ctemp,strstr(strstr(filelist[i],"_")+1,"-")+1);
+	*strstr(ctemp,"-")='\0';
+	strcpy(aircraft_type,ctemp);
+
+	break;
+      }
+    }
+
+    if(!found){
+      if(numfile > 0){
+	for(i=0;i<numfile;i++){
+	  delete [] filelist[i];
+	}
+	delete [] filelist;
+      }
+      delete [] filename1;
+      delete [] filename2;
+      delete [] flight_number;
+      delete [] aircraft_type;
+      delete [] ctemp;
+      delete [] name_format;
+      delete [] year;
+      
+      return _ERRORCODE_FILENOTFOUND;
+    }
+
+    if(numfile > 0){
+      for(i=0;i<numfile;i++){
+	delete [] filelist[i];
+      }
+      delete [] filelist;
+    }
+
+    //strcpy(name_format,file_path);
+    //strcat(name_format,"/");
+    strcpy(name_format,casenumber);
+    strcat(name_format,"-");
+    strcat(name_format,year);
+    strcat(name_format,"-");
+    strcat(name_format,flight_number);
+    strcat(name_format,"_###seq_no###-");
+    strcat(name_format,aircraft_type);
+    strcat(name_format,"-1###suffix###.csv");
+
+    int error = read_NRL_csv(file_path,name_format,init_date,NULL);
+
+    delete [] filename1;
+    delete [] filename2;
+    delete [] flight_number;
+    delete [] aircraft_type;
+    delete [] ctemp;
+    delete [] name_format;
+    delete [] year;
+
+    return error;
+  }
+
+  double *flight_data::get_location(date_time intime,double *location){
+    if(n_data_pt <= 0){
+      return NULL;
+    }
+    int i,j;
+    if(intime < data_pt[0].get_time()){
+      for(j=0;j<2;j++){
+	location[j] = data_pt[0].get_latlon()[j];
+      }
+    }
+    else if(intime > data_pt[n_data_pt-1].get_time()){
+      for(j=0;j<2;j++){
+	location[j] = data_pt[n_data_pt-1].get_latlon()[j];
+      }
+    }
+    else{
+      for(i=0;i<n_data_pt-1;i++){
+	if(intime >= data_pt[i].get_time() && intime <= data_pt[i+1].get_time()){
+	  double ratio = intime.get_ratio_between(data_pt[i].get_time(),data_pt[i+1].get_time());
+	  earth_cal_latlon(data_pt[i].get_latlon(),data_pt[i+1].get_latlon(),ratio,location);
+	  //cout << intime << " " << data_pt[i].get_time() << " " << data_pt[i+1].get_time() << " " << ratio << " " << location[0] << " " << location[1] << endl;
+	  break;
+	}
+      }
+    }
+
+    return location;
+  }
+
+  double flight_data::get_direction(date_time intime){
+    if(n_data_pt <= 0){
+      return -9999.;
+    }
+    int i,j;
+	
+    if(intime < data_pt[0].get_time()){
+      return libjeff::earth_latlon_cal_bearing(data_pt[0].get_latlon(),data_pt[1].get_latlon());
+    }
+    else if(intime > data_pt[n_data_pt-1].get_time()){
+      return libjeff::earth_latlon_cal_bearing(data_pt[n_data_pt-2].get_latlon(),data_pt[n_data_pt-1].get_latlon());
+    }
+    else{
+      for(i=0;i<n_data_pt-1;i++){
+	if(intime >= data_pt[i].get_time() && intime <= data_pt[i+1].get_time()){
+	  return libjeff::earth_latlon_cal_bearing(data_pt[i].get_latlon(),data_pt[i+1].get_latlon());
+	}
+      }
+    }
+    return -9999;
+  }  
+  
+  int flight_data::read_CXKA_QAR_csv(char *file_path,char *nameformat,char *flight_number,date_time init_date,char *dateformat,char* aircrafttype){ //use ###flight number###, ###date###, ###aircraft type###, ###seq_no### and ###suffix### in name_format, aircrafttype is optional and can be set to NULL
+    this->destroy();
+    this->read_CXKA_QAR_frametype(file_path,nameformat,flight_number,init_date,dateformat);
+    tags date("date");
+    tags flt_no("flight number");
+    tags aircraft_type("aircraft type");
+
+    char *temp_nameformat = new char [FILENAMEBUFFSIZE];
+    strcpy(temp_nameformat,nameformat);
+    char *ctemp = new char [FILENAMEBUFFSIZE];
+    date.replace(temp_nameformat,init_date.get_time(dateformat,ctemp));
+    flt_no.replace(temp_nameformat,flight_number);
+    if(aircrafttype != NULL){
+      aircraft_type.replace(temp_nameformat,aircrafttype);
+    }
+
+    int error = _ERRORCODE_NOERROR;
+    int num_fields = 19;
+    int *num_keys = new int [num_fields];
+    int i,j,k,m;
+    for(i=0;i<num_fields;i++){
+      num_keys[i] = 2;
+    }
+    char ***fields = new char **[num_fields];
+    for(i=0;i<num_fields;i++){
+      fields[i] = new char *[num_keys[i]];
+      for(j=0;j<num_keys[i];j++){
+	fields[i][j] = new char [FILENAMEBUFFSIZE];
+      }
+    }
+
+    int ground_key = -1;
+
+    char *filename1 = new char [FILENAMEBUFFSIZE];
+    strcpy(filename1,file_path);
+    strcat(filename1,temp_nameformat);
+
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Reading file: " << filename1 << std::endl;
+    }
+
+    bool found = file_check_exist(filename1);
+    if(found){
+      qar_data_key frame_key, time_key, status_key, lat_key, lon_key, alt_key, deltaG_key,aoa_key,vertical_speed_key,tas_key,pitch_key,roll_key,flap_key,sat_key,mach_key,is_on_ground_key,fuel_flow_r_key,fuel_flow_l_key,weight_key;
+      qar_data_key *working_key;
+
+      qar_keys::set_frame_key(frame_key);
+      qar_keys::set_time_key(time_key);
+      qar_keys::set_status_key(status_key);
+      qar_keys::set_lat_key(lat_key);
+      qar_keys::set_lon_key(lon_key);
+      qar_keys::set_altitude_key(alt_key);
+      qar_keys::set_deltaG_key(deltaG_key);
+      qar_keys::set_aoa_key(aoa_key);
+      qar_keys::set_vertical_speed_key(vertical_speed_key);
+      qar_keys::set_tas_key(tas_key);
+      qar_keys::set_pitch_key(pitch_key);
+      qar_keys::set_roll_key(roll_key);
+      qar_keys::set_flap_key(flap_key);
+      qar_keys::set_sat_key(sat_key);
+      qar_keys::set_mach_key(mach_key);
+      qar_keys::set_is_on_ground_key(is_on_ground_key);
+      qar_keys::set_fuel_flow_r_key(fuel_flow_r_key);
+      qar_keys::set_fuel_flow_l_key(fuel_flow_l_key);
+      qar_keys::set_weight_key(weight_key);
+
+      bool tas_found,mn_found,sat_found;
+      
+      int **headerloc = new int* [num_fields];
+      for(i=0;i<num_fields;i++){
+	headerloc[i] = new int [num_keys[i]];
+      }
+
+      headerloc[0][0] = 2;
+      headerloc[1][0] = 2;
+      headerloc[2][0] = 2;
+      for(i=3;i<num_fields;i++){
+	headerloc[i][0]=3;
+      }
+      headerloc[12][0] = 2;
+
+      for(i=0;i<num_fields;i++){
+	headerloc[i][1]=4;
+      }
+
+      char **keys = new char* [2];
+
+      for(k=0;k<num_fields;k++){
+	switch(k){
+	case 0:
+	  working_key = &frame_key;
+	  break;
+	case 1:
+	  working_key = &time_key;
+	  break;
+	case 2:
+	  working_key = &status_key;
+	  break;
+	case 3:
+	  working_key = &lat_key;
+	  break;
+	case 4:
+	  working_key = &lon_key;
+	  break;
+	case 5:
+	  working_key = &alt_key;
+	  break;
+	case 6:
+	  working_key = &deltaG_key;
+	  break;
+	case 7:
+	  working_key = &aoa_key;
+	  break;
+	case 8:
+	  working_key = &vertical_speed_key;
+	  break;
+	case 9:
+	  working_key = &pitch_key;
+	  break;
+	case 10:
+	  working_key = &roll_key;
+	  break;
+	case 11:
+	  working_key = &tas_key;
+	  break;
+	case 12:
+	  working_key = &flap_key;
+	  break;
+	case 13:
+	  working_key = &sat_key;
+	  break;
+	case 14:
+	  working_key = &mach_key;
+	  break;
+	case 15:
+	  working_key = &is_on_ground_key;
+	  break;
+	case 16:
+	  working_key = &fuel_flow_l_key;
+	  break;
+	case 17:
+	  working_key = &fuel_flow_r_key;
+	  break;
+	case 18:
+	  working_key = &weight_key;
+	  break;
+	case 19:
+	  //you should not reach here now. For furture use. :)
+	  break;	  
+	default:
+	  //something goes wrong if you reach here
+	  break;
+	}
+
+	for(j=0;j<num_keys[k];j++){
+	  strcpy(fields[k][j],"nil");
+	}
+	for(i=0;i<working_key->num_key;i++){
+	  keys[0] = working_key->keys[i];
+	  keys[1] = working_key->units[i];
+	  if(file_handler_csv_header_enquiry(filename1,2,keys,headerloc[k])){
+	    for(j=0;j<num_keys[k];j++){
+	      strcpy(fields[k][j],keys[j]);
+	    }
+	    if(k==1){
+	      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		std::cout << "Using " << fields[k][0] << " as the field name for time" << std::endl;
+	      }
+	    }
+	    else if(k==11){
+	      tas_found = true;
+	    }
+	    else if(k==13){
+	      sat_found = true;
+	    }
+	    else if(k==14){
+	      mn_found = true;
+	    }
+	    break;
+	  }
+	}
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  cout << k << " " << fields[k][0] << " " << fields[k][1] << std::endl;
+	}
+	if(strcmp(fields[k][0],"nil")==0){
+	  switch(k){
+	  case 0:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Frame issue." << endl;
+	    }
+	    error = _ERRORCODE_FILEINSUFFICIENTDATA;
+	    break;
+	  case 1:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Time issue." << endl;
+	    }
+	    error = _ERRORCODE_FILEINSUFFICIENTDATA;
+	    break;
+	  case 2:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Status issue." << endl;
+	    }
+	    error = _ERRORCODE_FILEINSUFFICIENTDATA;
+	    break;
+	  case 3:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Lat issue." << endl;
+	    }
+	    error = _ERRORCODE_FILEINSUFFICIENTDATA;
+	    break;
+	  case 4:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Lon issue." << endl;
+	    }
+	    error = _ERRORCODE_FILEINSUFFICIENTDATA;
+	    break;
+	  case 5:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Altitude issue." << endl;
+	    }
+	    error = _ERRORCODE_FILEINSUFFICIENTDATA;
+	    break;
+	  case 6:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Vertical acceleration issue." << endl;
+	    }
+	    error = _ERRORCODE_FILEINSUFFICIENTDATA;
+	    break;
+	  case 7:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Angle of Attack issue." << endl;
+	    }
+	    error = _ERRORCODE_FILEINSUFFICIENTDATA;
+	    break;
+	  case 8:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Vertical Speed not found." << endl;
+	    }
+	    break;
+	  case 9:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Pitch issue." << endl;
+	    }
+	    error = _ERRORCODE_FILEINSUFFICIENTDATA;
+	    break;
+	  case 10:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Roll issue." << endl;
+	    }
+	    error = _ERRORCODE_FILEINSUFFICIENTDATA;
+	    break;
+	  case 11:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "TAS not found." << endl;
+	    }
+	    break;
+	  case 12:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Flap not found." << endl;
+	    }
+	    break;
+	  case 13:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "sat not found." << endl;
+	    }
+	    break;
+	  case 14:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Machnumber not found." << endl;
+	    }
+	    break;
+	  case 15:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Ground indicator not found." << endl;
+	    }
+	    error = _ERRORCODE_FILEINSUFFICIENTDATA;
+	    break;
+	  case 16:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Fuel Flow L not found." << endl;
+	    }
+	    break;
+	  case 17:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Fuel Flow R not found." << endl;
+	    }
+	    break;
+	  case 18:
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      cout << "Weight not found." << endl;
+	    }
+	    break;
+	  case 19:
+	    //you should not reach here now. For furture use. :)
+	    break;	  
+	  default:
+	    //something goes wrong if you reach here
+	    break;
+	  }
+	}
+      }
+
+      qar_keys::free_key(frame_key);
+      qar_keys::free_key(time_key);
+      qar_keys::free_key(status_key);
+      qar_keys::free_key(lat_key);
+      qar_keys::free_key(lon_key);
+      qar_keys::free_key(alt_key);
+      qar_keys::free_key(deltaG_key);
+      qar_keys::free_key(aoa_key);
+      qar_keys::free_key(vertical_speed_key);
+      qar_keys::free_key(tas_key);
+      qar_keys::free_key(pitch_key);
+      qar_keys::free_key(roll_key);
+      qar_keys::free_key(flap_key);
+      qar_keys::free_key(sat_key);
+      qar_keys::free_key(mach_key);
+      qar_keys::free_key(is_on_ground_key);
+      qar_keys::free_key(fuel_flow_r_key);
+      qar_keys::free_key(fuel_flow_l_key);
+      qar_keys::free_key(weight_key);
+
+      if(!tas_found && mn_found && sat_found){
+	std::cout << "Compute TAS from Mach Number and SAT" << std::endl;
+      }
+
+      if(error){
+	delete [] filename1;
+	delete [] ctemp;
+	delete [] temp_nameformat;
+	
+	return error;
+      }
+
+      //std::cout << "No problem with keys" << endl;
+
+      char ****data;
+      int numdata;
+      int *frequency;
+      
+      date_time temp_time;
+      double *temp_latlon = new double [2];
+      
+      file_handler_extract_data_from_csv(filename1,num_fields,num_keys,fields,data,headerloc,5,numdata,frequency);
+
+      //std::cout << "Data extraction ok." << endl;
+
+
+      flight_data temp;
+      int max_frequency = frequency[0];
+      for(i=0;i<num_fields;i++){
+	//std::cout << frequency[i] << endl;
+	if(frequency[i] > max_frequency){
+	  max_frequency = frequency[i];
+	}
+      }
+      int lcm_frequency = max_frequency;
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "Frequency: ";
+	for(i=0;i<num_fields;i++){
+	  std::cout << frequency[i] << " ";
+	}
+	std::cout << std::endl;
+      }
+
+      for(i=0;i<num_fields;i++){
+	if(frequency[i]!=0 && lcm_frequency%frequency[i]!=0){
+	  for(j=frequency[i]/2;j>1;j--){
+	    if(lcm_frequency%j==0){
+	      lcm_frequency*=frequency[i]/j;
+	      break;
+	    }
+	  }
+	}
+      }
+
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << lcm_frequency << " " << numdata << endl;
+      }
+
+      temp.create(numdata*lcm_frequency);
+      
+      int empty_data = 0;
+
+      for(i=0;i<numdata;i++){
+	//std::cout << "Data: " << i;
+	//std::cout.flush();
+	//	if((strstr(data[1][i][0],"XXX")!=NULL && strstr(data[5][i][0],"XXX")!=NULL) || (i>0 && strlen(data[1][i][0])!=0 && strcmp(data[1][i][0],data[1][i-1][0])==0)){
+	if(strcmp(data[2][i][0],"")!=0){
+	  //std::cout << "Error data. " << data[2][i][0] << std::endl;
+	  //empty_data++;
+	  for(j=0;j<lcm_frequency;j++){
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j].set_status(1);
+	  }
+	  continue;
+	}	  
+
+	if(strlen(data[1][i][0])>0 && strstr(data[1][i][0],"XXX")==NULL){
+	  for(j=0;j<lcm_frequency;j++){
+	    temp_time.set_time(data[1][i][0]);
+	    temp_time += init_date;
+	    temp_time.set_sec_decimal(((double) j)/lcm_frequency);
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j].set_time(temp_time);
+	  }
+	}
+	else{
+	  temp_time = NOTIME;	  
+	  for(j=0;j<lcm_frequency;j++){
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j].set_time(temp_time);
+	  }
+	}
+
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << temp_time << " ";
+	  std::cout.flush();
+	}
+	temp_latlon[0] = MISSINGVALUE;
+	temp_latlon[1] = MISSINGVALUE;
+	for(j=0;j<lcm_frequency;j++){
+	   temp.data_pt[(i-empty_data)*lcm_frequency+j].set_latlon(temp_latlon);
+	}
+	if(strlen(data[3][i][0])>0 && strstr(data[3][i][0],"XXX")==NULL){
+	  temp_latlon[0] = atof(data[3][i][0]);
+	}
+	else{
+	  temp_latlon[0] = MISSINGVALUE;
+	}
+	if(strlen(data[4][i][0])>0 && strstr(data[4][i][0],"XXX")==NULL){
+	  temp_latlon[1] = atof(data[4][i][0]);
+	}
+	else{
+	  temp_latlon[1] = MISSINGVALUE;
+	}
+	temp.data_pt[(i-empty_data)*lcm_frequency].set_latlon(temp_latlon);
+
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << temp_latlon[0] << " " << temp_latlon[1] << " ";
+	  std::cout.flush();
+	}
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_flight_level(MISSINGVALUE);
+	}
+	if(strlen(data[5][i][0])>0 && strstr(data[5][i][0],"XXX")==NULL){
+	  temp.data_pt[(i-empty_data)*lcm_frequency].set_flight_level(atof(data[5][i][0]));
+	}
+	
+	//std::cout << " FL ";
+	//std::cout.flush();
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_delta_g(MISSINGVALUE);
+	}
+	for(j=0;j<frequency[6];j++){
+	  if(strlen(data[6][i][j])>0 && strstr(data[6][i][j],"XXX")==NULL){
+	    //std::cout << (i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[5] << " ";
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[6]].set_delta_g(atof(data[6][i][j]));
+	  }
+	}
+
+	//std::cout << " Delta-GL ";
+	//std::cout.flush();
+
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_angle_of_attack(MISSINGVALUE);
+	}
+	for(j=0;j<frequency[7];j++){
+	  if(strlen(data[7][i][j])>0 && strstr(data[7][i][j],"XXX")==NULL){
+	    //std::cout << (i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[5] << " ";
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[7]].set_angle_of_attack(atof(data[7][i][j]));
+	  }
+	}
+
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_vertical_speed(MISSINGVALUE);
+	}
+	for(j=0;j<frequency[8];j++){
+	  if(strlen(data[8][i][j])>0 && strstr(data[8][i][j],"XXX")==NULL){
+	    //std::cout << (i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[5] << " ";
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[8]].set_vertical_speed(atof(data[8][i][j]));
+	  }
+	}
+
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_pitch(MISSINGVALUE);
+	}
+	for(j=0;j<frequency[9];j++){
+	  if(strlen(data[9][i][j])>0 && strstr(data[9][i][j],"XXX")==NULL){
+	    //std::cout << (i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[5] << " ";
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[9]].set_pitch(atof(data[9][i][j]));
+	  }
+	}
+
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_roll(MISSINGVALUE);
+	}
+	for(j=0;j<frequency[10];j++){
+	  if(strlen(data[10][i][j])>0 && strstr(data[10][i][j],"XXX")==NULL){
+	    //std::cout << (i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[5] << " ";
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[10]].set_roll(atof(data[10][i][j]));
+	  }
+	}
+
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_tas(MISSINGVALUE);
+	}
+	for(j=0;j<frequency[11];j++){
+	  if(strlen(data[11][i][j])>0 && strstr(data[11][i][j],"XXX")==NULL){
+	    //std::cout << (i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[5] << " ";
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[11]].set_tas(atof(data[11][i][j]));
+	  }
+	}
+
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_flap(MISSINGVALUE);
+	}
+	for(j=0;j<frequency[12];j++){
+	  if(strlen(data[12][i][j])>0 && strstr(data[12][i][j],"XXX")==NULL){
+	    //std::cout << (i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[5] << " ";
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[12]].set_flap(atof(data[12][i][j]));
+	  }
+	}
+
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_sat(MISSINGVALUE);
+	}
+	for(j=0;j<frequency[13];j++){
+	  if(strlen(data[13][i][j])>0 && strstr(data[13][i][j],"XXX")==NULL){
+	    //std::cout << (i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[5] << " ";
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[13]].set_sat(atof(data[13][i][j])+meteorology_C_to_K);
+	  }
+	}
+
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_mach_no(MISSINGVALUE);
+	}
+	for(j=0;j<frequency[14];j++){
+	  if(strlen(data[14][i][j])>0 && strstr(data[14][i][j],"XXX")==NULL){
+	    //std::cout << (i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[5] << " ";
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[14]].set_mach_no(atof(data[14][i][j]));
+	  }
+	}
+
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_is_on_ground(-1);
+	}
+	for(j=0;j<lcm_frequency;j++){
+	  if(strlen(data[15][i][0])>0 && strstr(data[15][i][0],"XXX")==NULL){
+	    //std::cout << (i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[5] << " ";
+	    if(strcmp(data[15][i][0],"On Ground")==0 || strcmp(data[15][i][0],"GND")==0 || strcmp(data[15][i][0],"ONGRND")==0  || strcmp(data[15][i][0],"DN+LKD")==0 || strcmp(data[15][i][0],"GROUND")==0){
+	      temp.data_pt[(i-empty_data)*lcm_frequency+j].set_is_on_ground(1);
+	      if(libjeff::debug_setting::get_debug_mode_debug_message() && j==0){
+		std::cout << " On-ground ";
+	      }
+	      if(strcmp(data[15][i][0],"GROUND")==0){
+		ground_key = 1;
+	      }
+	    }
+	    else if(strcmp(data[15][i][0],"Not On Ground")==0 || strcmp(data[15][i][0],"Not on Ground")==0 ||  strcmp(data[15][i][0],"AIR")==0 || strcmp(data[15][i][0],"INAIR")==0 || strcmp(data[15][i][0],"NOT DN")==0 || strcmp(data[15][i][0],"")==0){
+	      temp.data_pt[(i-empty_data)*lcm_frequency+j].set_is_on_ground(0);
+	      if(libjeff::debug_setting::get_debug_mode_debug_message() && j==0){
+		std::cout << " In-air ";
+	      }
+	    }
+	    else{
+	      std::cout << "Unrecognized wording for ground indicator" << std::endl;
+	    }
+	  }
+	  else if(ground_key == 1 && strlen(data[15][i][0])==0){
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j].set_is_on_ground(0);
+	    if(libjeff::debug_setting::get_debug_mode_debug_message() && j==0){
+	      std::cout << " In-air ";
+	    }
+	  }
+	}
+
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_fuelflow(0,MISSINGVALUE);
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_fuelflow(1,MISSINGVALUE);
+	}
+	for(j=0;j<frequency[16];j++){
+	  if(strlen(data[16][i][j])>0 && strstr(data[16][i][j],"XXX")==NULL){
+	    //std::cout << (i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[5] << " ";
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[16]].set_fuelflow(0,atof(data[16][i][j]));
+	  }
+	}
+	for(j=0;j<frequency[17];j++){
+	  if(strlen(data[17][i][j])>0 && strstr(data[17][i][j],"XXX")==NULL){
+	    //std::cout << (i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[5] << " ";
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[17]].set_fuelflow(1,atof(data[17][i][j]));
+	  }
+	}
+	
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_weight(MISSINGVALUE);
+	}
+	for(j=0;j<frequency[18];j++){
+	  if(strlen(data[18][i][j])>0 && strstr(data[18][i][j],"XXX")==NULL){
+	    //std::cout << (i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[5] << " ";
+	    temp.data_pt[(i-empty_data)*lcm_frequency+j*lcm_frequency/frequency[18]].set_weight(atof(data[18][i][j]));
+	  }
+	}
+
+	strcpy(ctemp,data[0][i][0]);
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_frame_sec(atoi(strstr(ctemp,"-")+1));
+	}
+	*strstr(ctemp,"-")='\0';
+	for(j=0;j<lcm_frequency;j++){
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_frame_no(atoi(ctemp));
+	  temp.data_pt[(i-empty_data)*lcm_frequency+j].set_edr(MISSINGVALUE);
+	}
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  j=0;
+	  std::cout << temp.data_pt[(i-empty_data)*lcm_frequency+j].get_frame_no() << " " << temp.data_pt[(i-empty_data)*lcm_frequency+j].get_frame_sec() << std::endl;
+	}
+	//std::cout << " Frame-No " << endl;
+      }
+      //temp.n_data_pt -= empty_data*lcm_frequency;
+
+      for(j=0;j<num_fields;j++){
+	if(data[j]!=NULL){
+	  for(k=0;k<numdata;k++){
+	    for(m=0;m<frequency[j];m++){
+	      delete [] data[j][k][m];
+	    }
+	    delete [] data[j][k];
+	  }
+	  delete [] data[j];
+	}
+      }
+      delete [] data;
+      delete [] frequency;
+
+      delete [] temp_latlon;
+
+      for(i=0;i<num_fields;i++){
+	delete [] headerloc[i];
+      }
+      delete [] headerloc;
+      delete [] keys;
+
+      error = temp.flag_islands();
+      error = temp.check_time();
+
+      temp.remove_error_data();
+      temp.remove_ground_data();
+
+      error = temp.check_latlon();
+
+      this->append(temp);
+
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	for(i=0;i<this->get_num_data_pt();i++){
+	  std::cout << i << " " << this->data_pt[i].get_frame_no() << "-" << this->data_pt[i].get_frame_sec() << " " << this->data_pt[i].get_time() << " " << this->data_pt[i].get_time().get_sec_decimal() << " " << this->data_pt[i].get_latlon()[0] << " " << this->data_pt[i].get_latlon()[1] << std::endl;
+	}
+      }
+
+      bool first = true;
+
+      for(i=1;i<this->get_num_data_pt();i++){
+	if(this->data_pt[i].get_time() != NOTIME && this->data_pt[i].get_time() < this->data_pt[i-1].get_time()){
+	  if(libjeff::debug_setting::get_debug_mode_debug_message() && first){
+	    std::cout << "Date increment at " << i << " " << this->data_pt[i].get_time() << std::endl;
+	    first = false;
+	  }
+	  //std::cout << i << " " << this->data_pt[i].get_time() << "-" << this->data_pt[i].get_time().get_sec_decimal() << " " << this->data_pt[i-1].get_time() <<"-" << this->data_pt[i-1].get_time().get_sec_decimal() << endl;
+	  this->data_pt[i].set_time(this->data_pt[i].get_time() + ONE_DAY);
+	}
+      }
+      
+      for(i=0;i<this->get_num_data_pt();i++){
+	if(this->data_pt[i].get_tas() == MISSINGVALUE && this->data_pt[i].get_sat() != MISSINGVALUE && this->data_pt[i].get_mach_no() != MISSINGVALUE){
+	  this->data_pt[i].set_tas(39.*this->data_pt[i].get_mach_no()*pow(this->data_pt[i].get_sat(),0.5));
+	}
+      }
+    }
+    else{
+      error = _ERRORCODE_FILENOTFOUND;
+    }
+
+    for(i=0;i<num_fields;i++){
+      for(j=0;j<num_keys[i];j++){
+	delete [] fields[i][j];
+      }
+      delete [] fields[i];
+    }
+    delete [] fields;
+
+    delete [] filename1;
+    delete [] ctemp;
+    delete [] temp_nameformat;
+
+    return error;
+  }
+  int flight_data::read_CXKA_QAR_csv_with_NRL(char *file_path,char *nameformat_raw,char *nrl_file_path,char *nameformat_nrl,char *flight_number,date_time init_date,char *dateformat,char* aircrafttype, char *nrl_suffix){ //use ###flight number###, ###date###, ###aircraft type###, ###seq no### and ###suffix### in name_format, aircrafttype is optional and can be set to NULL
+    const int edr_frequency = 4;
+    int error = this->read_CXKA_QAR_csv(file_path,nameformat_raw,flight_number,init_date,dateformat,aircrafttype); 
+    if(error){
+      return error;
+    }
+	
+    tags date("date");
+    tags flt_no("flight number");
+    tags aircraft_type("aircraft type");
+    tags seq_no("seq no");
+    tags suffix("suffix");
+    
+    char *temp_nameformat_nrl = new char [FILENAMEBUFFSIZE];
+    char *temp_nameformat = new char [FILENAMEBUFFSIZE];
+    strcpy(temp_nameformat,nrl_file_path);
+    strcat(temp_nameformat,nameformat_nrl);
+    char *ctemp = new char [FILENAMEBUFFSIZE];
+    date.replace(temp_nameformat,init_date.get_time(dateformat,ctemp));
+    flt_no.replace(temp_nameformat,flight_number);
+    if(aircrafttype != NULL){
+      aircraft_type.replace(temp_nameformat,aircrafttype);
+    }
+    
+    int i,j,k;
+    bool fileok = true;
+    int numline;
+    
+    int numfield = 2;
+    char **fields = new char *[numfield];
+    for(j=0;j<numfield;j++){
+      fields[j] = new char [FILENAMEBUFFSIZE];
+    }
+    strcpy(fields[0]," FrameNo");
+    strcpy(fields[1],"EDR");
+
+    int numdata;
+    char ***data = new char **[numfield];
+
+    int frame_no, frame_sec, sub_frame;
+    bool found;
+
+    i=1;
+    int last_index;
+    if(this->get_data_frequency()%edr_frequency!=0){
+      std::cout << "Warning! Incompatible frequency between NRL and flight data" << std::endl;
+      std::cout << "Flight data: " << this->get_data_frequency() << " NRL: " << edr_frequency << std::endl;
+    }
+    while(fileok){
+      strcpy(temp_nameformat_nrl,temp_nameformat);
+      
+      seq_no.replace(temp_nameformat_nrl,i);
+      strcpy(ctemp,temp_nameformat_nrl);
+      suffix.replace(ctemp,"");
+      
+      fileok = libjeff::file_check_exist(ctemp);
+      //std::cout << "Finding file " << ctemp << std::endl;
+      if(fileok){
+	//std::cout << "Find file " << ctemp << std::endl;
+	strcpy(ctemp,temp_nameformat_nrl);
+	suffix.replace(ctemp,nrl_suffix);
+	
+	fileok = libjeff::file_check_exist(ctemp);
+	//std::cout << "Finding file " << ctemp << std::endl;
+	if(fileok){
+	  //std::cout << "Find file " << ctemp << std::endl;
+	  file_handler_extract_data_from_csv(ctemp,numfield,fields,data,0,0,numdata);
+	  last_index = 0;
+	  for(k=0;k<numdata;k++){
+	    string_replace(data[0][k]," ","");
+	    found = false;
+	    frame_no = atoi(string_extract_field(data[0][k],"-",0,ctemp));
+	    frame_sec = atoi(string_extract_field(data[0][k],"-",1,ctemp));
+	    sub_frame = atoi(string_extract_field(data[0][k],"-",2,ctemp));
+
+	    if(sub_frame == 1){
+	      for(j=last_index;j<this->get_num_data_pt();j++){
+		if(this->get_data_pt(j)->get_frame_no() == frame_no && this->get_data_pt(j)->get_frame_sec() == frame_sec){
+		  last_index = j;
+		  found = true;
+
+		  //std::cout << k << " " << last_index << std::endl;
+		  this->get_data_pt(j)->set_edr(atof(data[1][k]));
+		
+		  break;
+		}
+	      }
+	    }
+	    else{
+	      found = true;
+	      //std::cout << k << " " << last_index + this->get_data_frequency()/edr_frequency*(sub_frame-1) << std::endl;
+	      this->get_data_pt(last_index + this->get_data_frequency()/edr_frequency*(sub_frame-1))->set_edr(atof(data[1][k]));
+	    }
+
+	    if(!found){
+	      for(j=0;j<this->get_num_data_pt();j++){
+		if(this->get_data_pt(j)->get_frame_no() == frame_no && this->get_data_pt(j)->get_frame_sec() == frame_sec){
+		  found = true;
+
+		  //std::cout << k << " " << last_index << std::endl;
+		  this->get_data_pt(j)->set_edr(atof(data[1][k]));
+		
+		  break;
+		}
+	      }
+
+	      if(!found){
+		std::cout << "Warning! Unmatched data found " << frame_no << " " << frame_sec << " " << sub_frame << std::endl;
+	      }
+	    }
+	  }
+	  
+
+	  for(j=0;j<numfield;j++){
+	    if(data[j]!=NULL){
+	      for(k=0;k<numdata;k++){
+		delete [] data[j][k];
+	      }
+	      delete [] data[j];
+	    }
+	  }
+	}
+	else{
+	  error = _ERRORCODE_FILESETINCOMPLETE;
+	}
+      }
+      
+      i++;
+    }
+    
+    for(j=0;j<numfield;j++){
+      delete [] fields[j];
+    }
+    delete [] fields;
+    delete [] temp_nameformat_nrl;
+    delete [] temp_nameformat;
+    delete [] ctemp;
+	
+    return error;
+  }
+  int flight_data::read_CXKA_QAR_frametype(char *file_path,char *nameformat,char *flight_number,date_time init_date,char *dateformat){
+    tags date("date");
+    tags flt_no("flight number");
+    
+    char *temp_nameformat = new char [FILENAMEBUFFSIZE];
+    strcpy(temp_nameformat,nameformat);
+    char *ctemp = new char [FILENAMEBUFFSIZE];
+    date.replace(temp_nameformat,init_date.get_time(dateformat,ctemp));
+    flt_no.replace(temp_nameformat,flight_number);
+
+    frametype result = unknown_frame;
+
+    char *filename1 = new char [FILENAMEBUFFSIZE];
+    strcpy(filename1,file_path);
+    strcat(filename1,temp_nameformat);
+
+    bool found = file_check_exist(filename1);
+    int error = _ERRORCODE_NOERROR;
+    if(found){
+      std::ifstream fin;
+      fin.open(filename1);
+
+      fin.getline(ctemp,FILENAMEBUFFSIZE);
+
+      if(strstr(ctemp,"Frame Layout: ")!=NULL){
+	char *ctemp2 = strstr(ctemp,"Frame Layout: ") + strlen("Frame Layout: ");
+	if(strstr(ctemp2," ")!=NULL){
+	  *strstr(ctemp2," ")='\0';
+	  
+	  if(strcmp(ctemp2,"CPA773Q")==0){
+	    result = B773;
+	  }
+	  else if(strcmp(ctemp2,"CPA773EQ")==0){
+	    result = B773ER;
+	  }
+	}
+	else{
+	  error = _ERRORCODE_FILEREADERROR;
+	}
+      }
+      else{
+	error = _ERRORCODE_FILEREADERROR;
+      }
+
+      fin.close();
+    }
+    else{
+      error = _ERRORCODE_FILENOTFOUND;
+    }
+
+    delete [] filename1;
+    delete [] temp_nameformat;
+    delete [] ctemp;
+
+    this->set_frame(result);
+    
+    return error;
+  }
+  int flight_data::read_FR24_csv(char *filename){
+    int error;
+
+    int nline=file_check_length(filename);
+    if(nline > 1){
+      error = this->create(nline-1);
+      if(error != _ERRORCODE_NOERROR){
+	return error;
+      }
+
+      std::ifstream fin;
+      fin.open(filename);
+
+      char *ctemp = new char [FILENAMEBUFFSIZE];
+      date_time pt_time;
+      double latlon[2];
+
+      fin.getline(ctemp,FILENAMEBUFFSIZE);
+      int i;
+      for(i=0;i<nline-1;i++){
+	fin.getline(ctemp,FILENAMEBUFFSIZE,',');
+	fin.getline(ctemp,FILENAMEBUFFSIZE,',');
+	pt_time.set_time(ctemp);
+	this->get_data_pt(nline-2-i)->set_time(pt_time);
+	fin.getline(ctemp,FILENAMEBUFFSIZE,',');
+	this->set_remarks(ctemp);
+	fin.getline(ctemp,FILENAMEBUFFSIZE,',');
+	latlon[0] = atof(ctemp+1);
+	fin.getline(ctemp,FILENAMEBUFFSIZE,',');
+	*strstr(ctemp,"\"") = '\0';
+	latlon[1] = atof(ctemp);
+	this->get_data_pt(nline-2-i)->set_latlon(latlon);
+	fin.getline(ctemp,FILENAMEBUFFSIZE,',');
+	this->get_data_pt(nline-2-i)->set_flight_level(atof(ctemp));
+	fin.getline(ctemp,FILENAMEBUFFSIZE);
+      }
+
+      delete [] ctemp;
+
+      fin.close();
+    }
+    return _ERRORCODE_NOERROR;
+  }
+
+  int flight_data::parse_flight_plan_json(json_block *in,char *master_key, char *latlon_key,char *time_key, char *fl_key){
+    this->destroy();
+
+    int num_pt = in->get_array_size(master_key);
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "flight_data::parse_flight_plan_json(json_block *in,char *master_key, char *latlon_key,char *time_key, char *fl_key) creating an array of " << num_pt << std::endl;
+    }
+    int error = _ERRORCODE_NOERROR;
+
+    if(num_pt > 0){
+      this->create(num_pt);
+
+      json_block *temp = new json_block;
+
+      double lonlat[2];
+      date_time temp_time;
+      int i;
+      for(i=0;i<num_pt;i++){
+	in->extract(master_key,i,temp)->extract(latlon_key,temp);
+	if(temp->get_block_data()!=NULL){
+	  this->data_pt[i].set_lonlat(string_extract_lonlat(temp->get_block_data(),lonlat));
+	}
+	else{
+	  error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	}
+
+	in->extract(master_key,i,temp)->extract(time_key,temp);
+        if(temp->get_block_data()!=NULL){
+	  temp_time.set_time(temp->get_block_data());
+          this->data_pt[i].set_time(temp_time);
+        }
+        else{
+          error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	}
+
+	in->extract(master_key,i,temp)->extract(fl_key,temp);
+	if(temp->get_block_data()!=NULL){
+	  temp->replace("\"","");
+	  if(temp->get_block_data()!=NULL){
+	    if(is_all_digit(temp->get_block_data())){
+	      this->data_pt[i].set_flight_level(atof(temp->get_block_data()));
+	    }
+	    else{
+	      this->data_pt[i].set_flight_level(-999.);
+	    }
+	  }
+	  else{
+	    error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	  }
+	}
+	else{
+	  error = _ERRORCODE_JSONBLOCKNOTFOUND;
+	}
+
+      }
+    }
+    else{
+      error = _ERRORCODE_JSONBLOCKNOTFOUND;
+    }
+
+      return error;
+  }
+  int flight_data::parse_amdar_arinc(char *amdar_string,date_time obs_end_date){
+    int error = _ERRORCODE_NOERROR;
+    char *ctemp = new char [strlen(amdar_string)];
+    char *cur_ptr;
+
+    int dd,hh,mm;
+    double latlon[2];
+    this->destroy();
+
+    cur_ptr = strstr(amdar_string,"\n")+1;
+    if(cur_ptr != NULL){
+      if(strstr(cur_ptr,"\n") != NULL){
+	*strstr(cur_ptr,"\n") = '\0';
+      }
+
+      if(strlen(cur_ptr) > 3 && strncmp(cur_ptr,"02A",3) == 0){
+	cur_ptr += 3;
+
+	strncpy(ctemp,cur_ptr,2);
+	ctemp[2] = '\0';
+
+	dd = atoi(ctemp);
+	cur_ptr+= 2;
+
+	strncpy(ctemp,cur_ptr,2);
+	ctemp[2] = '\0';
+
+	hh = atoi(ctemp);
+	cur_ptr+= 2;
+
+	strncpy(ctemp,cur_ptr,2);
+	ctemp[2] = '\0';
+
+	mm = atoi(ctemp);
+	cur_ptr+= 10;
+	
+	//int max_n_pt = strlen(cur_ptr)/19+1;
+	/*
+	if(max_n_pt > init_allocated_size){
+	  this->create(max_n_pt);
+	}
+	else{
+	  this->create(init_allocated_size);
+	}
+	*/
+	date_time obs_time;
+	double latlon[2], t, ws, wd, qv;
+	int dd,hh, mm, altitude, rollflag;
+	libjeff::flight_data_pt *temp_pt = new libjeff::flight_data_pt;
+
+	//std::cout << cur_ptr << std::endl;
+	error = libjeff::amdar::extract_latlon(cur_ptr,latlon);
+	if(!error){
+	  //std::cout << cur_ptr << "  | Error = ";
+	  error = libjeff::amdar::extract_ddhhmm(cur_ptr,dd,hh,mm);
+	  //std::cout << error << std::endl;
+	}
+	if(!error){
+	  //std::cout << cur_ptr << "  | Error = ";
+	  error = libjeff::amdar::extract_altitude(cur_ptr,altitude);
+	  //std::cout << error << std::endl;
+	}
+	if(!error){
+	  //std::cout << cur_ptr << "  | Error = ";
+	  error = libjeff::amdar::extract_t(cur_ptr,t);
+	  //std::cout << error << std::endl;
+	}
+	if(!error){
+	  //std::cout << cur_ptr << "  | Error = ";
+	  error = libjeff::amdar::extract_qv(cur_ptr,qv);
+	  //std::cout << error << std::endl;
+	}
+	obs_time.set_time(obs_end_date.get_year(),obs_end_date.get_month(),obs_end_date.get_day(),hh,mm);
+
+	temp_pt->set_latlon(latlon);
+	temp_pt->set_time(obs_time);
+	temp_pt->set_flight_level(altitude);
+	temp_pt->set_temperature(t);
+	temp_pt->set_windu(MISSINGVALUE);
+	temp_pt->set_windv(MISSINGVALUE);
+	if(error == _ERRORCODE_FLIGHTDATA_AMDARNOQV){
+	  temp_pt->set_qv(MISSINGVALUE);
+	}
+	else{
+	  temp_pt->set_qv(qv);
+	}
+
+	this->append(temp_pt);
+	delete temp_pt;
+
+	int i=0;
+
+	bool series1mode = true;
+	while(!error || error == _ERRORCODE_FLIGHTDATA_AMDARNOQV){
+	  //std::cout << cur_ptr << std::endl;
+	  //for(i=1;i<max_n_pt;i++){
+	  if(!error || error == _ERRORCODE_FLIGHTDATA_AMDARNOQV){
+	    if(series1mode){
+	      //std::cout << "mode 1: " << i++ << " ";
+	      error = libjeff::amdar::extract_arinc_a_data_format(cur_ptr,altitude,t,ws,wd,rollflag,qv);
+	      //std::cout << error << std::endl;
+	      
+	      if(!error || error == _ERRORCODE_FLIGHTDATA_AMDARNOQV){
+		if(*cur_ptr == '/'){
+		  series1mode = false;
+		  cur_ptr++;
+		}
+	      }
+	    }
+	    else{
+	      //std::cout << "mode 2: " << i++ << " ";
+	      error = libjeff::amdar::extract_arinc_a_data_format(cur_ptr,latlon,altitude,t,ws,wd,rollflag,qv);
+	      //std::cout << error << std::endl;
+	    }
+
+	    if(!error || error == _ERRORCODE_FLIGHTDATA_AMDARNOQV){
+	      obs_time.set_time(obs_end_date.get_year(),obs_end_date.get_month(),obs_end_date.get_day(),hh,mm);
+	    	    
+	      temp_pt = new libjeff::flight_data_pt;
+
+	      temp_pt->set_latlon(latlon);
+	      temp_pt->set_time(obs_time);
+	      temp_pt->set_flight_level(altitude);
+	      temp_pt->set_temperature(t);
+	      if(!rollflag){
+		temp_pt->set_windu(libjeff::meteorology_sd_to_u(ws,wd));
+		temp_pt->set_windv(libjeff::meteorology_sd_to_v(ws,wd));
+	      }
+	      else{
+		temp_pt->set_windu(MISSINGVALUE);
+		temp_pt->set_windv(MISSINGVALUE);
+	      }
+	      if(error == _ERRORCODE_FLIGHTDATA_AMDARNOQV){
+		temp_pt->set_qv(MISSINGVALUE);
+	      }
+	      else{
+		temp_pt->set_qv(qv);
+	      }
+	      
+	      this->append(temp_pt);
+	      delete temp_pt;
+	    }
+	  }
+	  else{
+	    break;
+	  }
+	}
+      }
+      else if(strlen(cur_ptr) > 3 && (strncmp(cur_ptr,"02D",3) == 0 || strncmp(cur_ptr,"02E",3) == 0)){
+	cur_ptr += 3;
+
+	strncpy(ctemp,cur_ptr,2);
+	ctemp[2] = '\0';
+
+	dd = atoi(ctemp);
+	cur_ptr+= 10;
+
+	int max_n_pt = strlen(cur_ptr)/37+1;
+	/*
+	if(max_n_pt > init_allocated_size){
+	  this->create(max_n_pt);
+	}
+	else{
+	  this->create(init_allocated_size);
+	}
+	*/
+	int i;
+	while(!error || error == _ERRORCODE_FLIGHTDATA_AMDARNOQV){
+	  //	for(i=0;i<max_n_pt;i++){
+	  double latlon[2], t, ws, wd, qv, *meanturb = NULL, *maxturb = NULL;
+	  int hh, mm, altitude, rollflag, nturb;
+	  error = libjeff::amdar::extract_arinc_de_data_format(cur_ptr,latlon,hh,mm,altitude,t,ws,wd,rollflag,qv,nturb,meanturb,maxturb);
+
+	  if(!error || error == _ERRORCODE_FLIGHTDATA_AMDARNOQV){
+	    date_time obs_time;
+	    obs_time.set_time(obs_end_date.get_year(),obs_end_date.get_month(),obs_end_date.get_day(),hh,mm);
+
+	    	    
+	    libjeff::flight_data_pt *temp_pt = new libjeff::flight_data_pt;
+
+	    temp_pt->set_latlon(latlon);
+	    temp_pt->set_time(obs_time);
+	    temp_pt->set_flight_level(altitude);
+	    temp_pt->set_temperature(t);
+	    if(!rollflag){
+	      temp_pt->set_windu(libjeff::meteorology_sd_to_u(ws,wd));
+	      temp_pt->set_windv(libjeff::meteorology_sd_to_v(ws,wd));
+	    }
+	    else{
+	      temp_pt->set_windu(MISSINGVALUE);
+	      temp_pt->set_windv(MISSINGVALUE);
+	    }
+	    if(error == _ERRORCODE_FLIGHTDATA_AMDARNOQV){
+	      temp_pt->set_qv(MISSINGVALUE);
+	    }
+	    else{
+	      temp_pt->set_qv(qv);
+	    }
+
+	    this->append(temp_pt);
+	    delete temp_pt;
+	  }
+	  else{
+	    break;
+	  }
+
+	  if(meanturb != NULL){
+	    delete [] meanturb;
+	  }
+	  if(maxturb != NULL){
+	    delete [] maxturb;
+	  }
+	}
+
+	for(i=0;i<this->get_num_data_pt()-1;i++){
+	  if(this->get_data_pt(i)->get_time() >= this->get_data_pt(this->get_num_data_pt()-1)->get_time()){
+	    this->get_data_pt(i)->set_time(this->get_data_pt(i)->get_time() - ONE_DAY);
+	  }
+	}
+      }
+      /*
+      else if(strlen(cur_ptr) > 3 && strncmp(cur_ptr,"02E",3) == 0){
+	cur_ptr += 3;
+
+	
+
+      }
+      */
+      else{
+	error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARFORMAT;
+      }
+    }
+    else{
+      error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARFORMAT;
+    }
+
+    if(strlen(cur_ptr)==0){
+      error = _ERRORCODE_NOERROR;
+    }
+    else{
+      bool empty=true;
+      int i;
+      for(i=0;i<strlen(cur_ptr);i++){
+	if(cur_ptr[i] != ' ' && cur_ptr[i] != '\n'){
+	  empty = false;
+	  break;
+	}
+      }
+      if(empty){
+	 error = _ERRORCODE_NOERROR;
+      }
+    }
+
+    delete [] ctemp;
+
+    if(libjeff::debug_setting::get_debug_mode_debug_check() && this->get_duration() >= 3600*18){
+      error = _ERRORCODE_BUGINTHELIBRARY;
+    }
+
+    return error;
+  }
+
+  int flight_data::flag_islands(){
+    libjeff::print_trace(true,"flight_data::flag_islands");
+
+    bool found = false;
+    bool done = false;
+    int head,tail;
+
+    int i;
+    for(i=0;i<this->get_num_data_pt();i++){
+      if(this->get_data_pt(i)->get_status()==1){
+	found = true;
+	break;
+      }
+    }
+
+    if(found){
+      for(i=0;i<this->get_num_data_pt();i++){
+	if(this->get_data_pt(i)->get_status()==0){
+	  head = i;
+	  break;
+	}
+      }
+
+      while(!done){
+	//      std::cout << "Missing time data" << endl;
+	tail = this->get_num_data_pt();
+	for(i=head;i<tail;i++){
+	  if(this->get_data_pt(i)->get_status()==1){
+	    tail = i;
+	    break;
+	  }
+	}
+
+	if(tail - head == this->get_data_frequency()){
+	  for(i=head;i<tail;i++){
+	    this->get_data_pt(i)->set_status(1);
+	  }
+	}
+
+	done = true;
+	if(tail != this->get_num_data_pt()){
+	  for(i=tail+1;i<this->get_num_data_pt();i++){
+	    if(this->get_data_pt(i)->get_status() != 1 && this->get_data_pt(i)->is_on_ground()==0){
+	      head = i;
+	      done = false;
+	      break;
+	    }
+	  }
+	}
+      }
+    }
+
+    libjeff::print_trace(false,"flight_data::flag_islands");
+    return _ERRORCODE_NOERROR;
+  }
+  int flight_data::check_time(){
+    libjeff::print_trace(true,"flight_data::check_time");
+    int i,j;
+    flight_data_pt* temp_pt;
+
+    bool found;
+    int frequency = this->get_data_frequency();
+    int frame1, frame2;
+    int loc1, loc2;
+    date_time st_time, delta_time, temp_time;
+    delta_time.set_time(0,0,0,0,0,0);
+    delta_time.set_sec_decimal(1./frequency);
+    date_time *var_time;
+    bool done = false;
+    int head,tail;
+    for(i=0;i<this->get_num_data_pt();i++){
+      if(this->get_data_pt(i)->get_status()==0){
+	head = i;
+	break;
+      }
+    }
+
+    int min_frame_sf = this->get_data_pt(head)->get_frame_sec();
+    for(i=head+1;i<this->get_num_data_pt();i++){
+      if(this->get_data_pt(i)->get_frame_sec() < min_frame_sf && this->get_data_pt(i)->get_frame_sec()!=-9999){
+	min_frame_sf = this->get_data_pt(i)->get_frame_sec();
+      }
+    }
+    int max_frame_sf = this->get_max_frame_sf() - min_frame_sf + 1;
+
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Frame sec: " << min_frame_sf << " - " << max_frame_sf << std::endl;
+    }
+    
+    while(!done){
+      //      std::cout << "Missing time data" << endl;
+      tail = this->get_num_data_pt();
+      for(i=head;i<tail;i++){
+	if(this->get_data_pt(i)->get_status()==1){
+	  tail = i;
+	  break;
+	}
+      }
+      
+      //std::cout << "Working on section " << head << " " << tail << " ";
+      
+      date_time time1,time2;
+      for(i=head;i<tail;i++){
+	if(this->get_data_pt(i)->is_on_ground()==0 || (this->get_data_pt(i)->is_on_ground()==-1 && ((i==0 && this->get_data_pt(i+1)->is_on_ground()==0) || this->get_data_pt(i-1)->is_on_ground()==0) )){
+	  break;
+	}
+      }
+      
+      int sect_first_air_loc = i;
+      int first_air_loc = i;
+      var_time = new date_time [tail - head];
+      int pre_match = 0;
+      date_time *pre_var_time = new date_time[tail - head];
+
+      for(i=0;i<tail - head;i++){
+	var_time[i] = NOTIME;
+	pre_var_time[i] = NOTIME;
+      }
+      
+      bool optimized = false;
+      bool new_test;
+      bool update = false;
+      
+      while(!optimized){
+	found = false;
+	new_test = false;
+	for(i=first_air_loc;i<tail;i++){
+	  if(this->get_data_pt(i)->get_time() != NOTIME && this->get_data_pt(i)->get_time().get_sec_decimal() < 1./frequency){
+	    if(this->get_data_pt(i)->is_on_ground()==0 || (this->get_data_pt(i)->is_on_ground()==-1 && ((i==0 && this->get_data_pt(i+1)->is_on_ground()==0) || this->get_data_pt(i-1)->is_on_ground()==0) )){
+	      found = true;
+	      break;
+	    }
+	  }
+	}
+	
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "Working on session " << head << " - " << tail << " : using location " << first_air_loc << " " << (found?"Found":"Not Found") << std::endl;
+	}
+	
+	optimized = true;
+	if(found){
+	  time1 = this->get_data_pt(i)->get_time();
+	  loc1 = i;
+	  frame1 = this->get_data_pt(i)->get_frame_no()*max_frame_sf + (this->get_data_pt(i)->get_frame_sec()-min_frame_sf); 
+	  
+	  for(i=loc1+1;i<this->get_num_data_pt();i++){
+	    if(this->get_data_pt(i)->get_time() != NOTIME && this->get_data_pt(i)->get_time().get_sec_decimal() < 1./frequency && this->get_data_pt(i)->get_time().numberOfSecondFrom(this->get_data_pt(loc1)->get_time()) > 1.){
+	      if(this->get_data_pt(i)->is_on_ground()==0 || (this->get_data_pt(i)->is_on_ground()==-1 && ((i==0 && this->get_data_pt(i+1)->is_on_ground()==0) || this->get_data_pt(i-1)->is_on_ground()==0) )){
+		new_test = true;
+		break;
+	      }
+	    }
+	  }
+	  
+	  if(new_test){
+	    time2 = this->get_data_pt(i)->get_time();
+	    loc2 = i;
+	    frame2 = this->get_data_pt(i)->get_frame_no()*max_frame_sf + (this->get_data_pt(i)->get_frame_sec()-min_frame_sf); 
+	    
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      std::cout << "Filling missing time information: Data location used " << frame1/max_frame_sf << "-" << frame1%max_frame_sf+1 << " ( " << loc1 << " ) "  << frame2/max_frame_sf << "-" << frame2%max_frame_sf+1 << " ( " << loc2 << " )" << std::endl;
+	    }
+	    
+	    double num_sec = time2.numberOfSecondFrom(time1);
+	    
+	    if(((int) round(num_sec)) != frame2 - frame1){
+	      bool found = false;
+	      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		std::cout << "Frame are not separated in 1 second." << std::endl;
+	      }
+	      for(i=loc2+1;i<this->get_num_data_pt();i++){
+		if(this->get_data_pt(i)->get_time() != NOTIME && this->get_data_pt(i)->get_time().get_sec_decimal() < 1./frequency && this->get_data_pt(i)->get_time().numberOfSecondFrom(this->get_data_pt(loc2)->get_time()) >= 1.){
+		  if(this->get_data_pt(i)->is_on_ground()==0 || (this->get_data_pt(i)->is_on_ground()==-1 && ((i==0 && this->get_data_pt(i+1)->is_on_ground()==0) || this->get_data_pt(i-1)->is_on_ground()==0) )){
+		    found = true;
+		    break;
+		  }
+		}
+	      }
+	      if(found){
+		int loc3 = i;
+		date_time time3 = this->get_data_pt(i)->get_time();
+		int frame3 = this->get_data_pt(i)->get_frame_no()*max_frame_sf + (this->get_data_pt(i)->get_frame_sec()-min_frame_sf); 
+		/*
+		  std::cout << "Checking: " << loc1 << " " << frame1 << " " << time1 << std::endl;
+		  std::cout << "Checking: " << loc2 << " " << frame2 << " " << time2 << std::endl;
+		  std::cout << "Checking: " << loc3 << " " << frame3 << " " << time3 << std::endl;
+		*/
+		int temp_num_sec = (int) round(time3.numberOfSecondFrom(time1));
+		if(temp_num_sec == frame3 - frame1){
+		  loc2 = loc3;
+		  frame2 = frame3;
+		  time2 = time3;
+		}
+		else{
+		  temp_num_sec = (int) round(time3.numberOfSecondFrom(time2));
+		  if(temp_num_sec == frame3 - frame2){
+		    loc1 = loc2;
+		    loc2 = loc3;
+		    frame1 = frame2;
+		    frame2 = frame3;
+		    time1 = time2;
+		    time2 = time3;
+		  }
+		}
+		
+		/*		  else{
+				  std::cout << "Error! Time field and frame field not matching. Unable to handle." << std::endl;
+				  return _ERRORCODE_NOTIMPLEMENTED;
+				  }
+		*/
+	      }
+	    }
+	    num_sec = time2.numberOfSecondFrom(time1);
+	    num_sec /= (frame2 - frame1);
+
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      std::cout << "Time difference between the frames: " << num_sec << std::endl;
+	    }
+
+	    for(i=head;i<tail;i++){
+	      if(i<loc1){
+		int sec = ((int) round((frame1-(this->get_data_pt(i)->get_frame_no()*max_frame_sf + (this->get_data_pt(i)->get_frame_sec()-min_frame_sf)))*num_sec));
+		/*
+		if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		  std::cout << i << " " << loc1 << " " << sec << std::endl;
+		}
+		*/
+		temp_time = this->get_data_pt(loc1)->get_time() - date_time(0,0,0,sec/3600,(sec/60)%60,sec%60);
+		temp_time.set_sec_decimal(((double) ((frequency - (loc1-i)%frequency)%frequency))/frequency);
+	      }
+	      else{
+		int sec = ((int) round(((this->get_data_pt(i)->get_frame_no()*max_frame_sf + (this->get_data_pt(i)->get_frame_sec()-min_frame_sf)) - frame1)*num_sec));
+		/*
+		if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		  std::cout << i << " " << loc1 << " " << sec << std::endl;
+		}
+		*/
+		temp_time = this->get_data_pt(loc1)->get_time() + date_time(0,0,0,sec/3600,(sec/60)%60,sec%60);
+		temp_time.set_sec_decimal(((double) ((i-loc1)%frequency))/frequency);
+	      }
+	      var_time[i-head] = temp_time;
+	    }
+	    /*
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      std::cout << "Done calculating possible time configuration" << std::endl;
+	    }
+	    */
+	    update = true;
+	    int num_match = 0;
+	    for(i=sect_first_air_loc;i<tail;i++){
+	      if(this->get_data_pt(i)->is_on_ground()==0 && this->get_data_pt(i)->get_time()==var_time[i-head]){
+		num_match++;
+	      }
+	    }
+	    /*
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      std::cout << "Number of matching: " << num_match << std::endl;
+	    }
+	    */
+	    if(num_match > pre_match){
+	      pre_match = num_match;
+	      for(i=0;i<tail - head;i++){
+		pre_var_time[i] = var_time[i];
+	      }
+	    }
+	    
+	    optimized = true;
+	    for(i=loc2;i<tail;i++){
+	      if(this->get_data_pt(i)->is_on_ground()==0 && this->get_data_pt(i)->get_time()!=NOTIME && fabs(this->get_data_pt(i)->get_time().numberOfSecondFrom(var_time[i-head]) > 0.5)){
+		
+		if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		  std::cout << loc2 << " " << i << " " << this->get_data_pt(i)->get_time() << " " << this->get_data_pt(i)->get_time().get_sec_decimal() << " " << var_time[i-head] << " " << var_time[i-head].get_sec_decimal() << std::endl;
+		}
+		
+		/*
+		for(j=loc2;j<tail;j++){
+		  std::cout << var_time[j-head].get_sec_decimal() << std::endl;
+		}
+		*/
+		first_air_loc = i;
+		optimized = false;
+		break;
+	      }
+	    }
+	    /*	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      std::cout << first_air_loc << " " << optimized << std::endl;
+	      }*/
+	  }
+	}
+      }
+      /*
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "Optimization for a data section completed." << std::endl;
+      }      
+      */
+      if(update){
+	for(i=head;i<tail;i++){
+	  this->get_data_pt(i)->set_time(pre_var_time[i-head]);
+	}
+      }
+      /*
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "Flight data updated." << std::endl;
+      }  
+      */
+      delete [] var_time;
+      delete [] pre_var_time;
+      
+      done = true;
+      if(tail != this->get_num_data_pt()){
+	for(i=tail+1;i<this->get_num_data_pt();i++){
+	  if(this->get_data_pt(i)->get_status() != 1 && this->get_data_pt(i)->is_on_ground()==0){
+	    head = i;
+	    done = false;
+	    break;
+	  }
+	}
+	/*	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "Next section begins at " << head << std::endl;
+	  } */ 
+      }
+    }
+    //}
+      /*
+	for(i=frame1+1;i<numdata;i++){
+	if(this->get_data_pt(i)->get_time() == NOTIME){
+	this->get_data_pt(i)->set_time(temp.data_pt[frame1].get_time() + date_time(0,0,0,0,0,((int) ((this->get_data_pt(i)->get_frame_no()*temp.get_max_frame_sf() + this->get_data_pt(i)->get_frame_sec())-frame1)*num_sec)));
+	}
+	}
+      */
+    /*
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      char *ctemp = new char [4096];
+      for(i=0;i<this->get_num_data_pt();i++){
+	std::cout << this->get_data_pt(i)->get_frame_no() << "-" << this->get_data_pt(i)->get_frame_sec() << " " << this->get_data_pt(i)->get_time().get_time("yyyy-mm-dd_hh:mm:ss",ctemp) << std::endl;
+      }
+      delete [] ctemp;
+    }
+    */
+    libjeff::print_trace(false,"flight_data::check_time");
+    return _ERRORCODE_NOERROR;
+  }
+  int flight_data::check_latlon(){
+    libjeff::print_trace(true,"flight_data::check_latlon");
+
+    int i,j,k;
+    int loc1, loc2;
+    date_time time1, time2;
+    double temp_latlon[2];
+    double temp_latlon1, temp_latlon2;
+    flight_data *temp_data = new flight_data;
+    flight_data *test_data = new flight_data;
+    double *speed = new double [this->get_num_data_pt()];
+    bool *speed_ok = new bool [this->get_num_data_pt()];
+    double threshold = 1000. + this->get_data_frequency()*100.;
+
+    //double mean, sd;
+
+    *test_data = *this;
+    int iter_count = 0;
+    while(true){
+      *temp_data = *test_data;
+      
+      for(i=0;i<temp_data->get_num_data_pt();i++){
+	if(temp_data->get_data_pt(i)->get_latlon()[0] == MISSINGVALUE){
+	  time1 = NOTIME;
+	  time2 = NOTIME;
+	  //loc1 = -99;
+	  //loc2 = -99;
+	  //cout << "Lat: " << temp.data_pt[i].get_time() << endl;
+	  for(j=i-1;j>=0;j--){
+	    if(temp_data->get_data_pt(j)->get_latlon()[0] != MISSINGVALUE){
+	      time1 = temp_data->get_data_pt(j)->get_time();
+	      loc1 = j;
+	      temp_latlon1 = temp_data->get_data_pt(j)->get_latlon()[0];
+	      break;
+	    }
+	  }
+	  for(j=i+1;j<temp_data->get_num_data_pt();j++){
+	    if(temp_data->get_data_pt(j)->get_latlon()[0] != MISSINGVALUE){
+	      time2 = temp_data->get_data_pt(j)->get_time();
+	      loc2 = j;
+	      temp_latlon2 = temp_data->get_data_pt(j)->get_latlon()[0];
+	      break;
+	    }
+	  }
+	  //cout << "Lat: " << frame1 << " " << frame2 << " " << loc1 << " " << loc2 << endl;
+	  
+	  if(time2 == NOTIME && time1 != NOTIME){
+	    time2 = time1;
+	    temp_latlon2 = temp_latlon1;
+	    for(j=loc1-2;j>=0;j--){
+	      if(temp_data->get_data_pt(j)->get_latlon()[0] != MISSINGVALUE){
+		time1 = temp_data->get_data_pt(j)->get_time();
+		temp_latlon1 = temp_data->get_data_pt(j)->get_latlon()[0];
+		break;
+	      }
+	    }
+	  }
+	  else if(time1 == NOTIME && time2 != NOTIME){
+	    time1 = time2;
+	    loc1 = loc2;
+	    temp_latlon1 = temp_latlon2;
+	    for(j=loc2+1;j<temp_data->get_num_data_pt();j++){
+	      if(temp_data->get_data_pt(j)->get_latlon()[0] != MISSINGVALUE){
+		time2 = temp_data->get_data_pt(j)->get_time();
+		temp_latlon2 = temp_data->get_data_pt(j)->get_latlon()[0];
+		break;
+	      }
+	    }
+	  }
+	  //cout << "Lat: " << frame1 << " " << frame2 << endl;
+	  if(time1 == NOTIME || time2 == NOTIME){
+	    return _ERRORCODE_FILEINSUFFICIENTDATA;
+	  }
+	  
+	  temp_latlon[1] = temp_data->get_data_pt(i)->get_latlon()[1];
+	  temp_latlon[0] = temp_latlon1 + (temp_latlon2-temp_latlon1)*(temp_data->get_data_pt(i)->get_time().numberOfSecondFrom(time1))/(time2.numberOfSecondFrom(time1));
+	  temp_data->get_data_pt(i)->set_latlon(temp_latlon);
+	}
+      }
+      
+      for(i=0;i<temp_data->get_num_data_pt();i++){
+	if(temp_data->get_data_pt(i)->get_latlon()[1] == MISSINGVALUE){
+	  time1 = NOTIME;
+	  time2 = NOTIME;
+	  //loc1 = -99;
+	  //loc2 = -99;
+	  //cout << "Lat: " << temp.data_pt[i].get_time() << endl;
+	  for(j=i-1;j>=0;j--){
+	    if(temp_data->get_data_pt(j)->get_latlon()[1] != MISSINGVALUE){
+	      time1 = temp_data->get_data_pt(j)->get_time();
+	      loc1 = j;
+	      temp_latlon1 = temp_data->get_data_pt(j)->get_latlon()[1];
+	      break;
+	    }
+	  }
+	  for(j=i+1;j<temp_data->get_num_data_pt();j++){
+	    if(temp_data->get_data_pt(j)->get_latlon()[1] != MISSINGVALUE){
+	      time2 = temp_data->get_data_pt(j)->get_time();
+	      loc2 = j;
+	      temp_latlon2 = temp_data->get_data_pt(j)->get_latlon()[1];
+	      break;
+	    }
+	  }
+	  //cout << "Lat: " << frame1 << " " << frame2 << " " << loc1 << " " << loc2 << endl;
+	  
+	  if(time2 == NOTIME && time1 != NOTIME){
+	    time2 = time1;
+	    temp_latlon2 = temp_latlon1;
+	    for(j=loc1-2;j>=0;j--){
+	      if(temp_data->get_data_pt(j)->get_latlon()[1] != MISSINGVALUE){
+		time1 = temp_data->get_data_pt(j)->get_time();
+		temp_latlon1 = temp_data->get_data_pt(j)->get_latlon()[1];
+		break;
+	      }
+	    }
+	  }
+	  else if(time1 == NOTIME && time2 != NOTIME){
+	    time1 = time2;
+	    loc1 = loc2;
+	    temp_latlon1 = temp_latlon2;
+	    for(j=loc2+1;j<temp_data->get_num_data_pt();j++){
+	      if(temp_data->get_data_pt(j)->get_latlon()[1] != MISSINGVALUE){
+		time2 = temp_data->get_data_pt(j)->get_time();
+		temp_latlon2 = temp_data->get_data_pt(j)->get_latlon()[1];
+		break;
+	      }
+	    }
+	  }
+	  //cout << "Lat: " << frame1 << " " << frame2 << endl;
+	  if(time1 == NOTIME || time2 == NOTIME){
+	    return _ERRORCODE_FILEINSUFFICIENTDATA;
+	  }
+	  
+	  temp_latlon[0] = temp_data->get_data_pt(i)->get_latlon()[0];
+	  if(temp_latlon1*temp_latlon2 < 0){
+	    if((temp_latlon1 < -90 && temp_latlon2 > 90) || (temp_latlon2 < -90 && temp_latlon1 > 90)){
+	      if(temp_latlon1 < 0){
+		temp_latlon1 += 360.;
+	      }
+	      if(temp_latlon2 < 0){
+		temp_latlon2 += 360.;
+	      }
+	      temp_latlon[1] = temp_latlon1 + (temp_latlon2-temp_latlon1)*(temp_data->get_data_pt(i)->get_time().numberOfSecondFrom(time1))/(time2.numberOfSecondFrom(time1));
+	      if(temp_latlon[1] > 180.){
+		temp_latlon[1] -= 360.;
+	      }
+	    }
+	    else{
+	      temp_latlon[1] = temp_latlon1 + (temp_latlon2-temp_latlon1)*(temp_data->get_data_pt(i)->get_time().numberOfSecondFrom(time1))/(time2.numberOfSecondFrom(time1));
+	    }
+	  }
+	  else{
+	    temp_latlon[1] = temp_latlon1 + (temp_latlon2-temp_latlon1)*(temp_data->get_data_pt(i)->get_time().numberOfSecondFrom(time1))/(time2.numberOfSecondFrom(time1));
+	  }
+	  temp_data->get_data_pt(i)->set_latlon(temp_latlon);
+	}
+      }
+
+      flight_data_cal_ground_speed(temp_data,speed);
+      //mean = libjeff::statistics_cal_mean(temp_data->get_num_data_pt()-1,speed);
+      //sd = libjeff::statistics_cal_sd(temp_data->get_num_data_pt()-1,speed,mean);
+
+      for(i=0;i<temp_data->get_num_data_pt()-1;i++){
+	if(speed[i] > threshold){
+	  speed_ok[i] = false;
+	}
+	else{
+	  speed_ok[i] = true;
+	}
+      }
+      
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	for(i=0;i<temp_data->get_num_data_pt()-1;i++){
+	  if(!speed_ok[i]){
+	    std::cout << iter_count << " " << this->get_data_frequency() << " " << temp_data->get_data_pt(i)->get_latlon()[0] << " " << temp_data->get_data_pt(i)->get_latlon()[1] << " " << temp_data->get_data_pt(i+1)->get_latlon()[0] << " " << temp_data->get_data_pt(i+1)->get_latlon()[1] << " " << speed[i] << " " << threshold << std::endl; //" " << mean << " " << sd << std::endl;
+	  }
+	}
+      } 
+
+      bool lat_issue = false, lon_issue = false;
+      for(i=0;i<temp_data->get_num_data_pt()-1;i++){
+	if(!speed_ok[i]){
+	  if(test_data->get_data_pt(i)->get_latlon()[0] != MISSINGVALUE){
+	    lat_issue = true;
+	  }
+	  else{
+	    lat_issue = false;
+	  }
+	  if(test_data->get_data_pt(i)->get_latlon()[1] != MISSINGVALUE){
+	    lon_issue = true;
+	  }
+	  else{
+	    lon_issue = false;
+	  }
+	  
+	  for(j=i+1;j<temp_data->get_num_data_pt()-1;j++){
+	    if(speed_ok[j]){
+	      break;
+	    }
+	  }
+	  
+	  if(lat_issue){
+	    for(k=i+1;k<j;k++){
+	      if(test_data->get_data_pt(k)->get_latlon()[0] != MISSINGVALUE){
+		test_data->get_data_pt(k)->get_latlon()[0] = MISSINGVALUE;
+	      }
+	    }
+	  }
+	  
+	  if(lon_issue){
+	    for(k=i+1;k<j;k++){
+	      if(test_data->get_data_pt(k)->get_latlon()[1] != MISSINGVALUE){
+		test_data->get_data_pt(k)->get_latlon()[1] = MISSINGVALUE;
+	      }
+	    }
+	  }
+	  
+	  i=j;
+	}
+      }
+
+      bool done = true;
+      for(i=0;i<temp_data->get_num_data_pt()-1;i++){
+	if(!speed_ok[i]){
+	  done = false;
+	}
+      }
+
+      if(done){
+	break;
+      }
+      iter_count++;
+    }
+    delete [] speed;
+    delete [] speed_ok;
+    
+    *this = *temp_data;
+    delete test_data, temp_data;
+     
+    libjeff::print_trace(false,"flight_data::check_latlon");
+    return _ERRORCODE_NOERROR;
+  }
+
+  int flight_data::fill_missing_by_interpolate(){
+    libjeff::print_trace(true,"flight_data::fill_missing_by_interpolate");
+    int error = this->check_time();
+
+    if(error){
+      return error;
+    }
+    
+    int i,j;
+    int loc1, loc2;
+    date_time time1, time2;
+    double temp_latlon[2];
+    double temp_latlon1, temp_latlon2;
+
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Working on latitude interpolation" << endl;
+    }
+    for(i=0;i<this->get_num_data_pt();i++){
+      if(this->get_data_pt(i)->get_latlon()[0] == MISSINGVALUE){
+	time1 = NOTIME;
+	time2 = NOTIME;
+	//loc1 = -99;
+	//loc2 = -99;
+	//cout << "Lat: " << temp.data_pt[i].get_time() << endl;
+	for(j=i-1;j>=0;j--){
+	  if(this->get_data_pt(j)->get_latlon()[0] != MISSINGVALUE){
+	    time1 = this->get_data_pt(j)->get_time();
+	    loc1 = j;
+	    temp_latlon1 = this->get_data_pt(j)->get_latlon()[0];
+	    break;
+	  }
+	}
+	for(j=i+1;j<this->get_num_data_pt();j++){
+	  if(this->get_data_pt(j)->get_latlon()[0] != MISSINGVALUE){
+	    time2 = this->get_data_pt(j)->get_time();
+	    loc2 = j;
+	    temp_latlon2 = this->get_data_pt(j)->get_latlon()[0];
+	    break;
+	  }
+	}
+	//cout << "Lat: " << frame1 << " " << frame2 << " " << loc1 << " " << loc2 << endl;
+	
+	if(time2 == NOTIME && time1 != NOTIME){
+	  time2 = time1;
+	  temp_latlon2 = temp_latlon1;
+	  for(j=loc1-2;j>=0;j--){
+	    if(this->get_data_pt(j)->get_latlon()[0] != MISSINGVALUE){
+	      time1 = this->get_data_pt(j)->get_time();
+	      temp_latlon1 = this->get_data_pt(j)->get_latlon()[0];
+	      break;
+	    }
+	  }
+	}
+	else if(time1 == NOTIME && time2 != NOTIME){
+	  time1 = time2;
+	  loc1 = loc2;
+	  temp_latlon1 = temp_latlon2;
+	  for(j=loc2+1;j<this->get_num_data_pt();j++){
+	    if(this->get_data_pt(j)->get_latlon()[0] != MISSINGVALUE){
+	      time2 = this->get_data_pt(j)->get_time();
+	      temp_latlon2 = this->get_data_pt(j)->get_latlon()[0];
+	      break;
+	    }
+	  }
+	}
+	//cout << "Lat: " << frame1 << " " << frame2 << endl;
+	if(time1 == NOTIME || time2 == NOTIME){
+	  return _ERRORCODE_FILEINSUFFICIENTDATA;
+	}
+	
+	temp_latlon[1] = this->get_data_pt(i)->get_latlon()[1];
+	temp_latlon[0] = temp_latlon1 + (temp_latlon2-temp_latlon1)*(this->get_data_pt(i)->get_time().numberOfSecondFrom(time1))/(time2.numberOfSecondFrom(time1));
+	this->get_data_pt(i)->set_latlon(temp_latlon);
+      }
+    }
+    
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Working on longitude interpolation" << endl;
+    }
+    for(i=0;i<this->get_num_data_pt();i++){
+      if(this->get_data_pt(i)->get_latlon()[1] == MISSINGVALUE){
+	time1 = NOTIME;
+	time2 = NOTIME;
+	//loc1 = -99;
+	//loc2 = -99;
+	//cout << "Lat: " << temp.data_pt[i].get_time() << endl;
+	for(j=i-1;j>=0;j--){
+	  if(this->get_data_pt(j)->get_latlon()[1] != MISSINGVALUE){
+	    time1 = this->get_data_pt(j)->get_time();
+	    loc1 = j;
+	    temp_latlon1 = this->get_data_pt(j)->get_latlon()[1];
+	    break;
+	  }
+	}
+	for(j=i+1;j<this->get_num_data_pt();j++){
+	  if(this->get_data_pt(j)->get_latlon()[1] != MISSINGVALUE){
+	    time2 = this->get_data_pt(j)->get_time();
+	    loc2 = j;
+	    temp_latlon2 = this->get_data_pt(j)->get_latlon()[1];
+	    break;
+	  }
+	}
+	//cout << "Lat: " << frame1 << " " << frame2 << " " << loc1 << " " << loc2 << endl;
+	
+	if(time2 == NOTIME && time1 != NOTIME){
+	  time2 = time1;
+	  temp_latlon2 = temp_latlon1;
+	  for(j=loc1-2;j>=0;j--){
+	    if(this->get_data_pt(j)->get_latlon()[1] != MISSINGVALUE){
+	      time1 = this->get_data_pt(j)->get_time();
+	      temp_latlon1 = this->get_data_pt(j)->get_latlon()[1];
+	      break;
+	    }
+	  }
+	}
+	else if(time1 == NOTIME && time2 != NOTIME){
+	  time1 = time2;
+	  loc1 = loc2;
+	  temp_latlon1 = temp_latlon2;
+	  for(j=loc2+1;j<this->get_num_data_pt();j++){
+	    if(this->get_data_pt(j)->get_latlon()[1] != MISSINGVALUE){
+	      time2 = this->get_data_pt(j)->get_time();
+	      temp_latlon2 = this->get_data_pt(j)->get_latlon()[1];
+	      break;
+	    }
+	  }
+	}
+	//cout << "Lat: " << frame1 << " " << frame2 << endl;
+	if(time1 == NOTIME || time2 == NOTIME){
+	  return _ERRORCODE_FILEINSUFFICIENTDATA;
+	}
+	
+	temp_latlon[0] = this->get_data_pt(i)->get_latlon()[0];
+	temp_latlon[1] = temp_latlon1 + (temp_latlon2-temp_latlon1)*(this->get_data_pt(i)->get_time().numberOfSecondFrom(time1))/(time2.numberOfSecondFrom(time1));
+	this->get_data_pt(i)->set_latlon(temp_latlon);
+      }
+    }
+
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Working on flight level interpolation" << endl;
+    }
+    for(i=0;i<this->get_num_data_pt();i++){
+      if(this->get_data_pt(i)->get_flight_level() == MISSINGVALUE){
+	time1 = NOTIME;
+	time2 = NOTIME;
+	//loc1 = -99;
+	//loc2 = -99;
+	//cout << "Lat: " << temp.data_pt[i].get_time() << endl;
+	for(j=i-1;j>=0;j--){
+	  if(this->get_data_pt(j)->get_flight_level() != MISSINGVALUE){
+	    time1 = this->get_data_pt(j)->get_time();
+	    loc1 = j;
+	    temp_latlon1 = this->get_data_pt(j)->get_flight_level();
+	    break;
+	  }
+	}
+	for(j=i+1;j<this->get_num_data_pt();j++){
+	  if(this->get_data_pt(j)->get_flight_level() != MISSINGVALUE){
+	    time2 = this->get_data_pt(j)->get_time();
+	    loc2 = j;
+	    temp_latlon2 = this->get_data_pt(j)->get_flight_level();
+	    break;
+	  }
+	}
+	//cout << "Lat: " << frame1 << " " << frame2 << " " << loc1 << " " << loc2 << endl;
+	
+	if(time2 == NOTIME && time1 != NOTIME){
+	  time2 = time1;
+	  temp_latlon2 = temp_latlon1;
+	  for(j=loc1-2;j>=0;j--){
+	    if(this->get_data_pt(j)->get_flight_level() != MISSINGVALUE){
+	      time1 = this->get_data_pt(j)->get_time();
+	      temp_latlon1 = this->get_data_pt(j)->get_flight_level();
+	      break;
+	    }
+	  }
+	}
+	else if(time1 == NOTIME && time2 != NOTIME){
+	  time1 = time2;
+	  loc1 = loc2;
+	  temp_latlon1 = temp_latlon2;
+	  for(j=loc2+1;j<this->get_num_data_pt();j++){
+	    if(this->get_data_pt(j)->get_flight_level() != MISSINGVALUE){
+	      time2 = this->get_data_pt(j)->get_time();
+	      temp_latlon2 = this->get_data_pt(j)->get_flight_level();
+	      break;
+	    }
+	  }
+	}
+	//cout << "Lat: " << frame1 << " " << frame2 << endl;
+	if(time1 == NOTIME || time2 == NOTIME){
+	  return _ERRORCODE_FILEINSUFFICIENTDATA;
+	}
+	
+	temp_latlon[0] = temp_latlon1 + (temp_latlon2-temp_latlon1)*(this->get_data_pt(i)->get_time().numberOfSecondFrom(time1))/(time2.numberOfSecondFrom(time1));
+	this->get_data_pt(i)->set_flight_level(temp_latlon[0]);
+      }
+    }
+
+    libjeff::print_trace(false,"flight_data::fill_missing_by_interpolate");
+    return error;
+  }
+  int flight_data::fill_missing_by_interpolate(char *field){
+    libjeff::print_trace(true,"flight_data::fill_missing_by_interpolate(char*)");
+    
+    int i,j;
+    int loc1, loc2;
+    date_time time1, time2;
+    double temp,temp1, temp2;
+
+    int error = _ERRORCODE_NOERROR;
+    
+    bool have_data = false;
+    for(i=0;i<this->get_num_data_pt();i++){
+      if(this->get_data_pt(i)->is_on_ground() == 0){
+	if(this->get_data_pt(i)->get(field) != MISSINGVALUE){
+	  have_data = true;
+	}
+      }
+    }
+
+    if(have_data){
+      for(i=0;i<this->get_num_data_pt();i++){
+	if(this->get_data_pt(i)->is_on_ground() == 0){
+	  if(this->get_data_pt(i)->get(field) == MISSINGVALUE){
+	    time1 = NOTIME;
+	    time2 = NOTIME;
+	    //loc1 = -99;
+	    //loc2 = -99;
+	    //cout << "Lat: " << temp.data_pt[i].get_time() << endl;
+	    for(j=i-1;j>=0;j--){
+	      if(this->get_data_pt(j)->get(field) != MISSINGVALUE){
+		time1 = this->get_data_pt(j)->get_time();
+		loc1 = j;
+		temp1 = this->get_data_pt(j)->get(field);
+		break;
+	      }
+	    }
+	    for(j=i+1;j<this->get_num_data_pt();j++){
+	      if(this->get_data_pt(j)->get(field) != MISSINGVALUE){
+		time2 = this->get_data_pt(j)->get_time();
+		loc2 = j;
+		temp2 = this->get_data_pt(j)->get(field);
+		break;
+	      }
+	    }
+	    //cout << "Lat: " << frame1 << " " << frame2 << " " << loc1 << " " << loc2 << endl;
+	    
+	    if(time2 == NOTIME && time1 != NOTIME){
+	      time2 = time1;
+	      loc2 = loc1;
+	      temp2 = temp1;
+	      for(j=loc1-1;j>=0;j--){
+		if(this->get_data_pt(j)->get(field) != MISSINGVALUE){
+		  time1 = this->get_data_pt(j)->get_time();
+		  temp1 = this->get_data_pt(j)->get(field);
+		  loc1 = j;
+		  break;
+		}
+	      }
+	    }
+	    else if(time1 == NOTIME && time2 != NOTIME){
+	      time1 = time2;
+	      loc1 = loc2;
+	      temp1 = temp2;
+	      for(j=loc2+1;j<this->get_num_data_pt();j++){
+		if(this->get_data_pt(j)->get(field) != MISSINGVALUE){
+		  time2 = this->get_data_pt(j)->get_time();
+		  temp2 = this->get_data_pt(j)->get(field);
+		  loc2 = j;
+		  break;
+		}
+	      }
+	    }
+	    //cout << "Lat: " << frame1 << " " << frame2 << endl;
+	    if(time1 == NOTIME || time2 == NOTIME){
+	      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+		std::cout << "Missing time information for " << field << endl;
+		std::cout << i << " " << loc1 << " " << loc2 << " " << time1 << " " << time2 << endl;
+	      }
+	      libjeff::print_trace(false,"flight_data::fill_missing_by_interpolate(char*)");
+	      return _ERRORCODE_FILEINSUFFICIENTDATA;
+	    }
+	    
+	    if(time1 == time2){
+	      std::cout << "Error! time1 == time2 " << loc1 << " " << loc2 << std::endl;
+	      std::cout << "Time1: " << time1 << std::endl;
+	      std::cout << "Time2: " << time2 << std::endl;
+	    }
+	    //std::cout << i << " " << loc1 << " " << loc2 << " " << time1 << " " << time2 << " " << temp1 << " " << temp2 << std::endl;
+	    temp = temp1 + (temp2-temp1)*(this->get_data_pt(i)->get_time().numberOfSecondFrom(time1))/(time2.numberOfSecondFrom(time1));
+	    this->get_data_pt(i)->set(field,temp);
+	  }
+	}
+      }
+    }
+    else{
+      error = _ERRORCODE_DATANOTENOUGH;
+    }
+
+    libjeff::print_trace(false,"flight_data::fill_missing_by_interpolate(char*)");
+    return error;
+  }
+  double flight_data::interpolate_to(char *field,date_time intime) const{
+    int fg = 0;
+    return this->interpolate_to(field,intime,fg);
+  }
+  double flight_data::interpolate_to(char *field,date_time intime,int &fg) const{
+    double result = MISSINGVALUE;
+
+    int i,loc;
+    int max_dev = fg;
+    if(this->get_num_data_pt() - fg > max_dev){
+      max_dev = this->get_num_data_pt() - fg;
+    }
+    for(i=1;i<2*max_dev;i++){
+      if(i%2==1){
+	loc = fg + i/2;
+      }
+      else{
+	loc = fg - i/2;
+      }
+
+      if(loc >= 1 && loc < this->get_num_data_pt()){
+	if(intime >= this->get_data_pt(loc-1)->get_time() && intime <= this->get_data_pt(loc)->get_time()){
+	result = this->get_data_pt(loc-1)->get(field) + (this->get_data_pt(loc)->get(field) - this->get_data_pt(loc-1)->get(field))*(intime.numberOfSecondFrom(this->get_data_pt(loc-1)->get_time()))/(this->get_data_pt(loc)->get_time().numberOfSecondFrom(this->get_data_pt(loc-1)->get_time()));
+	fg = loc;
+	break;
+	}
+      }
+    }
+
+    return result;
+  }
+  int flight_data::qc(bool autocorrect){ //return false if no problem with QC or problem fixed; return true if QC failed and cannot fix the problem.
+    return _ERRORCODE_NOERROR;
+  }
+  
+  int flight_data::remove_error_data(){
+    int i,j,k;
+    int count = 0;
+
+    for(i=0;i<this->get_num_data_pt();i++){
+      if(!this->get_data_pt(i)->get_status()){
+	if(this->get_data_pt(i)->get_time() == NOTIME){
+	  this->get_data_pt(i)->set_status(1);
+	}
+      }
+    }
+
+    for(i=0;i<this->get_num_data_pt();i++){
+      if(this->get_data_pt(i)->get_status()){
+	count++;
+	for(j=i+1;j<this->get_num_data_pt();j++){
+	  if(!this->get_data_pt(j)->get_status()){
+	    break;
+	  }
+	  else{
+	    count++;
+	  }
+	}
+
+	for(k=i;k<this->get_num_data_pt()-j+i;k++){
+	  *(this->get_data_pt(k)) = *(this->get_data_pt(k+j-i));
+	}
+
+	this->n_data_pt -= count;
+	count = 0;
+      }
+    }
+
+
+    //this->n_data_pt -= count;
+
+    return _ERRORCODE_NOERROR;
+  }
+
+  int flight_data::remove_ground_data(){
+    int i,j,k;
+    int count = 0;
+
+    for(i=0;i<this->get_num_data_pt();i++){
+      if(this->get_data_pt(i)->is_on_ground()==1){
+	count++;
+	for(j=i+1;j<this->get_num_data_pt();j++){
+	  if(this->get_data_pt(j)->is_on_ground()==0){
+	    break;
+	  }
+	  else{
+	    count++;
+	  }
+	}
+
+	for(k=i;k<this->get_num_data_pt()-j+i;k++){
+	  *(this->get_data_pt(k)) = *(this->get_data_pt(k+j-i));
+	}
+
+	this->n_data_pt -= count;
+	count = 0;
+      }
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+
+  int flight_data::cal_ground_speed(){
+    if(n_data_pt <= 0){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    int i;
+    for(i=1;i<n_data_pt-1;i++){
+      data_pt[i].set_ground_speed(flight_data_cal_ground_speed(this->get_data_pt(i-1),this->get_data_pt(i+1)));
+    }
+    data_pt[0].set_ground_speed(flight_data_cal_ground_speed(this->get_data_pt(0),this->get_data_pt(1)));
+    data_pt[n_data_pt-1].set_ground_speed(flight_data_cal_ground_speed(this->get_data_pt(n_data_pt-1),this->get_data_pt(n_data_pt-2)));
+
+    return _ERRORCODE_NOERROR;
+  }
+  int flight_data::cal_ground_speed(date_time interval){
+    if(n_data_pt <= 0){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    int i,j;
+    bool found;
+    for(i=1;i<n_data_pt;i++){
+      found = false;
+      for(j=i-1;j>=0;j--){
+	if(data_pt[i].get_time() >= data_pt[j].get_time() + interval){
+	  found = true;
+	  data_pt[i].set_ground_speed(flight_data_cal_ground_speed(this->get_data_pt(i),this->get_data_pt(j)));
+	  break;
+	}
+      }
+      if(!found){
+	data_pt[i].set_ground_speed(-9999.);
+      }
+    }
+    data_pt[0].set_ground_speed(-9999.);
+
+    return _ERRORCODE_NOERROR;
+  }
+  void flight_data::write4NCAR_insituturb(ostream &cout) const{
+    int i;
+    cout << "alt,aoa1,aoa2,ptch,pthr,roll,ivv,tas,flap,wb,vac,mean_edr,peak_edr,conf,num_bad,edr_output," << endl;
+    for(i=0;i<this->get_num_data_pt();i++){
+      cout << this->get_data_pt(i)->get_flight_level() << "," << this->get_data_pt(i)->get_angle_of_attack() << "," << this->get_data_pt(i)->get_angle_of_attack() << "," << this->get_data_pt(i)->get_pitch() << ",";
+      if(i==0){
+	cout << (this->get_data_pt(i+1)->get_pitch() - this->get_data_pt(i)->get_pitch())/(this->get_data_pt(i+1)->get_time().numberOfSecondFrom(this->get_data_pt(i)->get_time())) << ",";
+      }
+      else if(i==this->get_num_data_pt()-1){
+	cout << (this->get_data_pt(i)->get_pitch() - this->get_data_pt(i-1)->get_pitch())/(this->get_data_pt(i)->get_time().numberOfSecondFrom(this->get_data_pt(i-1)->get_time())) << ",";
+      }
+      else{
+	cout << (this->get_data_pt(i+1)->get_pitch() - this->get_data_pt(i-1)->get_pitch())/(this->get_data_pt(i+1)->get_time().numberOfSecondFrom(this->get_data_pt(i-1)->get_time())) << ",";
+      }
+      cout << this->get_data_pt(i)->get_roll() << "," << this->get_data_pt(i)->get_vertical_speed()*FT2METER/60. << "," << this->get_data_pt(i)->get_tas()*kt_to_ms << "," << this->get_data_pt(i)->get_flap() << ",NaN," << this->get_data_pt(i)->get_delta_g() << ",NaN,NaN,NaN,NaN,0," << endl;
+    }
+  }
+  int flight_data::resample(const flight_data& in,int frequency){
+    libjeff::print_trace(true,"flight_data::resample");
+    this->destroy();
+
+    if(this->get_data_frequency() == frequency){
+      *this = in;
+    }
+    else{
+      date_time st_time, end_time, temp_time;
+      
+      int i,j;
+      for(i=0;i<in.get_num_data_pt();i++){
+	if(in.get_data_pt(i)->is_on_ground()==0){
+	  st_time = in.get_data_pt(i)->get_time();
+	  break;
+	}
+      }
+      for(i=in.get_num_data_pt()-1;i>=0;i--){
+	if(in.get_data_pt(i)->is_on_ground()==0){
+	  end_time = in.get_data_pt(i)->get_time();
+	  break;
+	}
+      }
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << st_time << " " << end_time << endl;
+      }
+      
+      st_time.set_sec_decimal(0.);
+      end_time.set_sec_decimal(0.);
+      
+      int num_data = ((int) round(end_time.numberOfSecondFrom(st_time))) + 1; 
+      this->create(num_data*frequency);
+      
+      for(i=0;i<num_data;i++){
+	for(j=0;j<frequency;j++){
+	  temp_time = st_time + date_time(0,0,0,0,0,i);
+	  temp_time.set_sec_decimal(((double) j)/frequency);
+	  this->get_data_pt(i*frequency+j)->set_time(temp_time);
+	}
+      }
+      
+      int fg = 1;
+      for(i=0;i<this->get_num_data_pt();i++){
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << i << " " << num_data << " " << this->get_num_data_pt() << endl;
+	}
+	this->get_data_pt(i)->get_latlon()[0] = in.interpolate_to("lat",this->get_data_pt(i)->get_time(),fg);
+	this->get_data_pt(i)->get_latlon()[1] = in.interpolate_to("lon",this->get_data_pt(i)->get_time(),fg);
+	this->get_data_pt(i)->set_flight_level(in.interpolate_to("flight level",this->get_data_pt(i)->get_time(),fg));
+	this->get_data_pt(i)->set_delta_g(in.interpolate_to("delta G",this->get_data_pt(i)->get_time(),fg));
+	//std::cout << fg << " ";
+	this->get_data_pt(i)->set_angle_of_attack(in.interpolate_to("angle of attack",this->get_data_pt(i)->get_time(),fg));
+	//std::cout << fg << endl;
+	this->get_data_pt(i)->set_vertical_speed(in.interpolate_to("vertical speed",this->get_data_pt(i)->get_time(),fg));
+	this->get_data_pt(i)->set_tas(in.interpolate_to("tas",this->get_data_pt(i)->get_time(),fg));
+	this->get_data_pt(i)->set_pitch(in.interpolate_to("pitch",this->get_data_pt(i)->get_time(),fg));
+	this->get_data_pt(i)->set_roll(in.interpolate_to("roll",this->get_data_pt(i)->get_time(),fg));
+	this->get_data_pt(i)->set_flap(in.interpolate_to("flap",this->get_data_pt(i)->get_time(),fg));
+      }
+    }
+
+    libjeff::print_trace(false,"flight_data::resample");
+    return _ERRORCODE_NOERROR;
+  }
+
+  int flight_data::expand_allocation(int new_size){
+    if(new_size <= 0){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+    else if(new_size <= this->allocated_size){
+      return _ERRORCODE_NOERROR;
+    }
+
+    flight_data temp;
+    temp = *this;
+    
+    this->create(new_size);
+    strcpy(this->remarks,temp.get_remarks());
+
+    int i;
+    this->n_data_pt = temp.n_data_pt;
+    for(i=0;i<temp.get_num_data_pt();i++){
+      *(this->get_data_pt(i)) = *(temp.get_data_pt(i));
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+
+  int format_callsign(char *in,char *format,char *out){
+    int number = atoi(in+2);
+    if(number <= 0){
+      return _ERRORCODE_INPUTERROR;
+    }
+
+    strncpy(out,in,2);
+    out[2] = '\0';
+    sprintf(out+2,format,number);
+
+    return _ERRORCODE_NOERROR;
+  }
+  namespace flightData{
+    int read_bufr_field(codes_handle *h,char *key,size_t &num_data,long* &out){
+      int error = _ERRORCODE_NOERROR;
+      codes_get_size(h,key,&num_data);
+      //std::cout << key << " " << num_data << std::endl;
+      if(num_data > 0){
+	out = new long [num_data];
+	codes_get_long_array(h,key,out,&num_data);
+      }
+      else{
+	error = _ERRORCODE_BUFRDATA_NOTFOUND;
+      }
+      
+      return error;
+    }
+    int read_bufr_field(codes_handle *h,char *key,size_t &num_data,double* &out){
+      int error = _ERRORCODE_NOERROR;
+      codes_get_size(h,key,&num_data);
+      if(num_data > 0){
+	out = new double [num_data];
+	codes_get_double_array(h,key,out,&num_data);
+      }
+      else{
+	error = _ERRORCODE_BUFRDATA_NOTFOUND;
+      }
+      
+      return error;
+    }
+    int read_bufr_field(codes_handle *h,char *key,size_t &num_data,char** &out){
+      int error = _ERRORCODE_NOERROR;
+      CODES_CHECK(codes_get_size(h,key,&num_data),0);
+      if(num_data > 0){
+	out = new char *[num_data];
+	CODES_CHECK(codes_get_string_array(h,key,out,&num_data),0);
+      }
+      else{
+	error = _ERRORCODE_BUFRDATA_NOTFOUND;
+      }
+      
+      return error;
+    }
+    int read_bufr_field(codes_handle *h,char *key,char* &out){
+      int error = _ERRORCODE_NOERROR;
+      size_t len = 0;
+      codes_get_length(h,key,&len);
+      if(len > 0){
+	out = new char [len+10];
+	codes_get_string(h,key,out,&len);
+      }
+      else{
+	error = _ERRORCODE_BUFRDATA_NOTFOUND;
+      }
+      
+      return error;
+    }
+    int read_bufr_field(codes_handle *h,int num_key,char **key,size_t &num_data,date_time* &out){
+      int error = _ERRORCODE_NOERROR;
+      long **store = new long *[num_key];
+      int i;
+      codes_get_size(h,key[0],&num_data);
+      if(num_data > 0){
+	out = new date_time [num_data];
+	for(i=0;i<num_key;i++){
+	  read_bufr_field(h,key[i],num_data,store[i]);
+	}
+
+	for(i=0;i<num_data;i++){
+	  switch(num_key){
+	  case 1:
+	    out[i].set_time((int) store[0][i]);
+	    break;
+	  case 2:
+	    out[i].set_time((int) store[0][i],(int) store[1][i]);
+	    break;
+	  case 3:
+	    out[i].set_time((int) store[0][i],(int) store[1][i],(int) store[2][i]);
+	    break;
+	  case 4:
+	    out[i].set_time((int) store[0][i],(int) store[1][i],(int) store[2][i],(int) store[3][i]);
+	    break;
+	  case 5:
+	    out[i].set_time((int) store[0][i],(int) store[1][i],(int) store[2][i],(int) store[3][i],(int) store[4][i]);
+	    break;
+	  case 6:
+	    out[i].set_time((int) store[0][i],(int) store[1][i],(int) store[2][i],(int) store[3][i],(int) store[4][i],(int) store[5][i]);
+	  }
+	}
+
+	for(i=0;i<num_key;i++){
+	  delete [] store[i];
+	}
+      }
+      else{
+	error = _ERRORCODE_BUFRDATA_NOTFOUND;
+      }
+
+      delete [] store;
+      
+      return error;
+    }
+
+    int read_bufr(char *filename,int &num_flight_data,libjeff::flight_data_pt* &out,bool (*quality_check)(flight_data_pt* test_pt)){
+      if(out != NULL){
+	delete [] out;
+	out = NULL;
+      }
+      FILE* in = NULL;
+    
+      codes_handle *h = NULL;
+      int error = _ERRORCODE_NOERROR, temp_error;
+      long *numSubset = NULL;
+      char *ctemp = new char [4096];
+      char *units = NULL;
+
+      double *dtemp = NULL, *dtemp2 = NULL;
+      long *ltemp = NULL;
+      double latlon[2];
+      date_time *obs_time = NULL;;
+      
+      in = fopen(filename,"r");
+
+      int i=0,j,k;
+
+      const int num_keys = 5;
+      char *timekeys_master[num_keys], *timekeys[num_keys];
+      
+      for(i=0;i<num_keys;i++){
+	timekeys_master[i] = new char [4096];
+	timekeys[i] = new char [4096];
+      }
+      
+      strcpy(timekeys_master[0],"/subsetNumber=%d/year");
+      strcpy(timekeys_master[1],"/subsetNumber=%d/month");
+      strcpy(timekeys_master[2],"/subsetNumber=%d/day");
+      strcpy(timekeys_master[3],"/subsetNumber=%d/hour");
+      strcpy(timekeys_master[4],"/subsetNumber=%d/minute");
+      
+      int allocated_size = init_allocated_size;
+      out = new libjeff::flight_data_pt [allocated_size];
+      num_flight_data = 0;
+      size_t num_data = 0;
+      size_t num_data2 = 0;
+      while ((h = codes_handle_new_from_file(NULL,in,PRODUCT_BUFR,&error)) != NULL || error != CODES_SUCCESS){
+	codes_set_long(h,"unpack",1);
+
+	error = read_bufr_field(h,"numberOfSubsets",num_data,numSubset);
+	if(error != _ERRORCODE_NOERROR){
+	  std::cout << "Error in reading numberOfSubsets" << std::endl;
+	  codes_handle_delete(h);
+	  break;
+	}
+
+	if(*numSubset + num_flight_data > allocated_size){
+	  libjeff::flight_data_pt* temp_data = new libjeff::flight_data_pt [(*numSubset + num_flight_data)*2];
+	  for(j=0;j<num_flight_data;j++){
+	    temp_data[j] = out[j];
+	  }
+	  delete [] out;
+	  out = temp_data;
+	  allocated_size = 2*(*numSubset + num_flight_data);
+	}
+
+	long *subsetNumber = NULL;
+	temp_error = read_bufr_field(h,"subsetNumber",num_data,subsetNumber);
+	if(temp_error != _ERRORCODE_NOERROR){
+	  std::cout << "Unable to read subsetNumber" << std::endl;
+	  error = temp_error;
+	}
+
+	for(j=0;j<*numSubset&&error==_ERRORCODE_NOERROR;j++){
+	  for(k=0;k<num_keys;k++){
+	    sprintf(timekeys[k],timekeys_master[k],subsetNumber[j]);
+	  }
+	  temp_error = read_bufr_field(h,num_keys,timekeys,num_data,obs_time);
+	  if(temp_error != _ERRORCODE_NOERROR){
+	    error = temp_error;
+	  }
+	  else{
+	    out[num_flight_data].set_time(obs_time[0]);
+	    delete [] obs_time;
+	    obs_time = NULL;
+	  }
+
+	  sprintf(ctemp,"/subsetNumber=%d/latitude",subsetNumber[j]);
+	  temp_error = read_bufr_field(h,ctemp,num_data,dtemp);
+	  if(temp_error != _ERRORCODE_NOERROR){
+	    error = temp_error;
+	  }
+	  else{
+	    latlon[0]=dtemp[0];
+	    delete [] dtemp;
+	    dtemp = NULL;
+	  }
+	  
+	  sprintf(ctemp,"/subsetNumber=%d/longitude",subsetNumber[j]);
+	  temp_error = read_bufr_field(h,ctemp,num_data,dtemp);
+	  if(temp_error != _ERRORCODE_NOERROR){
+	    error = temp_error;
+	  }
+	  else{
+	    latlon[1]=dtemp[0];
+	    delete [] dtemp;
+	    dtemp = NULL;
+	  }
+	  out[num_flight_data].set_latlon(latlon);
+
+	  sprintf(ctemp,"/subsetNumber=%d/flightLevel",subsetNumber[j]);
+	  temp_error = read_bufr_field(h,ctemp,num_data,dtemp);
+	  if(temp_error != _ERRORCODE_NOERROR){
+	    sprintf(ctemp,"/subsetNumber=%d/height",subsetNumber[j]);
+	    temp_error = read_bufr_field(h,ctemp,num_data,dtemp);
+	    if(temp_error != _ERRORCODE_NOERROR){
+	      error = temp_error;
+	    }
+	    else{
+	      sprintf(ctemp,"/subsetNumber=%d/height->units",subsetNumber[j]);
+	      temp_error = read_bufr_field(h,ctemp,units);
+
+	      if(strcmp(units,"m")==0){
+		out[num_flight_data].set_flight_level(*dtemp*meter_to_ft);
+	      }
+	      else{
+		std::cout << "Unknown flight level Unit " << units << std::endl;
+	      }
+
+	      delete [] units;
+	      delete [] dtemp;
+	      dtemp = NULL;
+	      units = NULL;
+	    }
+	  }
+	  else{
+	    sprintf(ctemp,"/subsetNumber=%d/flightLevel->units",subsetNumber[j]);
+	    temp_error = read_bufr_field(h,ctemp,units);
+
+	    if(strcmp(units,"m")==0){
+	      out[num_flight_data].set_flight_level(*dtemp*meter_to_ft);
+	    }
+	    else{
+	      std::cout << "Unknown flight level Unit " << units << std::endl;
+	    }
+	    
+	    delete [] units;
+	    delete [] dtemp;
+	    dtemp = NULL;
+	    units = NULL;
+	  }
+
+	  sprintf(ctemp,"/subsetNumber=%d/windSpeed",subsetNumber[j]);
+	  temp_error = read_bufr_field(h,ctemp,num_data,dtemp);
+	  if(temp_error != _ERRORCODE_NOERROR){
+	    error = temp_error;
+	  }
+	  else{
+	    sprintf(ctemp,"/subsetNumber=%d/windSpeed->units",subsetNumber[j]);
+	    temp_error = read_bufr_field(h,ctemp,units);
+
+	    sprintf(ctemp,"/subsetNumber=%d/windDirection",subsetNumber[j]);
+	    temp_error = read_bufr_field(h,ctemp,num_data,dtemp2);
+	    if(temp_error != _ERRORCODE_NOERROR){
+	      error = temp_error;
+	    }
+	    else{
+	      //if(strcmp(units,"m/s")==0){
+	      if(true){
+		out[num_flight_data].set_windu(meteorology_sd_to_u(*dtemp,*dtemp2));
+		out[num_flight_data].set_windv(meteorology_sd_to_v(*dtemp,*dtemp2));
+	      }
+	      else{
+		std::cout << "Unknown wind speed Unit " << units << std::endl;
+	      }
+
+	      delete [] dtemp2;
+	      dtemp2 = NULL;
+	    }
+	    
+	    delete [] units;
+	    delete [] dtemp;
+	    dtemp = NULL;
+	    units = NULL;
+	  }
+
+	  sprintf(ctemp,"/subsetNumber=%d/airTemperature",subsetNumber[j]);
+	  temp_error = read_bufr_field(h,ctemp,num_data,dtemp);
+	  if(temp_error != _ERRORCODE_NOERROR){
+	    error = temp_error;
+	  }
+	  else{
+	    sprintf(ctemp,"/subsetNumber=%d/airTemperature->units",subsetNumber[j]);
+	    temp_error = read_bufr_field(h,ctemp,units);
+
+	    if(strcmp(units,"K")==0){
+	      out[num_flight_data].set_temperature(*dtemp);
+	    }
+	    else{
+	      std::cout << "Unknown temperature Unit " << units << std::endl;
+	    }
+
+	    delete [] units;
+	    delete [] dtemp;
+	    dtemp = NULL;
+	    units = NULL;
+	  }
+
+	  if(quality_check(out+num_flight_data)){
+	    num_flight_data++;
+	  }
+	}
+
+	if(subsetNumber != NULL){
+	  delete [] subsetNumber;
+	  subsetNumber = NULL;
+	}
+
+	if(numSubset != NULL){
+	  delete [] numSubset;
+	  numSubset = NULL;
+	}
+	codes_handle_delete(h);
+	if(error != _ERRORCODE_NOERROR){
+	  break;
+	}
+	i++;
+      }
+
+      fclose(in);
+
+      for(i=0;i<num_keys;i++){
+	delete [] timekeys_master[i];
+	delete [] timekeys[i];
+      }
+
+      delete [] ctemp;
+
+      return error;
+    }
+  }
+  namespace amdar{
+    int extract_arinc_de_data_format(char *&amdar_string,double *latlon,int &hh,int &mm, int &altitude, double &t, double &ws, double &wd, int &rollflag, double &qv, int &nturb, double* &meanturb,double *&maxturb){
+      int error = _ERRORCODE_NOERROR;
+
+      if(strlen(amdar_string) >= 37){
+	char *amdar_copy = new char [38+4*9], *cur_pt = amdar_copy;
+	
+	strncpy(amdar_copy,amdar_string,37+4*9);
+	amdar_copy[37+4*9]='\0';
+
+	error = extract_latlon(cur_pt,latlon);
+	if(!error){
+	  error = extract_hhmm(cur_pt,hh,mm);
+	}
+	if(!error){
+	  error = extract_altitude(cur_pt,altitude);
+	}
+	if(!error){
+	  error = extract_wxelement(cur_pt,t,ws,wd);
+	}
+	if(!error){
+	  if(*cur_pt=='G'){
+	    rollflag = 0;
+	    cur_pt++;
+	  }
+	  else if(*cur_pt=='B'){
+	    rollflag = 1;
+	    cur_pt++;
+	  }
+	  else{
+	    error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARFORMAT;
+	  }
+	}
+	if(!error){
+	  error = extract_qv(cur_pt,qv);
+	}
+	if(!error || error == _ERRORCODE_FLIGHTDATA_AMDARNOQV){
+	  int temp_error = extract_turb(cur_pt,nturb,meanturb,maxturb);
+
+	  if(temp_error){
+	    error = temp_error;
+	  }
+	}
+
+	if(!error || error == _ERRORCODE_FLIGHTDATA_AMDARNOQV){
+	  amdar_string += 37+4*nturb;
+	}
+	
+	delete [] amdar_copy;
+      }
+      else{
+	error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARFORMAT;
+      }
+
+      return error;
+    }
+    int extract_arinc_a_data_format(char *&amdar_string, int &altitude, double &t, double &ws, double &wd, int &rollflag, double &qv){ //if extraction is successful, the subroutine will advance the pointer in by 19 bytes
+      int error = _ERRORCODE_NOERROR;
+
+      if(strlen(amdar_string) >= 19){
+	char *amdar_copy = new char [20], *cur_pt = amdar_copy;
+	
+	strncpy(amdar_copy,amdar_string,19);
+	amdar_copy[19]='\0';
+
+	error = extract_altitude(cur_pt,altitude);
+	//std::cout << "Altitude error: " << error << std::endl;
+	if(!error){
+	  error = extract_wxelement(cur_pt,t,ws,wd);
+	  //std::cout << "Wx Element error: " << error << std::endl;
+	}
+	if(!error){
+	  if(*cur_pt=='G'){
+	    rollflag = 0;
+	    cur_pt++;
+	  }
+	  else if(*cur_pt=='B'){
+	    rollflag = 1;
+	    cur_pt++;
+	  }
+	  else{
+	    error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARFORMAT;
+	  }
+	}
+	if(!error){
+	  error = extract_qv(cur_pt,qv);
+	  //std::cout << "Qv error: " << error << std::endl;
+	}
+
+	if(!error || error == _ERRORCODE_FLIGHTDATA_AMDARNOQV){
+	  amdar_string += 19;
+	}
+	
+	delete [] amdar_copy;
+      }
+      else{
+	error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARFORMAT;
+      }
+      return error;
+    }
+    int extract_arinc_a_data_format(char *&amdar_string, double *latlon, int &altitude, double &t, double &ws, double &wd, int &rollflag, double &qv){ //if extraction is successful, the subroutine will advance the pointer in by 32 bytes
+      int error = _ERRORCODE_NOERROR;
+
+      if(strlen(amdar_string) >= 32){
+	char *amdar_copy = new char [33];
+	char *cur_ptr = amdar_copy;
+	
+	strncpy(amdar_copy,amdar_string,32);
+	amdar_copy[33]='\0';
+
+	error = extract_latlon(cur_ptr,latlon);
+	if(!error){
+	  error = extract_arinc_a_data_format(cur_ptr,altitude,t,ws,wd,rollflag,qv);
+	}
+
+	if(!error || error == _ERRORCODE_FLIGHTDATA_AMDARNOQV){
+	  amdar_string += 32;
+	}
+	
+	delete [] amdar_copy;
+      }
+      else{
+	error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARFORMAT;
+      }
+
+      return error;
+    }
+
+    int extract_ddhhmm(char* &in,int &dd,int &hh,int &mm){  //if extraction is successful, the subroutine will advance the pointer in by 6 bytes
+      int error = _ERRORCODE_NOERROR;
+
+      if(strlen(in) >= 6){
+	char *ctemp = new char [10], *cur_pt = in;
+	strncpy(ctemp,in,6);
+	ctemp[6] = '\0';
+
+	if(is_number(ctemp)){
+	  int out_dd, out_hh, out_mm;
+	  strncpy(ctemp,cur_pt,2);
+	  ctemp[2] = '\0';
+
+	  out_dd = atoi(ctemp);
+	  cur_pt += 2;
+	  error = extract_hhmm(cur_pt,out_hh,out_mm);
+	  //std::cout << out_dd << " " << out_hh << " " << out_mm << std::endl;
+
+	  if(out_dd >= 0 && out_dd <=31 && !error){
+	    dd = out_dd;
+	    hh=out_hh;
+	    mm = out_mm;
+	    in += 6;
+	  }
+	  else{
+	    error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+	  }
+	}
+	else{
+	  error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+	}
+
+	delete [] ctemp;
+      }
+      else{
+	error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+      }
+      return error;
+    }
+    int extract_hhmm(char* &in,int &hh,int &mm){  //if extraction is successful, the subroutine will advance the pointer in by 4 bytes
+      int error = _ERRORCODE_NOERROR;
+
+      if(strlen(in) >= 4){
+	char *ctemp = new char [10];
+	strncpy(ctemp,in,4);
+	ctemp[4] = '\0';
+
+	if(is_number(ctemp)){
+	  int out_hh, out_mm;
+	  strncpy(ctemp,in,2);
+	  ctemp[2] = '\0';
+
+	  out_hh = atoi(ctemp);
+
+	  strncpy(ctemp,in+2,2);
+	  ctemp[2] = '\0';
+
+	  out_mm = atoi(ctemp);
+	  //std::cout << out_hh << " " << out_mm << std::endl;
+
+	  if(out_hh >= 0 && out_hh < 24 && out_mm >= 0 && out_mm < 60){
+	    hh=out_hh;
+	    mm = out_mm;
+	    in += 4;
+	  }
+	  else{
+	    error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+	  }
+	}
+	else{
+	  error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+	}
+
+	delete [] ctemp;
+      }
+      else{
+	error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+      }
+      return error;
+    }
+    int extract_latlon(char* &in,double *latlon){  //if extraction is successful, the subroutine will advance the pointer in by 13 bytes
+      int error = _ERRORCODE_NOERROR;
+
+      if(strlen(in) >= 13 && (in[0] == 'N' || in[0] == 'S') && (in[6] == 'E' || in[6] == 'W')){
+	char *ctemp = new char [10];
+
+	int lat_d = -9999,lat_m = -9999;
+	int lon_d = -9999,lon_m = -9999;
+
+	strncpy(ctemp,in+1,2);
+	ctemp[2] = '\0';
+	if(is_number(ctemp)){
+	  lat_d = atoi(ctemp);
+	}
+
+	strncpy(ctemp,in+3,3);
+	ctemp[3] = '\0';
+	if(is_number(ctemp)){
+	  lat_m = atoi(ctemp);
+	}
+
+	strncpy(ctemp,in+7,3);
+	ctemp[3] = '\0';
+	if(is_number(ctemp)){
+	  lon_d = atoi(ctemp);
+	}
+
+	strncpy(ctemp,in+10,3);
+	ctemp[3] = '\0';
+	if(is_number(ctemp)){
+	  lon_m = atoi(ctemp);
+	}
+
+	if(lat_d >= 0 && lat_d <= 90 && lat_m >= 0 && lat_m < 600 && lon_d >= 0 && lon_d <= 180 && lon_m >= 0 && lon_m < 600){
+	  latlon[0] = lat_d + lat_m/600.;
+	  latlon[1] = lon_d + lon_m/600.;
+	  if(in[0] == 'S'){
+	    latlon[0] *= -1;
+	  }
+	  if(in[6] == 'W'){
+	    latlon[1] *= -1;
+	  }
+	  in += 13;
+	}
+	else{
+	  error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+	}
+
+	delete [] ctemp;
+      }
+      else{
+	error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+      }
+      return error;
+    }
+    int extract_altitude(char* &in,int &altitude){  //if extraction is successful, the subroutine will advance the pointer in by 4 bytes
+      int error = _ERRORCODE_NOERROR;
+
+      if(strlen(in) >= 4){
+	char *ctemp = new char [20];
+
+	strncpy(ctemp,in,4);
+	ctemp[4] = '\0';
+
+	if(is_number(ctemp)){
+	  altitude = atoi(ctemp);
+	  altitude *= 10;
+
+	  in+=4;
+	}
+	else{
+	  error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+	}
+
+	delete [] ctemp;
+      }
+      else{
+	error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+      }
+      return error;
+    }
+    int extract_t(char *&in,double &t){ //if extraction is successful, the subroutine will advance the pointer in by 4 bytes
+      int error = _ERRORCODE_NOERROR;
+
+      if(strlen(in) >= 4){
+	char *ctemp = new char [20];
+	double out_t;
+
+	if(in[0] == 'P' || in[0] == 'M'){
+	  strncpy(ctemp,in+1,3);
+	  ctemp[3] = '\0';
+	  
+	  if(is_number(ctemp)){
+	    out_t = atoi(ctemp)/10.;
+	    
+	    if(in[0] == 'M'){
+	      out_t *= -1.;
+	    }
+	  }
+	  else{
+	    error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+	  }
+	}
+
+	if(!error){
+	  t = out_t;
+	  in+=4;
+	}
+
+	delete [] ctemp;
+      }
+
+      return error;
+    }
+    int extract_wxelement(char *&in,double &t,double &ws,double &wd){ //if extraction is successful, the subroutine will advance the pointer in by 10 bytes
+      int error = _ERRORCODE_NOERROR;
+
+      if(strlen(in) >= 10){
+	char *ctemp = new char [20];
+	char *cur_ptr = in;
+	double out_t,out_ws;
+	int out_wd;
+
+	error = extract_t(cur_ptr,out_t);
+	  
+	if(!error){
+	  strncpy(ctemp,in+4,3);
+	  ctemp[3] = '\0';
+	  
+	  if(is_number(ctemp)){
+	    out_wd = atoi(ctemp);
+	  }
+	  else{
+	    error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+	  }
+	}
+	  
+	if(!error){
+	  strncpy(ctemp,in+7,3);
+	  ctemp[3] = '\0';
+	  
+	  if(is_number(ctemp)){
+	    out_ws = atof(ctemp);
+	  }
+	  else{
+	    error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+	  }
+	}
+	
+	if(!error && out_wd >= 0 && out_wd <= 359){
+	  t = out_t + meteorology_C_to_K;
+	  ws = out_ws*kt_to_ms;
+	  wd = out_wd;
+	  in+=10;
+	}
+
+	delete [] ctemp;
+      }
+      else{
+	error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+      }
+      return error;
+    }
+    int extract_qv(char *&in,double &qv){ //if extraction is successful, the subroutine will advance the pointer in by 4 bytes
+      int error = _ERRORCODE_NOERROR;
+
+      if(strlen(in) >= 4){
+	char *ctemp = new char [10];
+
+	strncpy(ctemp,in,4);
+	ctemp[4] = '\0';
+
+	if(strcmp(ctemp,"    ")==0){
+	  error = _ERRORCODE_FLIGHTDATA_AMDARNOQV;
+	  qv = MISSINGVALUE;
+	  in+=4;
+	}
+	else{
+	  if((int) ctemp[3] >= ((int) '0') && (int) ctemp[3] <= ((int) '9')){
+	    switch(((int) ctemp[3]) - ((int) '0')){
+	    case 0:
+	      if(ctemp[0] == '0' && ctemp[1] == '0'){
+		qv = 0.;
+	      }
+	      else{
+		qv = (((double) (((int) ctemp[0]) - ((int) '0'))) + (((int) ctemp[1]) - ((int) '0'))/10.)/pow(10,((int) ctemp[2]) - ((int) '0'));
+	      }
+	      break;
+	    case 1:
+	      error = _ERRORCODE_FLIGHTDATA_AMDARRHOVER100;
+	      break;
+	    case 2:
+	    case 3:
+	    case 4:
+	    case 5:
+	    case 6:
+	    case 7:
+	    case 8:
+	      error = _ERRORCODE_FLIGHTDATA_AMDARQVERROR;
+	      break;
+	    case 9:
+	      error = _ERRORCODE_FLIGHTDATA_AMDARNOQV;
+	      qv = MISSINGVALUE;
+	      break;
+	    }
+
+	    in+=4;
+	  }
+	  else{
+	    error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+	  }
+	}
+
+	delete [] ctemp;
+      }
+      else{
+	error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+      }
+      return error;
+    }
+    int extract_turb(char *&in,int &nturb,double* &meanturb,double *&maxturb){
+      int error = _ERRORCODE_NOERROR;
+      if(meanturb != NULL){
+	delete [] meanturb;
+	meanturb = NULL;
+      }
+      if(maxturb != NULL){
+	delete [] maxturb;
+	maxturb = NULL;
+      }
+
+      if(strlen(in) >= 1){
+	if(*in == 'Q' || *in == 'Z' || (((int) *in) >= ((int) '0') && ((int) *in) <= ((int) '9'))){
+	  if(*in == 'Q' || *in == 'Z' || *in == '0'){
+	    nturb = 0;
+	  }
+	  else{
+	    char *ctemp = new char [5];
+	    strncpy(ctemp,in,1);
+	    ctemp[1] = '\0';
+	    nturb = atoi(ctemp);
+
+	    meanturb = new double [nturb];
+	    maxturb = new double [nturb];
+
+	    int i;
+	    for(i=0;i<nturb;i++){
+	      strncpy(ctemp,in+1+i*4,2);
+	      ctemp[2] = '\0';
+	      
+	      if(is_number(ctemp)){
+		meanturb[i] = atof(ctemp);
+	      }
+	      else{
+		error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+	      }
+
+	      strncpy(ctemp,in+1+i*4+2,2);
+	      ctemp[2] = '\0';
+	      
+	      if(is_number(ctemp)){
+		maxturb[i] = atof(ctemp);
+	      }
+	      else{
+		error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+	      }
+	    }
+
+	    delete [] ctemp;
+	  }
+	}
+	else{
+	  error = _ERRORCODE_FLIGHTDATAINCORRECTAMDARELEMENTFORMAT;
+	}
+      }
+      return error;
+    }
+    date_time get_date_from_filename(char *filename){
+      char *ctemp = new char [strlen(filename)+10];
+
+      get_filename(filename,ctemp);
+      date_time results = NOTIME;
+
+      switch(strlen(ctemp)){
+      case 42: {//format gfs_amdar_log_mm_dd_yy_hh_mm_ss_microsec.txt
+	string temp(ctemp);
+	results.set_time(atoi(temp.substr(20,2).c_str())+2000,atoi(temp.substr(14,2).c_str()),atoi(temp.substr(17,2).c_str()),atoi(temp.substr(23,2).c_str()),atoi(temp.substr(26,2).c_str()),atoi(temp.substr(29,2).c_str()));
+	results.set_sec_decimal(atof(temp.substr(32,6).c_str())*0.000001);
+	results -= HKT2UTC;
+	break;
+      }
+      default:
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "Error! Unrecognized pattern in get_date_from_filename(char *filename)" << std::endl;
+	}
+	break;
+      }
+
+      delete [] ctemp;
+      return results;
+    }
+  }
+}
+ostream &operator<<(ostream &cout, libjeff::flight_data in){
+  int i;
+  for(i=0;i<in.get_num_data_pt();i++){
+    cout << in.get_data_pt(i)->get_time() << " " << (in.get_data_pt(i)->get_latlon())[0] << " " << (in.get_data_pt(i)->get_latlon())[1] << " " << in.get_data_pt(i)->get_flight_level() << " " << in.get_data_pt(i)->get_geometric_height() <<  " " << in.get_data_pt(i)->get_ground_speed() << endl;
+  }
+  return cout;
+}
+date_time read_date_from_QAR_csv(char* path,char* casenumber){
+  char *ctemp = new char [FILENAMEBUFFSIZE];
+ 
+  char **filelist;
+  int numfile;
+
+  date_time result(0,0,0,0,0,0);
+
+  libjeff::file_check_list_item(path,filelist,numfile);
+  int i;
+  for(i=0;i<numfile;i++){
+    if(strncmp(filelist[i],casenumber,strlen(casenumber))==0 && strlen(filelist[i]) == strlen(casenumber) + 7){
+      strcpy(ctemp,path);
+      strcat(ctemp,"/");
+      strcat(ctemp,filelist[i]);
+      std::ifstream fin;
+      fin.open(ctemp);
+      result=read_date_from_QAR_csv(ctemp);
+
+      break;
+    }
+  }
+
+  for(i=0;i<numfile;i++){
+    delete [] filelist[i];
+  }
+  delete [] filelist;
+  delete [] ctemp;
+
+  //cout << result << endl;
+  return result;
+}
+date_time read_date_from_QAR_csv(char* filename){
+  std::ifstream fin;
+  char *ctemp = new char [FILENAMEBUFFSIZE];
+  char *ctemp2 = new char [FILENAMEBUFFSIZE];
+  fin.open(filename);
+
+  fin.getline(ctemp,FILENAMEBUFFSIZE-1);
+
+  *strstr(strstr(ctemp," ")+1," ")='\0';
+
+  strcpy(ctemp2,strstr(ctemp," ")+1);
+
+  date_time result = NOTIME;
+  result.set_time(ctemp2);
+
+  delete [] ctemp;
+  delete [] ctemp2;
+  return result;
+}
+
+namespace flight_data_funct{
+  void setequal(char *a,char *b){
+    //*((libjeff::flight_data*) b) = *((libjeff::flight_data*) a); does not work as constructor operator was not called and no memeory was allocated to remarks
+    memcpy(b,a,sizeof(libjeff::flight_data));
+  }
+  bool isless(char *a,char *b){
+    libjeff::flight_data *data_a,*data_b;
+    data_a = (libjeff::flight_data*) a;
+    data_b = (libjeff::flight_data*) b;
+    
+    if(data_a->get_num_data_pt() > 0 && data_b->get_num_data_pt() > 0){
+      return data_b->get_data_pt(0)->get_time() > data_a->get_data_pt(0)->get_time();
+    }
+    else{
+      return false;
+    }
+  }
+}
+namespace flight_data_pt_funct{
+  void setequal(char *a,char *b){
+    memcpy(b,a,sizeof(libjeff::flight_data_pt));
+  }
+  bool isless(char *a,char *b){
+    libjeff::flight_data_pt *data_a,*data_b;
+    data_a = (libjeff::flight_data_pt*) a;
+    data_b = (libjeff::flight_data_pt*) b;
+    
+    return data_b->get_time() > data_a->get_time();
+  }
+}
+
+int sort_flightdata(int nflight_data,libjeff::flight_data* in){
+  if(nflight_data > 0){
+    general_sort(nflight_data,sizeof(libjeff::flight_data),(char*) in,flight_data_funct::setequal,flight_data_funct::isless);
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+  return _ERRORCODE_NOERROR;
+}
+int sort_flightdata(libjeff::flight_data* in){
+  if(in->get_num_data_pt() > 0){
+    general_sort(in->get_num_data_pt(),sizeof(libjeff::flight_data_pt),(char*) in->get_data_pt(0),flight_data_pt_funct::setequal,flight_data_pt_funct::isless);
+  }
+  else{
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+  return _ERRORCODE_NOERROR;
+}
+
+libjeff::flight_data* read_adsb_json_cat21(char *filename,int &num_flight_data,libjeff::flight_data* &append_to){
+  json_block *data_blocks = NULL, *temp_block = new json_block;
+
+
+  int temp_num_flight_data;
+  libjeff::flight_data *temp_flight_data;
+
+  file_handler_read_json(filename,temp_num_flight_data,data_blocks);
+
+  char *temp_filename = new char [FILENAMEBUFFSIZE];
+
+  date_time temp_time, filename_time, temp_time2;
+  int error;
+  int count = 0;
+  //int match_index;
+
+  //cout << "Number of JSON block: " << temp_num_flight_data << endl;
+  if(temp_num_flight_data > 0){
+    temp_flight_data = new libjeff::flight_data [temp_num_flight_data];
+    //bool* matched = new bool [temp_num_flight_data];
+
+    int i;
+    for(i=0;i<temp_num_flight_data;i++){
+      error = _ERRORCODE_NOERROR;
+      //cout << i << " / " << temp_num_flight_data << " " << (data_blocks[i].extract("CAT021",temp_block))->extract("I080",temp_block)->extract("TAddr",temp_block)->get_block_data() << endl;
+      temp_flight_data[count].create(1);
+      //matched[i] = false;
+
+      if(data_blocks[i].extract("CAT021",temp_block)->get_block_data()!=NULL){
+	if(data_blocks[i].extract("CAT021",temp_block)->extract("I080",temp_block)->extract("TAddr",temp_block)->get_block_data()!=NULL){
+	  temp_flight_data[count].set_t_address((data_blocks[i].extract("CAT021",temp_block))->extract("I080",temp_block)->extract("TAddr",temp_block)->get_block_data());
+	}
+	else{
+	  error = _ERRORCODE_ADSB_MISSINGFIELD;
+	}
+      }
+
+      if(!error){
+	if((data_blocks[i].extract("CAT021",temp_block))->extract("I145",temp_block)->extract("FL",temp_block)->get_allocated_size() > 0){
+	  temp_flight_data[count].get_data_pt(0)->set_flight_level(atof((data_blocks[i].extract("CAT021",temp_block))->extract("I145",temp_block)->extract("FL",temp_block)->get_block_data())*100.);
+	}
+	else{
+	  temp_flight_data[count].get_data_pt(0)->set_flight_level(MISSINGVALUE);
+	}
+	if((data_blocks[i].extract("CAT021",temp_block))->extract("I140",temp_block)->extract("geometric_height",temp_block)->get_allocated_size() > 0){
+	  temp_flight_data[count].get_data_pt(0)->set_geometric_height(atof((data_blocks[i].extract("CAT021",temp_block))->extract("I140",temp_block)->extract("geometric_height",temp_block)->get_block_data()));
+	}
+	else{
+	  temp_flight_data[count].get_data_pt(0)->set_geometric_height(MISSINGVALUE);
+	}
+
+	if((data_blocks[i].extract("CAT021",temp_block))->extract("I130",temp_block)->extract("Lat",temp_block)->get_block_data()!=NULL){
+	temp_flight_data[count].get_data_pt(0)->get_latlon()[0] = atof((data_blocks[i].extract("CAT021",temp_block))->extract("I130",temp_block)->extract("Lat",temp_block)->get_block_data());
+	}
+	else{
+	  error = _ERRORCODE_ADSB_MISSINGFIELD;
+	}
+	if((data_blocks[i].extract("CAT021",temp_block))->extract("I130",temp_block)->extract("Lon",temp_block)->get_block_data()!=NULL){
+	  temp_flight_data[count].get_data_pt(0)->get_latlon()[1] = atof((data_blocks[i].extract("CAT021",temp_block))->extract("I130",temp_block)->extract("Lon",temp_block)->get_block_data());
+	}
+	else{
+	  error = _ERRORCODE_ADSB_MISSINGFIELD;
+	}
+	if((data_blocks[i].extract("CAT021",temp_block))->extract("I170",temp_block)->extract("TId",temp_block)->get_allocated_size() > 0){
+	  temp_flight_data[count].set_remarks((data_blocks[i].extract("CAT021",temp_block))->extract("I170",temp_block)->extract("TId",temp_block)->get_block_data());
+	}
+	else{
+	  temp_flight_data[count].set_remarks("");
+	}
+      
+	if((data_blocks[i].extract("CAT021",temp_block))->extract("I071",temp_block)->extract("time_applicability_position",temp_block)->get_allocated_size() > 0){
+	  string_reverse(filename,temp_filename);
+	  //cout << temp_filename << endl;
+	  *strstr(temp_filename,".bsda") = '\0';
+	  string_reverse(temp_filename,temp_filename);
+	  if(strncmp(temp_filename,"json.",5)==0){
+	    strcpy(temp_filename,temp_filename+5);
+	  }
+	  //cout << temp_filename << endl;
+	  if(strstr(temp_filename,".")!=NULL){
+	    *(strstr(temp_filename,"."))='\0';
+	  }
+	  filename_time.set_time(temp_filename);
+	  filename_time -= HKT2UTC;
+	  //cout << "Using 071 " << filename << " " << temp_filename << endl;
+	  temp_time.set_time(filename_time.get_year(),filename_time.get_month(),filename_time.get_day());
+	  //temp_time2.set_time(0,0,0,0,0,((int) floor(atof((data_blocks[i].extract("CAT021",temp_block))->extract("I071",temp_block)->extract("time_applicability_position",temp_block)->get_block_data()))));
+	  temp_time2.set_time(0,0,0,0,0,0);
+	  temp_time2.set_sec_decimal(atof((data_blocks[i].extract("CAT021",temp_block))->extract("I071",temp_block)->extract("time_applicability_position",temp_block)->get_block_data()));
+	  temp_time += temp_time2;
+	  
+	  /*
+	if(temp_time > filename_time){
+	  if((temp_time - filename_time) > (filename_time - temp_time + ONE_DAY)){
+	    temp_time -= ONE_DAY;
+	  }
+	}
+	*/
+	  if(temp_time.numberOfHourFrom(filename_time) > 12){
+	    temp_time -= ONE_DAY;
+	  }
+	  else if(filename_time.numberOfHourFrom(temp_time) > 12){
+	    temp_time += ONE_DAY;
+	  }
+
+	  temp_flight_data[count].get_data_pt(0)->set_time(temp_time);
+	}
+	else if((data_blocks[i].extract("CAT021",temp_block))->extract("I073",temp_block)->extract("time_reception_position",temp_block)->get_allocated_size() > 0){
+	  //cout << "Using 073 " << filename << endl;
+	  string_reverse(filename,temp_filename);
+	  //cout << temp_filename << endl;
+	  *strstr(temp_filename,".bsda") = '\0';
+	  string_reverse(temp_filename,temp_filename);
+	  if(strncmp(temp_filename,"json.",5)==0){
+	    strcpy(temp_filename,temp_filename+5);
+	  }
+	  //cout << temp_filename << endl;
+	  if(strstr(temp_filename,".")!=NULL){
+	    *(strstr(temp_filename,"."))='\0';
+	  }
+	  filename_time.set_time(temp_filename);
+	  filename_time -= HKT2UTC;
+	  //cout << temp_filename << endl;
+	  temp_time.set_time(filename_time.get_year(),filename_time.get_month(),filename_time.get_day());
+	  //cout << temp_filename << endl;
+	  //temp_time2.set_time(0,0,0,0,0,((int) round(atof((data_blocks[i].extract("CAT021",temp_block))->extract("I073",temp_block)->extract("time_reception_position",temp_block)->get_block_data()))));
+	  temp_time2.set_time(0,0,0,0,0,0);
+	  //cout << atof((data_blocks[i].extract("CAT021",temp_block))->extract("I073",temp_block)->extract("time_applicability_position",temp_block)->get_block_data()) << endl;
+	  temp_time2.set_sec_decimal(atof((data_blocks[i].extract("CAT021",temp_block))->extract("I073",temp_block)->extract("time_reception_position",temp_block)->get_block_data()));
+	  temp_time += temp_time2;
+	  //cout << temp_time << endl;
+	  /*
+	    if(temp_time > filename_time){
+	    if((temp_time - filename_time) > (filename_time - temp_time + ONE_DAY)){
+	    temp_time -= ONE_DAY;
+	    }
+	    }
+	  */
+	  if(temp_time.numberOfHourFrom(filename_time) > 12){
+	    temp_time -= ONE_DAY;
+	  }
+	  else if(filename_time.numberOfHourFrom(temp_time) > 12){
+	    temp_time += ONE_DAY;
+	  }
+	  //cout << temp_time << endl;
+	  temp_flight_data[count].get_data_pt(0)->set_time(temp_time);
+	}
+	else if((data_blocks[i].extract("timestamp",temp_block))->get_allocated_size() > 0){
+	  string_reverse(filename,temp_filename);
+	  //cout << temp_filename << endl;
+	  *strstr(temp_filename,".bsda") = '\0';
+	  string_reverse(temp_filename,temp_filename);
+	  if(strncmp(temp_filename,"json.",5)==0){
+	    strcpy(temp_filename,temp_filename+5);
+	  }
+	  //cout << temp_filename << endl;
+	  if(strstr(temp_filename,".")!=NULL){
+	    *(strstr(temp_filename,"."))='\0';
+	  }
+	  filename_time.set_time(temp_filename);
+	  temp_time.set_time(filename_time.get_year(),filename_time.get_month(),filename_time.get_day());
+	  //temp_time2.set_time(0,0,0,0,0,((int) round(atof((data_blocks[i].extract("timestamp",temp_block))->get_block_data())*0.001)));
+	  temp_time2.set_time(0,0,0,0,0,0);
+	  temp_time2.set_sec_decimal(atof((data_blocks[i].extract("timestamp",temp_block))->get_block_data())*0.001);
+	  temp_time += temp_time2;
+	  
+	  /*
+	    if(temp_time > filename_time){
+	    if((temp_time - filename_time) > (filename_time - temp_time + ONE_DAY)){
+	    temp_time -= ONE_DAY;
+	    }
+	    }
+	  */
+	  if(temp_time.numberOfHourFrom(filename_time) > 12){
+	    temp_time -= ONE_DAY;
+	  }
+	  else if(filename_time.numberOfHourFrom(temp_time) > 12){
+	    temp_time += ONE_DAY;
+	  }
+	  temp_flight_data[count].get_data_pt(0)->set_time(temp_time);
+	}
+	else if((data_blocks[i].extract("createdAt",temp_block))->get_allocated_size() > 0){
+	  temp_time.set_time((data_blocks[i].extract("createdAt",temp_block))->get_block_data());
+	  temp_flight_data[count].get_data_pt(0)->set_time(temp_time);
+	}
+	count++;
+      }
+    }
+
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Found " << temp_num_flight_data << " data blocks in " << filename << " and read " << count << " without error." << std::endl;
+    }
+
+    delete [] data_blocks;
+    delete temp_block;
+    //cout << "Done freeing memory." << endl;
+    if(num_flight_data > 0 && append_to!=NULL){
+      libjeff::flight_data *temp = new libjeff::flight_data [temp_num_flight_data+num_flight_data];
+      
+      for(i=0;i<num_flight_data;i++){
+	temp[i] = append_to[i];
+      }
+      for(i=0;i<count;i++){
+	temp[i+num_flight_data] = temp_flight_data[i];
+      }
+      
+      delete [] append_to;
+      delete [] temp_flight_data;
+      append_to = temp;
+      num_flight_data += count;
+      //delete [] temp;
+    }
+    else{
+      append_to = temp_flight_data;
+      num_flight_data = count;
+    }
+  }
+
+  delete [] temp_filename;
+  //cout << "Done with file: " << filename << endl;
+
+  return append_to;
+}
+libjeff::flight_data* read_adsb_json_cat21(char *dirs_format,date_time from_time,date_time to_time,char *dir_time_format,int &num_flight_data,libjeff::flight_data* &out){
+  if(to_time < from_time){
+    return NULL;
+  }
+
+  if(num_flight_data == 0 && out!=NULL){
+    delete [] out;
+  }
+
+  int num_date = to_time.numberOfDayFrom(from_time)+1+2;
+  date_time work_date = from_time - ONE_DAY;
+
+  libjeff::flight_data *temp_flight_data = NULL;
+  int num_files;
+  int temp_num_flight_data = 0;
+
+  char *dirname = new char [FILENAMEBUFFSIZE];
+  char **filelist;
+
+  tags dirtime("DIR TIME");
+  char *ctemp = new char [FILENAMEBUFFSIZE];
+  char *ctemp2;
+
+  date_time *file_time;
+  int i,j,k,m;
+
+  bool found;
+  int count=0, counter = 0;
+  int allocated_space = 0;
+  libjeff::flight_data *temp_out;
+  for(i=0;i<num_date;i++){
+    strcpy(dirname,dirs_format);
+    dirtime.replace(dirname,work_date.get_time(dir_time_format,ctemp));
+
+    libjeff::file_check_list_item(dirname,filelist,num_files);
+    if(num_files > 0){
+      file_time = new date_time [num_files];
+      for(j=0;j<num_files;j++){
+	string_reverse(filelist[j],ctemp);
+
+	if(strncmp(ctemp,"2zb.",4)==0){
+	  ctemp2 = ctemp+4;
+	}
+	else{
+	  ctemp2 = ctemp;
+	}
+
+	if(strncmp(ctemp2,"nosj.",5)==0){
+	  ctemp2 += 5;
+	}
+	*strstr(ctemp2,".")='\0';
+
+	string_reverse(ctemp2,ctemp);
+
+	//std::cout << ctemp << " " << j << " / " << num_files << endl;
+
+	file_time[j].set_time(ctemp);
+	file_time[j] -= HKT2UTC;
+      }
+
+      file_time_sorting(num_files,filelist,file_time);
+
+      for(j=0;j<num_files;j++){
+	if(file_time[j] >= from_time && file_time[j] <= to_time){
+	  //tried openmp.  The code would be limited by the disk IO and gain only around 300-400% performance but would use 5000+% more memory. Making it not scaleable for large reading batches.  Does not worth it. 
+	  strcpy(ctemp,dirname);
+	  strcat(ctemp,"/");
+	  strcat(ctemp,filelist[j]);
+	  //cout << "Reading: " << ctemp << " "<<endl;
+	  //cout.flush();
+	  read_adsb_json_cat21(ctemp,temp_num_flight_data,temp_flight_data);
+	  //cout << count << " " << allocated_space << " " << temp_num_flight_data << endl;
+	  
+	  if(temp_num_flight_data > 0){
+	    for(m=0;m<temp_num_flight_data;m++){
+	      if(allocated_space <= count){
+		if(allocated_space == 0){
+		  allocated_space = init_allocated_size;
+		  temp_out = new libjeff::flight_data [allocated_space];
+		}
+		else{
+		  int temp_allocated_space = allocated_space*2;
+		  
+		  libjeff::flight_data *temp_space = NULL;
+		  temp_space = new libjeff::flight_data [temp_allocated_space];
+		  if(temp_space == NULL){
+		    cout << "Failed to allocate memory." << endl;
+		    return NULL;
+		  }
+		  for(k=0;k<allocated_space;k++){
+		    temp_space[k] = temp_out[k];
+		  }
+		  delete [] temp_out;
+		  temp_out = temp_space;
+		  allocated_space = temp_allocated_space;
+		}
+	      }
+	      
+	      found = false;
+	      if(count == 0){
+		temp_out[count] = temp_flight_data[m];
+		count++;
+	      }
+	      else{
+		for(k=count-1;k>=0;k--){
+		  if(is_t_address_match(temp_out[k],temp_flight_data[m]) && (temp_flight_data[m].get_data_pt(0)->get_time() < (temp_out[k].get_data_pt(temp_out[k].get_num_data_pt()-1)->get_time() + adsb_append_cutoff)) && (is_call_sign_match(temp_out[k],temp_flight_data[m]) || strcmp(temp_out[k].get_remarks(),"")==0 || strcmp(temp_flight_data[m].get_remarks(),"")==0)){
+		    found = true;
+		    
+		    temp_out[k].append(temp_flight_data[m]);
+		    if(strcmp(temp_out[k].get_remarks(),"")==0 && strcmp(temp_flight_data[m].get_remarks(),"")!=0){
+		      temp_out[k].set_remarks(temp_flight_data[m].get_remarks());
+		    }
+		    else if(strcmp(temp_out[k].get_remarks(),"")!=0 && strcmp(temp_flight_data[m].get_remarks(),"")!=0 && strcmp(temp_out[k].get_remarks(),temp_flight_data[m].get_remarks())!=0){
+		      std::cout << "Warning! Change of call sign for " << temp_out[k].get_t_address() << " detected." << endl << "From " << temp_out[k].get_remarks() << " to " << temp_flight_data[m].get_remarks() << endl;
+		    }
+		    break;
+		  }
+		}
+		
+		if(!found){
+		  temp_out[count] = temp_flight_data[m];
+		  count++;
+		}
+	      }
+	    }
+	    
+	    delete [] temp_flight_data;
+	    temp_flight_data = NULL;
+	  }
+	  temp_num_flight_data = 0;
+	}
+      }
+      delete [] file_time;
+
+      for(j=0;j<num_files;j++){
+	delete [] filelist[j];
+      }
+      delete [] filelist;
+    }
+    work_date += ONE_DAY;
+  }
+
+  if(count > 0){
+    if(num_flight_data == 0){
+      out = new libjeff::flight_data [count];
+      for(k=0;k<count;k++){
+	out[k] = temp_out[k];
+      }
+      delete [] temp_out;
+      num_flight_data = count;
+    }
+    else{
+      temp_flight_data = new libjeff::flight_data [count + num_flight_data];
+      for(k=0;k<num_flight_data;k++){
+	temp_flight_data[k] = out[k];
+      }
+      delete [] out;
+      int new_count = 0;
+      for(k=0;k<count;k++){
+	found = false;
+	for(m=num_flight_data-1;m>=0;m--){
+	  if(is_t_address_match(temp_out[k],temp_flight_data[m]) && (temp_flight_data[m].get_data_pt(temp_flight_data[m].get_num_data_pt()-1)->get_time() < (temp_out[k].get_data_pt(0)->get_time() + adsb_append_cutoff)) && (is_call_sign_match(temp_out[k],temp_flight_data[m]) || strcmp(temp_out[k].get_remarks(),"")==0 || strcmp(temp_flight_data[m].get_remarks(),"")==0)){
+	    found = true;
+
+	    temp_flight_data[m].append(temp_out[k]);
+	    if(strcmp(temp_out[k].get_remarks(),"")!=0 && strcmp(temp_flight_data[m].get_remarks(),"")==0){
+	      temp_flight_data[m].set_remarks(temp_out[k].get_remarks());
+	    }
+	    else if(strcmp(temp_out[k].get_remarks(),"")!=0 && strcmp(temp_flight_data[m].get_remarks(),"")!=0 && strcmp(temp_out[k].get_remarks(),temp_flight_data[m].get_remarks())!=0){
+	      std::cout << "Warning! Change of call sign for " << temp_out[k].get_t_address() << " detected." << endl << "From " << temp_out[k].get_remarks() << " to " << temp_flight_data[m].get_remarks() << endl;
+	    }
+
+	    break;
+	  }
+	}
+
+	if(!found){
+	  temp_flight_data[num_flight_data+new_count] = temp_out[k];
+	  new_count++;
+	}
+      }
+
+      out = temp_flight_data;
+      num_flight_data+=new_count;
+      delete [] temp_out;
+    }
+  }
+
+  delete [] ctemp;
+  delete [] dirname;
+
+  return out;
+}
+libjeff::flight_data* read_CX_EDR_json(char *filename,char* EDRtype,int &num_flight_data,libjeff::flight_data* &append_to){
+  json_block *data_blocks = NULL, *temp_block = new json_block;
+
+  int temp_num_flight_data;
+  libjeff::flight_data *temp_flight_data;
+
+  file_handler_read_json(filename,temp_num_flight_data,data_blocks);
+
+  date_time temp_time;
+  if(temp_num_flight_data > 0){
+    temp_flight_data = new libjeff::flight_data [temp_num_flight_data];
+
+    int i;
+    for(i=0;i<temp_num_flight_data;i++){
+      temp_flight_data[i].create(1);
+      if((data_blocks[i].extract("flight",temp_block))->extract("callsign",temp_block)->get_allocated_size() > 0 && strcmp((data_blocks[i].extract("flight",temp_block))->extract("callsign",temp_block)->get_block_data(),"")!=0){
+	temp_flight_data[i].set_remarks((data_blocks[i].extract("flight",temp_block))->extract("callsign",temp_block)->get_block_data());
+      }
+      else if((data_blocks[i].extract("flight",temp_block))->extract("registration",temp_block)->get_allocated_size() > 0 && strcmp((data_blocks[i].extract("flight",temp_block))->extract("registration",temp_block)->get_block_data(),"")!=0){
+	temp_flight_data[i].set_remarks((data_blocks[i].extract("flight",temp_block))->extract("registration",temp_block)->get_block_data());
+      }
+      else{
+	std::cout << "Warning! Both call sign and registration codes are not available" << std::endl;
+      }
+      temp_flight_data[i].get_data_pt(0)->get_latlon()[0] = atof((data_blocks[i].extract("measurement",temp_block))->extract("edr",temp_block)->extract("latitude",temp_block)->get_block_data());
+      temp_flight_data[i].get_data_pt(0)->get_latlon()[1] = atof((data_blocks[i].extract("measurement",temp_block))->extract("edr",temp_block)->extract("longitude",temp_block)->get_block_data());
+      if((data_blocks[i].extract("measurement",temp_block))->extract("edr",temp_block)->extract(EDRtype,temp_block)->extract("value",temp_block)->get_block_data() != NULL){
+	temp_flight_data[i].get_data_pt(0)->set_edr(atof((data_blocks[i].extract("measurement",temp_block))->extract("edr",temp_block)->extract(EDRtype,temp_block)->extract("value",temp_block)->get_block_data()));
+      }
+      else if((data_blocks[i].extract("measurement",temp_block))->extract("edr",temp_block)->extract("peak",temp_block)->extract("value",temp_block)->get_block_data() != NULL){
+	temp_flight_data[i].get_data_pt(0)->set_edr(atof((data_blocks[i].extract("measurement",temp_block))->extract("edr",temp_block)->extract("peak",temp_block)->extract("value",temp_block)->get_block_data()));
+      }
+
+      temp_flight_data[i].get_data_pt(0)->set_flight_level(atof((data_blocks[i].extract("measurement",temp_block))->extract("altitude",temp_block)->get_block_data()));
+      //std::cout << remove_quote((data_blocks[i].extract("measurement",temp_block))->extract("edr",temp_block)->extract("observationTime",temp_block)->extract("$date",temp_block)->extract("$numberLong",temp_block)->get_block_data()) << std::endl;
+      temp_time = date_time(1970,1,1,0,0,(int) (atoll(remove_quote((data_blocks[i].extract("measurement",temp_block))->extract("edr",temp_block)->extract("observationTime",temp_block)->extract("$date",temp_block)->extract("$numberLong",temp_block)->get_block_data()))/1000));
+      temp_time.correct_format();
+      temp_flight_data[i].get_data_pt(0)->set_time(temp_time);
+      temp_flight_data[i].get_data_pt(0)->set_sat(meteorology_C_to_K + atof((data_blocks[i].extract("measurement",temp_block))->extract("edr",temp_block)->extract("temperature",temp_block)->get_block_data()));
+    }
+  }
+
+  if(num_flight_data == 0){
+    num_flight_data = temp_num_flight_data;
+    append_to = temp_flight_data;
+  }
+
+  delete [] data_blocks;
+  delete temp_block;
+
+  return append_to;
+}
+int read_CX_EDR_json(char *dirs_format,date_time from_time,date_time to_time,char *dir_time_format,char *filename_format,char* EDRtype,int &num_flight_data,libjeff::flight_data* &out){
+  if(to_time < from_time){
+    return _ERRORCODE_INPUTERROR;
+  }
+
+  if(num_flight_data == 0 && out!=NULL){
+    delete [] out;
+    out = NULL;
+  }
+
+  int num_date = to_time.numberOfDayFrom(from_time)+1+2;
+  date_time work_date = from_time - ONE_DAY;
+
+  libjeff::flight_data *temp_flight_data = NULL;
+  int num_files;
+  int temp_num_flight_data = 0;
+
+  char *dirname = new char [FILENAMEBUFFSIZE];
+  char **filelist;
+
+  tags dirtime("DIR TIME");
+  char *ctemp = new char [FILENAMEBUFFSIZE];
+  char *ctemp2;
+
+  date_time *file_time;
+  int i,j,k,m;
+
+  bool found;
+  int count=0, counter = 0;
+  int allocated_space = 0;
+  libjeff::flight_data *temp_out;
+
+  int num_tags = 0;
+  tags *filename_wildcards = NULL;
+  int filetime_index = -1;
+  int datetime_loc;
+  int datetime_length;
+  if(filename_format != NULL){
+    list_tag(filename_format,num_tags,filename_wildcards);
+    if(num_tags > 0){
+      for(k=0;k<num_tags;k++){
+	if(strcmp(filename_wildcards[k].get_name(),"filetime")==0){
+	  filetime_index = k;
+	  filename_wildcards[filetime_index].extract_format(filename_format,ctemp);
+	  datetime_length = strlen(ctemp);
+	  filename_wildcards[filetime_index].extract(filename_format,ctemp);
+	  datetime_loc = strstr(filename_format,ctemp) - filename_format;
+	  break;
+	}
+      }
+    }
+    else{
+      delete [] dirname;
+      delete [] ctemp;
+      return _ERRORCODE_INPUTERROR;
+    }
+  }
+
+  for(i=0;i<num_date;i++){
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Working on date: " << work_date << std::endl;
+    }
+    strcpy(dirname,dirs_format);
+    dirtime.replace(dirname,work_date.get_time(dir_time_format,ctemp));
+
+    libjeff::file_check_list_item(dirname,filelist,num_files);
+    if(filename_format != NULL && filetime_index >= 0){
+      if(num_files > 0){
+	char **sort_filelist = new char *[num_files];
+	for(j=0;j<num_files;j++){
+	  sort_filelist[j] = new char [FILENAMEBUFFSIZE];
+	}
+	file_time = new date_time [num_files];
+	count = 0;
+	for(j=0;j<num_files;j++){
+	  if(is_consistent_with_tags(filelist[j],filename_format,num_tags,filename_wildcards)){
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      std::cout << "Found file: " << filelist[j] << " ";
+	    }
+	    strcpy(ctemp,filelist[j]+datetime_loc);
+	    ctemp[datetime_length] = '\0';
+	    file_time[count].set_time(ctemp);
+	    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	      std::cout << file_time[count] << std::endl;
+	    }
+	    strcpy(sort_filelist[count],filelist[j]);
+	    count++;
+	  }
+	}
+	file_time_sorting(count,sort_filelist,file_time);
+	delete [] file_time;
+
+	if(count != num_files){
+	  for(j=0;j<num_files;j++){
+	    delete [] filelist[j];
+	  }
+	  delete [] filelist;
+
+	  filelist = new char *[count];
+	  for(j=0;j<count;j++){
+	    filelist[j] = new char [FILENAMEBUFFSIZE];
+	  }
+	}
+
+	for(j=0;j<count;j++){
+	  strcpy(filelist[j],sort_filelist[j]);
+	}
+
+	for(j=0;j<num_files;j++){
+	  delete [] sort_filelist[j];
+	}
+	delete [] sort_filelist;
+	num_files = count;
+      }
+      else{
+	count = 0;
+      }
+    }
+    else{
+      count = num_files;
+    }
+
+    //std::cout << count << std::endl;
+    if(count > 0){
+
+      for(j=0;j<count;j++){
+	strcpy(ctemp,dirname);
+	strcat(ctemp,"/");
+	strcat(ctemp,filelist[j]);
+
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << "Reading file " << ctemp <<std::endl;
+	}
+	read_CX_EDR_json(ctemp,EDRtype,temp_num_flight_data,temp_flight_data);
+	//std::cout << counter << std::endl;
+	
+	if(temp_num_flight_data > 0){
+	  for(m=temp_num_flight_data-1;m>=0;m--){
+	    if(allocated_space <= counter){
+	      if(allocated_space == 0){
+		allocated_space = init_allocated_size;
+		temp_out = new libjeff::flight_data [allocated_space];
+	      }
+	      else{
+		int temp_allocated_space = allocated_space*2;
+		
+		libjeff::flight_data *temp_space = NULL;
+		temp_space = new libjeff::flight_data [temp_allocated_space];
+		if(temp_space == NULL){
+		  cout << "Failed to allocate memory." << endl;
+		  return NULL;
+		}
+		for(k=0;k<allocated_space;k++){
+		  temp_space[k] = temp_out[k];
+		}
+		delete [] temp_out;
+		temp_out = temp_space;
+		allocated_space = temp_allocated_space;
+	      }
+	    }
+	    
+	    found = false;
+	    //std::cout << counter << std::endl;
+	    if(counter == 0){
+	      temp_out[counter] = temp_flight_data[m];
+	      counter++;
+	    }
+	    else{
+	      for(k=counter-1;k>=0;k--){
+		if(is_call_sign_match(temp_out[k],temp_flight_data[m])){
+		  found = true;
+
+		  if(temp_out[k].get_data_pt(temp_out[k].get_num_data_pt()-1)->get_time() != temp_flight_data[m].get_data_pt(0)->get_time()){
+		    temp_out[k].append(temp_flight_data[m]);
+		  }
+
+		  break;
+		}
+	      }
+
+	      if(!found){
+		temp_out[counter] = temp_flight_data[m];
+		//std::cout << temp_flight_data[m].get_remarks() << " " << temp_flight_data[m].get_data_pt(0)->get_latlon()[0] << std::endl;
+	       
+		counter++;
+	      }
+	    }
+	  }
+	  delete [] temp_flight_data;
+	  temp_flight_data = NULL;
+	}
+
+	temp_num_flight_data = 0;
+      }
+    }
+
+    for(j=0;j<num_files;j++){
+      delete [] filelist[j];
+    }
+    delete [] filelist;
+    filelist = NULL;
+
+    work_date += ONE_DAY;
+  }
+
+  if(counter > 0){
+    if(num_flight_data == 0){
+      out = new libjeff::flight_data [counter];
+      for(k=0;k<counter;k++){
+	out[k] = temp_out[k];
+	//std::cout << out[k].get_remarks() << std::endl;
+      }
+      delete [] temp_out;
+      num_flight_data = counter;
+    }
+    else{
+      temp_flight_data = new libjeff::flight_data [counter + num_flight_data];
+      for(k=0;k<num_flight_data;k++){
+	temp_flight_data[k] = out[k];
+      }
+      delete [] out;
+
+      int new_count = 0;
+      for(k=0;k<counter;k++){
+	found = false;
+	for(m=num_flight_data-1;m>=0;m--){
+	  if(is_call_sign_match(temp_out[k],temp_flight_data[m])){
+	    found = true;
+	    temp_flight_data[m].append(temp_out[k]);
+	    break;
+	  }
+	}
+
+	if(!found){
+	  temp_flight_data[num_flight_data+new_count] = temp_out[k];
+	  new_count++;
+	}
+      }
+
+      out = temp_flight_data;
+      num_flight_data+=new_count;
+      delete [] temp_out;
+    }
+
+    //regroup flight data as flight from individual date
+    /*
+    for(i=0;i<num_flight_data;i++){
+      sort_flightdata(out+i);
+    }
+    */
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "There are " << num_flight_data << " distinct call signs." << std::endl;
+    }
+    regroup_flight_data(num_flight_data,out);
+
+    count = 0;
+    for(i=0;i<num_flight_data;i++){
+      if(out[i].get_num_data_pt()>0 && out[i].get_data_pt(0)->get_time() > from_time && out[i].get_data_pt(0)->get_time() < to_time){
+	if(count != i){
+	  out[count] = out[i];
+	}
+	count++;
+      }
+    }
+    num_flight_data = count;
+  }
+
+  if(filename_format != NULL && num_tags > 0){
+    delete [] filename_wildcards;
+  }
+
+  delete [] ctemp;
+  delete [] dirname;
+
+  return _ERRORCODE_NOERROR;
+}
+int regroup_flight_data(int &num_flight_data,libjeff::flight_data* &inout){
+  int temp_num_flight_data = num_flight_data;
+  int count = 0;
+
+  libjeff::flight_data* temp_flight_data = new libjeff::flight_data [temp_num_flight_data];
+
+  int i,j,k;
+  //regroup into a big chunk of flight data according to callsign
+  for(i=0;i<num_flight_data;i++){
+    if(count == 0){
+      temp_flight_data[count] = inout[i];
+      count++;
+    }
+    else{
+      bool found = false;
+      for(j=count-1;j>=0;j--){
+	if(strcmp(inout[i].get_remarks(),temp_flight_data[j].get_remarks())==0){
+	  found = true;
+	  temp_flight_data[j].append(inout[i]);
+	  break;
+	}
+      }
+
+      if(!found){
+	temp_flight_data[count] = inout[i];
+	count++;
+      }
+    }
+  }
+
+  temp_num_flight_data = count;
+  delete [] inout;
+  num_flight_data = 0;
+  int allocated_size = 0;
+  int error;
+  for(i=0;i<temp_num_flight_data;i++){
+    int num_flight;
+    count = 0;
+
+    if(temp_flight_data[i].get_num_data_pt()>0){
+      sort_flightdata(temp_flight_data+i);
+
+      if(libjeff::debug_setting::get_debug_mode_debug_check()){
+	for(j=1;j<temp_flight_data[i].get_num_data_pt();j++){
+	  if(temp_flight_data[i].get_data_pt(j-1)->get_time() > temp_flight_data[i].get_data_pt(j)->get_time()){
+	    std::cout << "Alert! Sorting algorithm failed to sort the data in ascending time for " << temp_flight_data[i].get_remarks() << " " << j << " " << temp_flight_data[i].get_data_pt(j-1)->get_time() << " " << temp_flight_data[i].get_data_pt(j)->get_time() << std::endl;
+	  }
+	}
+      }
+
+      double* diff = new double [temp_flight_data[i].get_num_data_pt()-1];
+      for(j=1;j<temp_flight_data[i].get_num_data_pt();j++){
+	diff[j-1] = temp_flight_data[i].get_data_pt(j)->get_time().numberOfSecondFrom(temp_flight_data[i].get_data_pt(j-1)->get_time());
+      }
+
+      int num_k = 0;
+      if(temp_flight_data[i].get_duration() < 18*3600.){
+	num_k = 1;
+      }
+      double *k_mean = NULL;
+      double **groups = NULL;
+      int *num_data = NULL;
+      error = libjeff::compute_k_mean(temp_flight_data[i].get_num_data_pt()-1,diff,num_k,k_mean,4.,num_data,groups,"silhouette");
+
+      int max_group_index = 0;
+      double separation;
+      if(error == _ERRORCODE_NOERROR){
+	for(j=1;j<num_k;j++){
+	  if(num_data[j] > 0 && k_mean[j] > k_mean[max_group_index]){
+	    max_group_index = j;
+	  }
+	}
+
+	sort(num_data[max_group_index],groups[max_group_index]);
+	if(num_k > 1){
+	  separation = groups[max_group_index][0];
+	}
+	else{
+	  separation = groups[max_group_index][num_data[max_group_index]-1]*2;
+	}
+      
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << temp_flight_data[i].get_remarks() << std::endl;
+	  for(j=0;j<temp_flight_data[i].get_num_data_pt();j++){
+	    std::cout << temp_flight_data[i].get_data_pt(j)->get_time() << " ";
+	    if(j>=1){
+	      std::cout << diff[j-1];
+	    }
+	    std::cout << std::endl;
+	  }
+	}
+
+	if(num_k > 1){
+	  if(separation > 3*3600){
+	    separation = 3*3600;
+	  }
+	  if(separation < 3600){
+	    separation = 3600;
+	  }
+	}	
+      }
+      else if(error == _ERRORCODE_NOVARIATIONINDATA || error == _ERRORCODE_DATANOTENOUGH){
+	if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	  std::cout << temp_flight_data[i].get_remarks() << std::endl;
+	  for(j=0;j<temp_flight_data[i].get_num_data_pt();j++){
+	    std::cout << temp_flight_data[i].get_data_pt(j)->get_time() << " ";
+	    if(j>=1){
+	      std::cout << diff[j-1];
+	    }
+	    std::cout << std::endl;
+	  }
+	}
+	separation = diff[0]*2.;
+	if(separation > 24*3600){
+	  separation = 24*3600;
+	}
+	if(separation < 3600){
+	  separation = 3600;
+	}
+      }
+
+
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	std::cout << "Separation: " << separation << std::endl;
+      }
+
+      num_flight = 1;
+      for(j=0;j<temp_flight_data[i].get_num_data_pt()-1;j++){
+	if(diff[j] > separation){
+	  num_flight++;
+	}
+      }
+
+      if(allocated_size <= num_flight_data + num_flight){
+	if(allocated_size == 0){
+	  if(num_flight > init_allocated_size){
+	    allocated_size = num_flight*2;
+	  }
+	  else{
+	    allocated_size = init_allocated_size;
+	  }
+	  inout = new libjeff::flight_data [allocated_size];
+	}
+	else{
+	  if(allocated_size*2 > num_flight_data + num_flight){
+	    allocated_size *= 2;
+	  }
+	  else{
+	    allocated_size = 2*(num_flight_data + num_flight);
+	  }
+	  libjeff::flight_data* temp_inout =  new libjeff::flight_data [allocated_size];
+
+	  for(j=0;j<num_flight_data;j++){
+	    temp_inout[j] = inout[j];
+	  }
+
+	  delete [] inout;
+	  inout = temp_inout;
+	}
+      }
+
+      for(j=0;j<temp_flight_data[i].get_num_data_pt();j++){
+	inout[num_flight_data+count].append(temp_flight_data[i].get_data_pt(j));
+
+	if(j==temp_flight_data[i].get_num_data_pt()-1 || diff[j] > separation){
+	  inout[num_flight_data+count].set_remarks(temp_flight_data[i].get_remarks());
+	  count++;
+	}
+      }
+
+      if(num_k > 0){
+	for(j=0;j<num_k;j++){
+	  if(num_data[j] > 0){
+	    delete [] groups[j];
+	  }
+	}
+	delete [] groups;
+	delete [] num_data;
+	delete [] k_mean;
+      }
+
+      delete [] diff;
+      num_flight_data+=count;
+    }
+  }
+
+  for(i=1;i<num_flight_data;i++){
+    if(strcmp(inout[i].get_remarks(),inout[i-1].get_remarks())==0 && inout[i].get_data_pt(0)->get_time().isSameDay(inout[i-1].get_data_pt(0)->get_time())){
+      double dist[2];
+      double difftime[2];
+
+      dist[0] = libjeff::earth_latlon2dist(inout[i-1].get_data_pt(inout[i-1].get_num_data_pt()-1)->get_latlon(),inout[i].get_data_pt(0)->get_latlon());
+      dist[1] = -1;
+
+      difftime[0] = inout[i].get_data_pt(0)->get_time().numberOfSecondFrom(inout[i-1].get_data_pt(inout[i-1].get_num_data_pt()-1)->get_time());
+      difftime[1] = -1;
+
+      if(i!=num_flight_data-1 && strcmp(inout[i].get_remarks(),inout[i+1].get_remarks())==0){
+	//dist[1] = libjeff::earth_latlon2dist(inout[i+1].get_data_pt(inout[i+1].get_num_data_pt()-1)->get_latlon(),inout[i].get_data_pt(0)->get_latlon());
+	dist[1] = libjeff::earth_latlon2dist(inout[i+1].get_data_pt(0)->get_latlon(),inout[i].get_data_pt(inout[i].get_num_data_pt()-1)->get_latlon());
+	difftime[1] = inout[i+1].get_data_pt(0)->get_time().numberOfSecondFrom(inout[i].get_data_pt(inout[i].get_num_data_pt()-1)->get_time());
+      }
+
+      bool merge = false;
+      bool pre = false;
+
+      if(dist[0]/difftime[0] < 350 || (dist[1] > 0 && dist[1]/difftime[1] < 350)){
+	if((inout[i].get_data_pt(inout[i].get_num_data_pt()-1)->get_time() < inout[i-1].get_data_pt(0)->get_time() + MAX_FLIGHT_TIME) || (dist[1] > 0 && (inout[i+1].get_data_pt(inout[i+1].get_num_data_pt()-1)->get_time() < inout[i].get_data_pt(0)->get_time() + MAX_FLIGHT_TIME))){
+	  if((dist[1] < 0 || dist[0] < dist[1]) && (inout[i].get_data_pt(inout[i].get_num_data_pt()-1)->get_time() < inout[i-1].get_data_pt(0)->get_time() + MAX_FLIGHT_TIME)){
+	    merge = true;
+	    pre = true;
+	  }
+	  else if((dist[1] >= 0 && dist[1] < dist[0]) && (inout[i+1].get_data_pt(inout[i+1].get_num_data_pt()-1)->get_time() < inout[i].get_data_pt(0)->get_time() + MAX_FLIGHT_TIME)){
+	    merge = true;
+	  }
+	}
+      }
+
+      if(merge){
+	if(pre){
+	  for(j=0;j<inout[i].get_num_data_pt();j++){
+	    inout[i-1].append(inout[i].get_data_pt(j));
+	  }
+
+	  for(j=i;j<num_flight_data-1;j++){
+	    inout[j] = inout[j+1];
+	  }
+	}
+	else{
+	  for(j=0;j<inout[i+1].get_num_data_pt();j++){
+	    inout[i].append(inout[i+1].get_data_pt(j));
+	  }
+	  for(j=i+1;j<num_flight_data-1;j++){
+	    inout[j] = inout[j+1];
+	  }
+	}
+	num_flight_data--;
+      }
+    }
+  }
+
+
+  if(libjeff::debug_setting::get_debug_mode_debug_check()){
+    char *ctemp = new char [FILENAMEBUFFSIZE];
+    for(i=0;i<num_flight_data;i++){
+      if(inout[i].get_data_pt(inout[i].get_num_data_pt()-1)->get_time() > inout[i].get_data_pt(0)->get_time() + MAX_FLIGHT_TIME){
+	std::cout << "Error in partition algorithm. Flight " << inout[i].get_remarks() << " lasted from " << inout[i].get_data_pt(0)->get_time().get_time("yyyy-mm-dd:hh:mm:ss",ctemp) << " - " << inout[i].get_data_pt(inout[i].get_num_data_pt()-1)->get_time().get_time("yyyy-mm-dd:hh:mm:ss",ctemp) << std::endl;
+      }
+    }
+    delete [] ctemp;
+  }
+
+
+  return _ERRORCODE_NOERROR;
+}
+bool is_t_address_match(const libjeff::flight_data &a,const libjeff::flight_data &b){
+  return !strcmp(a.get_t_address(),b.get_t_address());
+}
+bool is_call_sign_match(const libjeff::flight_data &a,const libjeff::flight_data &b){
+  return !strcmp(a.get_remarks(),b.get_remarks());
+}
+bool is_t_address_and_call_sign_match(const libjeff::flight_data &a,const libjeff::flight_data &b){
+  return (is_t_address_match(a,b) && is_call_sign_match(a,b));
+}

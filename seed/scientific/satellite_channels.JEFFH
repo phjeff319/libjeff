@@ -1,0 +1,12 @@
+#ifndef H8CHANNELS
+#define H8CHANNELS
+namespace libjeff{
+  namespace satellite_channels{
+    namespace h8{
+      const int num_channels = 16;
+      char *channels[num_channels] = {"B01","B02","B03","B04","B05","B06","B07","B08","B09","B10","B11","B12","B13","B14","B15","B16"};
+      char *channels_res[num_channels] = {"R10","R10","R05","R10","R20","R20","R20","R20","R20","R20","R20","R20","R20","R20","R20","R20"};
+    };
+  };
+};
+#endif

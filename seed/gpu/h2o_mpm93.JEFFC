@@ -1,0 +1,291 @@
+#include<iostream>
+#include<fstream>
+#include<cstring>
+#include<cstdlib>
+#include<cuda.h>
+
+#include"complex.h"
+#include"cuda_setting.h"
+#include"cuda_tools.h"
+#include"error_code.h"
+#include"file_check.h"
+#include"lineshape.h"
+#include"meteorology.h"
+#include"lbl_scatterer.h"
+#include"h2o_mpm93.h"
+#include"physics_constants.h"
+
+namespace h2ompm93{
+  __global__ void g_temperature2theta(int nstate,double *temperature,double *theta);
+  __global__ void g_calsk(int nstate,int nline,double *theta,double *pressure,double *b1,double *b2,double *sk);
+  __global__ void g_calgammak(int nstate,int nline,double *theta,double *pressure_d,double *pressure_e,double *b3,double *b4,double *b5,double *b6,double *gammak);
+  __global__ void g_cal_linecontribution(int nstate,int nfre,int nline,double *fre,double *linefre,double *sk,double *gammak,double *linecontribution);
+  __global__ void g_n2sigma(int nstate,int nfre,double *n,double *frequency,double *sigma);
+}
+
+//using namespace h2ompm93;
+
+h2o_mpm93::h2o_mpm93():lbl_scatterer(){
+  strcpy(parm_file,"./h2o.mpm93");
+  scatterer::create(3);
+  pressure_index = 0;
+  temperature_index = 1;
+  qvapor_index = 2;
+}
+h2o_mpm93::h2o_mpm93(char *filename):lbl_scatterer(){
+  strcpy(parm_file,filename);
+  scatterer::create(3);
+  pressure_index = 0;
+  temperature_index = 1;
+  qvapor_index = 2;
+}
+
+void h2o_mpm93::init(char *parm_file){
+  strcpy(this->parm_file,parm_file);
+  this->init();
+}
+void h2o_mpm93::init(){
+  nparam = 6;
+
+  ifstream fin;
+  this->nline = file_check_length(parm_file);
+  if(this->nline > 0){
+    this->wk = new double [nline];
+    as = new double [nline*nparam];
+
+    fin.open(parm_file);
+    int i,j;
+
+    for(i=0;i<nline;i++){
+      fin >> wk[i];
+      for(j=0;j<nparam;j++){
+	fin >> as[j*nline+i];
+      }
+    }
+    fin.close();
+
+    //unit conversion
+
+    for(i=0;i<nline;i++){
+      wk[i] *= 1e9;
+      as[0*nline+i] *= 1e9;
+
+      as[2*nline+i] *= 1e6;
+    }
+
+    this->host2device();
+  }
+  else{
+    cout << "Error! H2O MPM93 data file not found." << endl;
+    cout << "Tried location: " << parm_file << endl;
+    exit(1);
+  }
+}
+
+h2o_mpm93::~h2o_mpm93(){
+  delete [] wk;
+  delete [] as;
+
+  if(d_wk!=NULL) cudaFree(d_wk);
+  if(d_as!=NULL) cudaFree(d_as);
+}
+
+int h2o_mpm93::host2device(){
+  cudaMalloc((void**) &d_wk,nline*sizeof(double));
+  cudaMemcpy(d_wk,wk,nline*sizeof(double),cudaMemcpyHostToDevice);
+  
+  cudaMalloc((void**) &d_as,nline*nparam*sizeof(double));
+  cudaMemcpy(d_as,as,nline*nparam*sizeof(double),cudaMemcpyHostToDevice);
+
+  return _ERRORCODE_NOERROR;
+}
+int h2o_mpm93::add_cross_section(double *frequency,int nfre,double *sigma){
+  double *pressure_d, *pressure_e;
+  double *pressure, *temperature, *qvapour;
+  cudaMalloc((void**) &pressure_d,this->data_field->get_d_ngrid()*sizeof(double));
+  cudaMalloc((void**) &pressure_e,this->data_field->get_d_ngrid()*sizeof(double));
+  cudaMalloc((void**) &pressure,this->data_field->get_d_ngrid()*sizeof(double));
+  cudaMalloc((void**) &qvapour,this->data_field->get_d_ngrid()*sizeof(double));
+  cudaMalloc((void**) &temperature,this->data_field->get_d_ngrid()*sizeof(double));
+  (this->data_field)[pressure_index].get_data("device",pressure);
+  (this->data_field)[temperature_index].get_data("device",temperature);
+  (this->data_field)[qvapor_index].get_data("device",qvapour);
+
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+  grid.x = (int) ceil((double) this->data_field->get_d_ngrid()/numthreads);
+  cudaMemcpy(pressure_d,pressure,this->data_field->get_d_ngrid()*sizeof(double),cudaMemcpyDeviceToDevice);
+  libjeff::meteorology_cal_vapour_pressure<<<grid,numthreads>>>(this->data_field->get_d_ngrid(),temperature,qvapour,pressure_e);
+  cuda_substract<<<grid,numthreads>>>(this->data_field->get_d_ngrid(),pressure_d,pressure_e);
+
+  this->add_cross_section(pressure_d,pressure_e,temperature,this->data_field->get_d_ngrid(),frequency,nfre,sigma);
+
+  cudaFree(pressure_d);
+  cudaFree(pressure_e);
+  cudaFree(pressure);
+  cudaFree(qvapour);
+  cudaFree(temperature);
+
+  return _ERRORCODE_NOERROR;
+}
+/*
+void h2o_mpm93::add_cross_section(double *pressure_d,double *pressure_e,double *temperature,double *density,int nstate,int nconfig,double *frequency,int nfre,double *sigma){
+  this->add_cross_section(pressure_d,pressure_e,temperature,density,nstate*nconfig,frequency,nfre,sigma);
+}
+*/
+int h2o_mpm93::add_cross_section(double *pressure_d,double *pressure_e,double *temperature,int nstate,double *frequency,int nfre,double *sigma){
+  //line term
+  double *theta;
+  cudaMalloc((void**) &theta,nstate*sizeof(double));
+
+  int numthreads = cuda_setting::get_numthreads();
+  dim3 grid;
+  grid.x = (int) ceil((double) nstate/numthreads);
+
+  h2ompm93::g_temperature2theta<<<grid,numthreads>>>(nstate,temperature,theta);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << endl;
+
+  double *sk, *gammak;
+  cudaMalloc((void**) &sk,nstate*this->nline*sizeof(double));
+  cudaMalloc((void**) &gammak,nstate*this->nline*sizeof(double));
+
+  grid.x=(int) ceil((double) nstate*nline/numthreads);
+  h2ompm93::g_calsk<<<grid,numthreads>>>(nstate,this->nline,theta,pressure_e,d_as,d_as+this->nline,sk);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << endl;
+
+  h2ompm93::g_calgammak<<<grid,numthreads>>>(nstate,this->nline,theta,pressure_d,pressure_e,d_as+2*this->nline,d_as+3*this->nline,d_as+4*this->nline,d_as+5*this->nline,gammak);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << endl;
+
+  cudaFree(theta);
+
+  double *linecontribution;
+  int nline2 = pow(2.,((int) ceil(log((double) nline)/log(2.))));
+  cudaMalloc((void**) &linecontribution,nstate*nline2*nfre*sizeof(double)); //empty space at the back of the array for easy reduction
+  cudaMemset(linecontribution,0,nstate*nline2*nfre*sizeof(double));
+  grid.x=(int) ceil((double) nstate*this->nline*nfre/numthreads);
+
+  h2ompm93::g_cal_linecontribution<<<grid,numthreads>>>(nstate,nfre,this->nline,frequency,d_wk,sk,gammak,linecontribution);
+  if ( cudaSuccess != cudaPeekAtLastError() ) cout << "Failed. " << cudaGetErrorString(cudaGetLastError()) << endl;
+
+  cudaFree(sk);
+  cudaFree(gammak);
+  
+  int i=nstate*nline2*nfre;
+  while(i>nstate*nfre){
+    grid.x=(int) ceil((double) i/2/numthreads);
+    cuda_reduce_kernel<<<grid,numthreads>>>(i,linecontribution);
+    i/=2;
+  }
+  
+  grid.x=(int) ceil((double) nstate*nfre/numthreads);
+  h2ompm93::g_n2sigma<<<grid,numthreads>>>(nstate,nfre,linecontribution,frequency,linecontribution);
+  cuda_add<<<grid,numthreads>>>(nstate*nfre,sigma,linecontribution);
+
+  cudaFree(linecontribution);
+
+  return _ERRORCODE_NOERROR;
+}
+/*
+void h2o_mpm93::add_cross_section(double *height,double *pressure,double *temperature,double *dew_point,double *uwind,double *vwind,double *wwind,double *reflectivity1,double *reflectivity2,double *efield,double *bfield,int nstate,int nconfig,double *frequency,int nfre,double *sigma){
+  double *pressure_d, *pressure_e, *rh;
+  cudaMalloc((void**) &pressure_d,nstate*nconfig*sizeof(double));
+  cudaMalloc((void**) &pressure_e,nstate*nconfig*sizeof(double));
+  cudaMalloc((void**) &rh,nstate*nconfig*sizeof(double));
+  
+  cudaMemcpy(pressure_d,pressure,nstate*nconfig*sizeof(double),cudaMemcpyDeviceToDevice);
+  int numBlocks=(int) ceil((double) nstate*nconfig/threadsPerBlock);
+  
+  libjeff::meteorology_cal_rh<<<grid,numthreads>>>(nstate*nconfig,pressure,temperature,dew_point,rh);
+  libjeff::meteorology_cal_vapour_pressure<<<grid,numthreads>>>(nstate*nconfig,pressure,temperature,rh,pressure_e);
+  cuda_substract<<<grid,numthreads>>>(nstate*nconfig,pressure_d,pressure_e);
+
+  this->add_cross_section(pressure_d,pressure_e,temperature,temperature,nstate,nconfig,frequency,nfre,sigma);
+
+  cudaFree(pressure_d);
+  cudaFree(pressure_e);
+  cudaFree(rh);
+}
+*/
+int h2o_mpm93::set_data_field_index(char *fieldname,int in){
+  if(in < 0 || in >= num_data_field){
+    return _ERRORCODE_INPUTOUTOFRANGE;
+  }
+  if(strcmp(fieldname,"temperature")==0){
+    temperature_index = in;
+  }
+  else if(strcmp(fieldname,"pressure")==0){
+    pressure_index = in;
+  }
+  else if(strcmp(fieldname,"qvapor")==0){
+    qvapor_index = in;
+  }
+  else{
+    return _ERRORCODE_INPUTERROR;
+  }
+  return _ERRORCODE_NOERROR;
+}
+
+int h2o_mpm93::get_data_field_index(char *fieldname) const{
+  if(strcmp(fieldname,"temperature")==0){
+    return temperature_index;
+  }
+  else if(strcmp(fieldname,"pressure")==0){
+    return pressure_index;
+  }
+  else if(strcmp(fieldname,"qvapor")==0){
+    return qvapor_index;
+  }
+  return -1;
+}
+
+namespace h2ompm93{
+  __global__ void g_temperature2theta(int nstate,double *temperature,double *theta){
+    int i=blockDim.x*blockIdx.x + threadIdx.x;
+    
+    if(i<nstate){
+      theta[i] = 300./(temperature[i]);
+    }
+  }
+  __global__ void g_calsk(int nstate,int nline,double *theta,double *pressure,double *b1,double *b2,double *sk){
+    int i=blockDim.x*blockIdx.x + threadIdx.x;
+    int j=i%nstate; //state index
+    int k=i/nstate; //line index
+    
+    if(k<nline){
+      //somehow some bug with the pow function so replace by exp-log combination
+      sk[i] = b1[k]*pressure[j]*exp(3.5*log(theta[j]))*exp(b2[k]*(1.-theta[j]))*1e-6;
+      //sk[i] = b1[k]*pressure[j]*std::pow(theta[j],3.5)*exp(b2[k]*(1.-theta[j]))*1e-6;
+    }
+  }
+  __global__ void g_calgammak(int nstate,int nline,double *theta,double *pressure_d,double *pressure_e,double *b3,double *b4,double *b5,double *b6,double *gammak){
+    int i=blockDim.x*blockIdx.x + threadIdx.x;
+    int j=i%nstate; //state index
+    int k=i/nstate; //line index
+    
+    if(k<nline){
+      //again, somehow some bug with the pow function so replace by exp-log combination
+      //gammak[i] = b3[k]*(b4[k]*pressure_e[j]*pow(theta[j],b6[k])+pressure_d[j]*pow(theta[j],b5[k]));
+      gammak[i] = b3[k]*(b4[k]*pressure_e[j]*exp(b6[k]*log(theta[j]))+pressure_d[j]*exp(b5[k]*log(theta[j])));
+    }
+  }
+  __global__ void g_cal_linecontribution(int nstate,int nfre,int nline,double *fre,double *linefre,double *sk,double *gammak,double *linecontribution){
+    int i=blockDim.x*blockIdx.x + threadIdx.x;
+    //indexing (fastest -> slowest): nfre -> nstate -> nline
+    int j=i/(nfre*nstate); //line index
+    int k=(i%(nfre*nstate))/nfre; //state index
+    int m=i%nfre; //fre index
+    
+    if(j<nline){
+      linecontribution[i] = sk[j*nstate+k]*(libjeff::lineshape_van_vleck_weisskopf(fre[m],linefre[j],gammak[j*nstate+k],0.).imag());
+    }
+  }
+  __global__ void g_n2sigma(int nstate,int nfre,double *n,double *frequency,double *sigma){
+    int i=blockDim.x*blockIdx.x + threadIdx.x;
+    int j=i/nfre; //state index
+    int k=i%nfre; //fre index
+
+    if(j<nstate){
+      sigma[i] = n[i]*4.*pi/phys_c*frequency[k];
+    }
+  }
+}
