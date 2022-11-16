@@ -6,7 +6,8 @@ To install,
 1) clone the repository from Git.
 2) install all of the dependency (listed below)
 3) Go to build/, update the makefile.cpu.inc and makefile.gpu.inc in build
-4) Execute build.sh
+4) Edit build.sh to config or remove build modes
+5) Execute build.sh
 
 
 To be modernized with cmake for easier configuration
