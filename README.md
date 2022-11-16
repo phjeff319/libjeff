@@ -11,4 +11,7 @@ To install,
 
 To be modernized with cmake for easier configuration
 
-Initially plan to provide the code for scientific branch 
+Initially plan to provide the code for scientific branch
+
+License
+No commerical use other than Hong Kong Observatory. 
