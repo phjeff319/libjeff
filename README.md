@@ -14,5 +14,4 @@ To be modernized with cmake for easier configuration
 
 Initially plan to provide the code for scientific branch
 
-License
-GNU General Public License v3.0
+For use within Hong Kong Observatory (meteorological authority of Hong Kong SAR), MIT license applies. For others, the conditions in LICENSE.md applies.
