@@ -1,0 +1,6 @@
+add_executable(generator.x generator.cpp)
+configure_file(generator.h generator.h.inc)
+configure_file(libjeff.index libjeff.index)
+configure_file(taglist.txt taglist.txt)
+configure_file(makefile.cpu.inc makefile.cpu.inc)
+configure_file(makefile.gpu.inc makefile.gpu.inc)

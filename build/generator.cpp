@@ -2,6 +2,8 @@
 #include<fstream>
 #include<cstring>
 #include<sys/stat.h>
+
+#include"generator.h"
 using namespace std;
 
 const int buff_size = 8192;
