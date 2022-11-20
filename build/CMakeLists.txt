@@ -1,5 +1,6 @@
 add_executable(generator.x generator.cpp)
-configure_file(generator.h generator.h.inc)
+configure_file(generator.h.in generator.h)
+target_include_directories(generator.x PUBLIC "${CMAKE_CURRENT_BINARY_DIR}")
 configure_file(libjeff.index libjeff.index)
 configure_file(taglist.txt taglist.txt)
 configure_file(makefile.cpu.inc makefile.cpu.inc)

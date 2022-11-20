@@ -12,6 +12,7 @@ Initially plan to provide the code for scientific branch
 5. Execute build.sh
 
 ## Dependency
+The library assume the user is using g++ for compiling C++ codes and nvcc for CUDA codes
 1. [GSL library version 1.16](https://www.gnu.org/software/gsl/), other version of GSL library may work but was not tested
 2. [NetCDF Fortran version 4.2]
 3. [NetCDF version 4.2.1.1]

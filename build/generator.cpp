@@ -259,7 +259,8 @@ int generate(char *item_name,char *item_group,char *generate_mode){
   int error;
   char *temp_buff = new char [buff_size];
   if(strstr(item_name,".JEFFH")!=NULL){
-    strcpy(temp_buff,"../seed/");
+    strcpy(temp_buff,PWD);
+    strcat(temp_buff,"/seed/");
     strcat(temp_buff,item_group);
     strcat(temp_buff,"/");
     strcat(temp_buff,item_name);
@@ -269,7 +270,8 @@ int generate(char *item_name,char *item_group,char *generate_mode){
     }
   }
   else if(strstr(item_name,".JEFFC")!=NULL){
-    strcpy(temp_buff,"../seed/");
+    strcpy(temp_buff,PWD);
+    strcat(temp_buff,"/seed/");
     strcat(temp_buff,item_group);
     strcat(temp_buff,"/");
     strcat(temp_buff,item_name);
@@ -281,8 +283,9 @@ int generate(char *item_name,char *item_group,char *generate_mode){
   else{
     int error;
     char *temp_buff = new char [buff_size];
-    
-    strcpy(temp_buff,"../seed/");
+
+    strcpy(temp_buff,PWD);
+    strcat(temp_buff,"/seed/");
     strcat(temp_buff,item_group);
     strcat(temp_buff,"/");
     strcat(temp_buff,item_name);
@@ -291,8 +294,9 @@ int generate(char *item_name,char *item_group,char *generate_mode){
     if(error){
       return error;
     }
-    
-    strcpy(temp_buff,"../seed/");
+
+    strcpy(temp_buff,PWD);
+    strcat(temp_buff,"/seed/");
     strcat(temp_buff,item_group);
     strcat(temp_buff,"/");
     strcat(temp_buff,item_name);
@@ -312,7 +316,8 @@ int generate_header(char *filename,char *generate_mode){
   char *temp_filename = new char [buff_size];
   char *temp_buff = temp_filename;
 
-  strcpy(out_filename,"../include/");
+  strcpy(out_filename,PWD);
+  strcat(out_filename,"/include/");
   strcpy(temp_filename,filename);
   *strstr(temp_filename,".JEFFH")='\0';
   
@@ -335,7 +340,8 @@ int generate_source(char *filename,char *generate_mode){
   char *temp_filename = new char [buff_size];
   char *temp_buff = temp_filename;
 
-  strcpy(out_filename,"../src/");
+  strcpy(out_filename,PWD);
+  strcat(out_filename,"/src/");
   strcpy(temp_filename,filename);
   *strstr(temp_filename,".JEFFC")='\0';
   
@@ -963,7 +969,7 @@ int generate_makefile(int num_list,char **listname,int *num_items,char*** items,
   ofstream fout;
 
   ifstream fin;
-  fout.open("../src/Makefile");
+  fout.open("PWD/src/Makefile");
   if(gpumode){
     fout << "compiler=nvcc" << endl;
   }

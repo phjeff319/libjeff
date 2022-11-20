@@ -1,0 +1,1 @@
+#define PWD "@PROJECT_SOURCE_DIR@"
