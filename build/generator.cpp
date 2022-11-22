@@ -969,13 +969,17 @@ int generate_makefile(int num_list,char **listname,int *num_items,char*** items,
   ofstream fout;
 
   ifstream fin;
-  fout.open("PWD/src/Makefile");
+  char *temp_buff = new char [buff_size];
+  strcpy(temp_buff,PWD);
+  strcat(temp_buff,"/src/Makefile");
+  fout.open(temp_buff);
   if(gpumode){
     fout << "compiler=nvcc" << endl;
   }
   else{
     fout << "compiler=g++" << endl;
   }
+  delete [] temp_buff;
 
   char *ctemp=new char [buff_size];
   for(i=0;i<num_list;i++){

@@ -31,4 +31,7 @@ The current verion of the library would build into 3 different modes depending o
 ## TODO
 To be modernized with cmake for easier configuration
 
+## Known Issues
+* The cmake is yet to invoke the make in the src directory after generating the source code
+
 For use within Hong Kong Observatory (meteorological authority of Hong Kong SAR), MIT license applies. For others, the conditions in LICENSE.md applies.
