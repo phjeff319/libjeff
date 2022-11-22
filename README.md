@@ -1,4 +1,4 @@
-# Version 0.1 of libjeff
+# Version 0.1 of libjeff (22 Nov 2022)
 
 This is the C++/CUDA morphing code library developed by Jeffrey for all meteorological calculation in Hong Kong Observatory. The code was mostly closed for use in HKO before but now it is open to provide continual updates for HKO colleagues.
 
@@ -24,8 +24,8 @@ The library assume the user is using g++ for compiling C++ codes and nvcc for CU
 9. [XGBOOST] ,for "XGBOOST" mode only
 10. Bzip2, Gzip and libssh version 0.10.3 ,for "EXTERNAL" mode only
 
-## Behaviour
-The current verion of the library would build into 3 different modes depending on the hardware/system configuration. If the library is built on a Raspberry Pi, it would assume it is for controlling robotic hardwares and would build in the "robotic" mode, which is not yet released at the moment.  This is because it is not possible to have enough resource to run most meteorological calculation on a raspberry Pi. For other computer, if no nvcc is detected, the library would be built in the "CPU only" mode and would not compile the CUDA codes in the library.  If nvcc is present, the code would compile into the GPU mode with all CUDA code available.
+~~ ## Behaviour
+The current verion of the library would build into 3 different modes depending on the hardware/system configuration. If the library is built on a Raspberry Pi, it would assume it is for controlling robotic hardwares and would build in the "robotic" mode, which is not yet released at the moment.  This is because it is not possible to have enough resource to run most meteorological calculation on a raspberry Pi. For other computer, if no nvcc is detected, the library would be built in the "CPU only" mode and would not compile the CUDA codes in the library.  If nvcc is present, the code would compile into the GPU mode with all CUDA code available. ~~
 
 
 ## TODO
