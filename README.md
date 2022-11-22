@@ -4,8 +4,6 @@ This is the C++/CUDA morphing code library developed by Jeffrey for all meteorol
 
 Initially plan to provide the code for scientific branch
 
-# Please don't clone from the latest version as it is not a stable release.  The latest stable version is the first commit.
-
 ## To install,
 1. clone the repository from Git.
 2. install all of the dependency (listed below)
