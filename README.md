@@ -1,15 +1,15 @@
-# Version 0.0 of libjeff
+# Version 0.1 of libjeff
 
 This is the C++/CUDA morphing code library developed by Jeffrey for all meteorological calculation in Hong Kong Observatory. The code was mostly closed for use in HKO before but now it is open to provide continual updates for HKO colleagues.
 
-Initially plan to provide the code for scientific branch
+Initially plan to provide the code for scientific branch. Current Cmake support can be use to build the basic of the library
 
 ## To install,
 1. clone the repository from Git.
 2. install all of the dependency (listed below)
-3. Go to build/, update the makefile.cpu.inc and makefile.gpu.inc in build
-4. Edit build.sh to config or remove build modes
-5. Execute build.sh
+3. Execute "mkdir cmake"
+4. Enter the directory cmake, execute "cmake ../"
+5. Execute "cmake --build ."
 
 ## Dependency
 The library assume the user is using g++ for compiling C++ codes and nvcc for CUDA codes
@@ -29,9 +29,9 @@ The current verion of the library would build into 3 different modes depending o
 
 
 ## TODO
-To be modernized with cmake for easier configuration
+* Adding the configuration for additional build modes 
 
 ## Known Issues
-* The cmake is yet to invoke the make in the src directory after generating the source code
+
 
 For use within Hong Kong Observatory (meteorological authority of Hong Kong SAR), MIT license applies. For others, the conditions in LICENSE.md applies.
