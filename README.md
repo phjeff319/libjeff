@@ -25,8 +25,8 @@ The library assume the user is using g++ for compiling C++ codes and nvcc for CU
 ### For "XGBOOST" build mode
 9. [XGBOOST] 
 ### For "external" build mode
-10. Bzip2
-11. Gzip
+10. BZIP2 - sudo apt-get install libz2-dev
+11. ZLIB - usually pre-installed
 12. libssh version 0.10.3 
 
 ~~## Behaviour
@@ -34,8 +34,8 @@ The current verion of the library would build into 3 different modes depending o
 
 ## Supported build modes
 1. SCIENTIFIC
-2. DATABASE
-3. EXTERNAL
+2. DATABASE (to be implemented)
+3. EXTERNAL (to be implemented)
 4. XGBOOST
 5. GPU (automatic if nvcc >= 10.0 is detected. Can be suppressed by -DGPU=OFF)
 6. ROBOTICS
@@ -45,11 +45,14 @@ The current version of the library would build depends on the build mode input d
 
 ## Useful variables
 CONCURRENT_BUILD_THREAD - the number of thread to be used for the make, i.e. the in X in "make -j X". Default value is 4.
+GPU - set to OFF to suppress GPU build mode even when nvcc is detected
+GSL_PREFIX - the prefix for the configuration of the libgsl. Default is /usr/
+
 
 ## TODO
 * Adding the dependency check for the additional build modes.  The following built mode was done
 1. GPU
-2.
+2. 
 
 ## Known Issues
 

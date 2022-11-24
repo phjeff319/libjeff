@@ -13,7 +13,7 @@ option(DATABASE "support for code interfacing with mongoDB (under development)")
 option(EXTERNAL "support for unified IO with bzip2, gz and SFTP")
 option(GPU "enable CUDA code in the library" ON)
 option(ROBOTICS "compilation for robotics library, exclusive with scientific library (overrode SCIENTIFIC)")
-option(SCIENTIFIC "compilation for scientific library, exclusive with robotic library (being overrode by ROBOTICS)")
+option(SCIENTIFIC "compilation for scientific library, exclusive with robotic library (being overrode by ROBOTICS)" )
 option(XGBOOST "compilation of interfacing with XGBOOST")
 
 if(CPU)
@@ -44,13 +44,42 @@ if(GPU)
 endif()
 
 if(DATABASE)
+  message(FATAL_ERROR "Not yet implemented")
   list(APPEND BUILDMODES database)
 endif()
 
 if(SCIENTIFIC)
-  find_package(LIBGSL 1.16)
+  #check for gsl library
+  if(NOT GSL_PREFIX)
+    set(GSL_PREFIX /usr)
+  endif()
+  
+  execute_process(COMMAND ${GSL_PREFIX}/bin/gsl-config --version OUTPUT_VARIABLE gsl_version)
+  message(STATUS "Finding gsl version = ${gsl_version}")
 
-  list(APPEND BUILDMODES scientific)
+  #check for BLAS
+
+  #check for LAPACK
+  
+  #check for NETCDF
+
+  #check for NETCDF-C
+
+  #check for NETCDF-CXX
+
+  #check for ECCODES
+
+  #check for CIVETWEB
+
+  if(NOT gsl_version VERSION_LESS 1.16)
+    set(GSL_INC ${GSL_PREFIX}/include/)
+    
+    #list(APPEND BUILDMODES scientific)
+  endif()
+
+  if(gsl_version VERSION_LESS 1.16)
+    message(FATAL_ERROR "GSL version incompatible.")
+  endif()
 #  list(APPEND EXTRA_INCLUDES )
 endif()
 
@@ -60,10 +89,23 @@ if(ROBOTICS)
 endif()
 
 if(EXTERNAL)
-  list(APPEND BUILDMODES external)
+  find_package(ZLIB)
+  if(ZLIB_FOUND)
+    message(STATUS "ZLIB found in ${ZLIB_INCLUDE_DIRS}")
+  endif()
+    
+  find_package(BZip2)
+  if(BZIP2_FOUND)
+    message(STATUS "BZIP2 library found in ${BZIP2_INCLUDE_DIRS}")
+  endif()
+  
+  if(ZLIB_FOUND AND BZIP2_FOUND)
+    list(APPEND BUILDMODES external)
+  endif()
 endif()
 
 if(XGBOOST)
+  message(FATAL_ERROR "Not yet implemented")
   list(APPEND BUILDMODES xgboost)
 endif()
 
