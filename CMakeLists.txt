@@ -13,7 +13,7 @@ option(DATABASE "support for code interfacing with mongoDB (under development)")
 option(EXTERNAL "support for unified IO with bzip2, gz and SFTP")
 option(GPU "enable CUDA code in the library" ON)
 option(ROBOTICS "compilation for robotics library, exclusive with scientific library (overrode SCIENTIFIC)")
-option(SCIENTIFIC "compilation for scientific library, exclusive with robotic library (being overrode by ROBOTICS)" )
+option(SCIENTIFIC "compilation for scientific library, exclusive with robotic library (being overrode by ROBOTICS)" ON)
 option(XGBOOST "compilation of interfacing with XGBOOST")
 
 if(CPU)
@@ -57,10 +57,6 @@ if(SCIENTIFIC)
   execute_process(COMMAND ${GSL_PREFIX}/bin/gsl-config --version OUTPUT_VARIABLE gsl_version)
   message(STATUS "Finding gsl version = ${gsl_version}")
 
-  #check for BLAS
-
-  #check for LAPACK
-  
   #check for NETCDF
 
   #check for NETCDF-C
@@ -73,8 +69,12 @@ if(SCIENTIFIC)
 
   if(NOT gsl_version VERSION_LESS 1.16)
     set(GSL_INC ${GSL_PREFIX}/include/)
-    
-    #list(APPEND BUILDMODES scientific)
+    set(GSL_OK True)
+  endif()
+
+  if(GSL_OK AND BLAS_FOUND)
+    message(FATAL_ERROR "Not yet implemented")
+    list(APPEND BUILDMODES scientific)
   endif()
 
   if(gsl_version VERSION_LESS 1.16)
@@ -85,6 +85,7 @@ endif()
 
 if(ROBOTICS)
   list(REMOTE_ITEM BUILDMODES scientific)
+  message(FATAL_ERROR "Not yet implemented")
   list(APPEND BUILDMODES robotics)
 endif()
 
@@ -100,6 +101,7 @@ if(EXTERNAL)
   endif()
   
   if(ZLIB_FOUND AND BZIP2_FOUND)
+    message(FATAL_ERROR "Not yet implemented")
     list(APPEND BUILDMODES external)
   endif()
 endif()
