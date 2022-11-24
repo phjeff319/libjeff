@@ -33,12 +33,12 @@ The library assume the user is using g++ for compiling C++ codes and nvcc for CU
 The current verion of the library would build into 3 different modes depending on the hardware/system configuration. If the library is built on a Raspberry Pi, it would assume it is for controlling robotic hardwares and would build in the "robotic" mode, which is not yet released at the moment.  This is because it is not possible to have enough resource to run most meteorological calculation on a raspberry Pi. For other computer, if no nvcc is detected, the library would be built in the "CPU only" mode and would not compile the CUDA codes in the library.  If nvcc is present, the code would compile into the GPU mode with all CUDA code available.~~
 
 ## Supported build modes
-1. SCIENTIFIC
+1. SCIENTIFIC (to be implemented)
 2. DATABASE (to be implemented)
 3. EXTERNAL (to be implemented)
-4. XGBOOST
+4. XGBOOST (to be implemented)
 5. GPU (automatic if nvcc >= 10.0 is detected. Can be suppressed by -DGPU=OFF)
-6. ROBOTICS
+6. ROBOTICS (private at the moment)
 
 ## Behaviour
 The current version of the library would build depends on the build mode input during the configuration stage.  If no build mode was input, the library would only be built with the modules in the 'always' catergory. If ROBOTICS built mode is ON, the SCIENTIFIC built mode would be suppressed even if it is set to ON.
