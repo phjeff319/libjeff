@@ -42,9 +42,9 @@ The current verion of the library would build into 3 different modes depending o
 The current version of the library would build depends on the build mode input during the configuration stage.  If no build mode was input, the library would only be built with the modules in the 'always' catergory. If ROBOTICS built mode is ON, the SCIENTIFIC built mode would be suppressed even if it is set to ON.
 
 ## Useful variables
-CONCURRENT_BUILD_THREAD - the number of thread to be used for the make, i.e. the in X in "make -j X". Default value is 4.
-GPU - set to OFF to suppress GPU build mode even when nvcc is detected
-GSL_PREFIX - the prefix for the configuration of the libgsl. Default is /usr/
+* CONCURRENT_BUILD_THREAD - the number of thread to be used for the make, i.e. the in X in "make -j X". Default value is 4.
+* GPU - set to OFF to suppress GPU build mode even when nvcc is detected
+* GSL_PREFIX - the prefix for the configuration of the libgsl. Default is /usr/
 
 
 ## TODO
@@ -53,7 +53,7 @@ GSL_PREFIX - the prefix for the configuration of the libgsl. Default is /usr/
 2. 
 
 ## Known Issues
-
+NETCDF read fucntion yet to be compatible with the sftp mode
 
 ## To add additional modules
 1. Create the code with header file named as .JEFFH and source file named as .JEFFC.  Put the code under the appropriate build mode directory
