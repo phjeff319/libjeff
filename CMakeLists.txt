@@ -12,7 +12,7 @@ option(CPU "no use at the moment" ON)
 option(DATABASE "support for code interfacing with mongoDB (under development)")
 option(EXTERNAL "support for unified IO with bzip2, gz and SFTP")
 option(GPU "enable CUDA code in the library" ON)
-option(ROBOTICS "compilation for robotics library, exclusive with scientific library (overrode SCIENTIFIC)" ON)
+option(ROBOTICS "compilation for robotics library, exclusive with scientific library (overrode SCIENTIFIC)")
 option(SCIENTIFIC "compilation for scientific library, exclusive with robotic library (being overrode by ROBOTICS)" ON)
 option(XGBOOST "compilation of interfacing with XGBOOST")
 
@@ -84,6 +84,11 @@ if(SCIENTIFIC)
   #check for NETCDF-CXX
 
   #check for ECCODES
+  find_package(eccodes)
+  if(eccodes_FOUND)
+    message(STATUS "ecCodes library found in ${eccodes_DIR}")
+    set(eccodes_INCLUDE_DIR ${eccodes_DIR}/../../../include)
+  endif()
 
   #check for CIVETWEB
   find_package(civetweb 1.11)
@@ -92,8 +97,8 @@ if(SCIENTIFIC)
     set(civetweb_INCLUDE_DIR ${civetweb_DIR}/../../../include)
   endif()
   
-  if(GSL_OK AND civetweb_FOUND)
-    message(FATAL_ERROR "Not yet implemented")
+  if(GSL_OK AND eccodes_FOUND AND civetweb_FOUND)
+    #message(FATAL_ERROR "Not yet implemented")
     list(APPEND BUILDMODES scientific)
   endif()
 

@@ -29,11 +29,8 @@ The library assume the user is using g++ for compiling C++ codes and nvcc for CU
 ### For "ROBOTICS" build mode
 11. [serial version 1.2.1](https://github.com/wjwwood/serial)
 
-~~## Behaviour
-The current verion of the library would build into 3 different modes depending on the hardware/system configuration. If the library is built on a Raspberry Pi, it would assume it is for controlling robotic hardwares and would build in the "robotic" mode, which is not yet released at the moment.  This is because it is not possible to have enough resource to run most meteorological calculation on a raspberry Pi. For other computer, if no nvcc is detected, the library would be built in the "CPU only" mode and would not compile the CUDA codes in the library.  If nvcc is present, the code would compile into the GPU mode with all CUDA code available.~~
-
 ## Supported build modes
-1. SCIENTIFIC (to be implemented)
+1. SCIENTIFIC (dependency to be checked in cmake)
 2. DATABASE (Not yet released)
 3. EXTERNAL 
 4. XGBOOST (Not yet released)
@@ -50,10 +47,8 @@ The current version of the library would build depends on the build mode input d
 
 
 ## TODO
-* Adding the dependency check for the additional build modes.  The following built mode was done
-1. GPU
-2. EXTERNAL
-3. ROBOTICS
+* Adding the dependency check for the additional build modes.  The following built mode was not done
+1. SCIENTIFIC
 
 ## Known Issues
 NETCDF read fucntion yet to be compatible with the sftp mode
