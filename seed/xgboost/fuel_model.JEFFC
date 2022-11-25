@@ -1,0 +1,345 @@
+#include <fstream>
+#include <cstring>
+
+#include "debug_mode.h"
+#include "error_code.h"
+#include "file_handler.h"
+#include "flight_data.h"
+#include "fuel_model.h"
+#include "statistics.h"
+
+#define BUFFSIZE 4096
+
+namespace libjeff{
+  flight_fuel_model::flight_fuel_model():xgboost_model(){
+    libjeff::print_trace(1,"flight_fuel_model default constructor");
+    npredictor = 0;
+    predictor = NULL;
+    libjeff::print_trace(0,"flight_fuel_model default constructor");
+  }
+  flight_fuel_model::~flight_fuel_model(){
+    libjeff::print_trace(1,"flight_fuel_model default destructor");
+    this->destroy();
+    libjeff::print_trace(0,"flight_fuel_model default destructor");
+  }
+  int flight_fuel_model::create(int npredictor,char **predictor){
+    if(npredictor <= 0){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+    this->destroy();
+
+    this->npredictor = npredictor;
+    int i;
+    this->predictor = new char *[this->npredictor];
+    for(i=0;i<this->npredictor;i++){
+      this->predictor[i] = new char [BUFFSIZE];
+      strcpy(this->predictor[i],predictor[i]);
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+  int flight_fuel_model::destroy(){
+    if(this->npredictor > 0){
+      int i;
+      for(i=0;i<this->npredictor;i++){
+	delete [] this->predictor[i];
+      }
+      delete [] this->predictor;
+      this->npredictor = 0;
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+  
+  int flight_fuel_model::save(char *filename){
+    if(this->get_matrixhandle() == NULL || this->get_boosterhandle() == NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+    
+    int error = _ERRORCODE_NOERROR;
+
+    char *outfile = new char [BUFFSIZE];
+    strcpy(outfile,filename);
+    strcat(outfile,".model");
+
+    std::ofstream fout;
+    fout.open(outfile,ios::binary);
+
+    fout.write((char *) &this->npredictor,sizeof(int));
+    int i;
+    for(i=0;i<this->npredictor;i++){
+      fout.write(this->predictor[i],strlen(this->predictor[i])+1);
+    }
+
+    error = this->xgboost_model::save(fout);
+    
+    fout.close();
+    delete [] outfile;
+
+    return error;
+  }
+  int flight_fuel_model::load(char *filename){
+    this->destroy();
+    int error = _ERRORCODE_NOERROR;
+
+    char *infile = new char [BUFFSIZE];
+    strcpy(infile,filename);
+    strcat(infile,".model");
+
+    char *buff = NULL;
+    size_t buffsize = 0;
+    size_t buffsize_count = 0;
+
+    file_handler* fin = NULL;
+    openfile(fin,infile);
+
+    fin->read_file(buff,buffsize);
+    
+    int npred = *((int*) buff);
+    if(npred <= 0){
+      error = _ERRORCODE_FILEREADERROR;
+    }
+    else{
+      char **pred = new char *[npred];
+
+      buffsize_count += sizeof(int);
+      pred[0] = buff + sizeof(int);
+      buffsize_count += strlen(pred[0])+1;
+      int i;
+      for(i=1;i<npred;i++){
+	pred[i] = pred[i-1]+strlen(pred[i-1])+1;
+	buffsize_count += strlen(pred[i])+1;
+	//std::cout << pred[i] << std::endl;
+      }
+
+      this->create(npred,pred);
+
+      error = this->xgboost_model::load(buff+buffsize_count,buffsize-buffsize_count);
+
+      delete [] pred;
+    }
+
+    fin->close();
+    delete fin;
+
+    delete [] infile;
+
+    return error;
+  }
+ 
+  int flight_fuel_model::set_training_data(int nflight,flight_data* in,bool (*filter)(flight_data_pt* in)){
+    if(nflight <= 0){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+    if(this->npredictor <= 0){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    int ndata = 0;
+    int i,j,k;
+    for(i=0;i<nflight;i++){
+      for(j=0;j<in[i].get_num_data_pt();j++){
+	if((*filter)(in[i].get_data_pt(j))){
+	  ndata++;
+	}
+      }
+    }
+
+    if(libjeff::debug_setting::get_debug_mode_debug_message()){
+      std::cout << "Number of valid data point: " << ndata << std::endl;
+    }
+
+    this->get_databank()[0].create(ndata,this->npredictor);
+    this->get_databank()[1].create(ndata,1);
+    int data_count = 0;
+    for(i=0;i<nflight;i++){
+      for(j=0;j<in[i].get_num_data_pt();j++){
+	if((*filter)(in[i].get_data_pt(j))){
+	  for(k=0;k<this->npredictor;k++){
+	    this->get_databank()[0].set_data_pts(data_count,k,in[i].get_data_pt(j)->get(this->predictor[k]));
+	  }
+	  this->get_databank()[1].set_data_pts(data_count,0,in[i].get_data_pt(j)->get("fuelflow"));
+	  data_count++;
+	}
+      }
+    }
+
+    if(this->get_matrixhandle()!=NULL){
+      XGDMatrixFree(*(this->get_matrixhandle()));
+      this->free_matrixhandle();
+    }
+    this->allocate_matrixhandle();
+    XGDMatrixCreateFromMat(this->get_databank()[0].get_data_pts(),ndata,this->npredictor,-1,this->get_matrixhandle());
+
+    if(this->get_boosterhandle() != NULL){
+      XGBoosterFree(*(this->get_boosterhandle()));
+      this->free_boosterhandle();
+    }
+    this->allocate_boosterhandle();
+    XGBoosterCreate(this->get_matrixhandle(),1,this->get_boosterhandle());
+    XGDMatrixSetFloatInfo(*(this->get_matrixhandle()),"label",this->get_databank()[1].get_data_pts(),ndata);
+
+    return _ERRORCODE_NOERROR;
+  }
+  int flight_fuel_model::set_default_model_parameter(){
+    if(this->get_boosterhandle() == NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    XGBoosterSetParam(*(this->get_boosterhandle()), "booster", "gbtree");
+    XGBoosterSetParam(*(this->get_boosterhandle()), "gpu_id", "0");
+    ###CUDA###XGBoosterSetParam(*(this->get_boosterhandle()), "tree_method", "gpu_hist");
+    XGBoosterSetParam(*(this->get_boosterhandle()), "objective", "reg:squarederror");
+    XGBoosterSetParam(*(this->get_boosterhandle()), "max_depth", "5");
+    XGBoosterSetParam(*(this->get_boosterhandle()), "eta", "0.1");
+    XGBoosterSetParam(*(this->get_boosterhandle()), "gamma", "0.4");
+    XGBoosterSetParam(*(this->get_boosterhandle()), "min_child_weight", "0.5");
+    XGBoosterSetParam(*(this->get_boosterhandle()), "subsample", "0.5");
+    //XGBoosterSetParam(*(this->get_boosterhandle()), "colsample_bytree", "0.7");
+    XGBoosterSetParam(*(this->get_boosterhandle()), "num_parallel_tree", "1");
+
+    return _ERRORCODE_NOERROR;
+  }
+  int flight_fuel_model::set_model_parameter(char *parameter,char *value){
+    if(this->get_boosterhandle() == NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    XGBoosterSetParam(*(this->get_boosterhandle()),parameter,value);
+
+    return _ERRORCODE_NOERROR;
+  }
+  int flight_fuel_model::train_model(int num_iteration){
+    if(this->get_boosterhandle() == NULL){
+      return _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    int i;
+    for(i=0;i<num_iteration;i++){
+      XGBoosterUpdateOneIter(*(this->get_boosterhandle()),i,*(this->get_matrixhandle()));
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+
+  float* flight_fuel_model::check_validity(int num_flight_pt,const flight_data_pt* in,float *out,bool gpu_mode) const{
+    if(num_flight_pt > 0){
+      float **x, **kde;
+
+      int i,j;
+      x = new float *[num_flight_pt];
+      kde = new float *[num_flight_pt];
+      for(i=0;i<num_flight_pt;i++){
+	x[i] = new float [this->npredictor];
+	kde[i] = new float [this->npredictor];
+
+	this->extract_predictor(in+i,x[i]);
+      }
+
+      for(i=0;i<this->npredictor;i++){
+	libjeff::kde::gaussian(this->get_databank(),i,num_flight_pt,x,kde,libjeff::kde::bandwidth_function::silverman,gpu_mode);
+      }
+
+      for(i=0;i<num_flight_pt;i++){
+	out[i] = 1.;
+	for(j=0;j<this->npredictor;j++){
+	  out[i] *= kde[i][j];
+	}
+
+	delete [] x[i];
+	delete [] kde[i];
+      }
+      delete [] x;
+      delete [] kde;
+
+    }
+    return out;
+  }
+
+  bool* flight_fuel_model::is_valid(int num_flight_pt,const flight_data_pt* in,float threshold,bool *out,bool gpu_mode) const{
+    if(num_flight_pt > 0){
+      float *validity = new float [num_flight_pt];
+
+      this->check_validity(num_flight_pt,in,validity,gpu_mode);
+
+      int i;
+      for(i=0;i<num_flight_pt;i++){
+	if(validity[i] >= threshold){
+	  out[i] = true;
+	}
+	else{
+	  out[i] = false;
+	}
+      }
+
+      delete [] validity;
+    }
+    return out;
+  }
+  float flight_fuel_model::predict(const flight_data_pt* in) const{
+    const float *out;//=new float *[1];
+    this->predict(1,in,&out);
+
+    float result = *out;
+    delete [] out;
+    return result;
+  }
+  int flight_fuel_model::predict(int npt,const flight_data_pt* in,const float **out) const{
+    if(npt > 0){
+      bst_ulong outlen;
+      //const float *f;
+
+      DMatrixHandle prediction;
+      float *work = new float [this->npredictor*npt];
+      int i,j;
+      for(i=0;i<npt;i++){
+	this->extract_predictor(in+i,work+i*this->npredictor);
+	
+      }
+
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	for(i=0;i<npt;i++){
+	  for(j=0;j<this->npredictor;j++){
+	    std::cout << work[i*this->npredictor+j] << " ";
+	  }
+	  std::cout << std::endl;
+	}
+      }
+
+
+      XGDMatrixCreateFromMat(work,npt,this->npredictor,-1,&prediction);
+
+      //std::cout << *out << std::endl;
+      XGBoosterPredict(*(this->get_boosterhandle()),prediction,0,0,0,&outlen,out);
+      //std::cout << *out << std::endl;
+      /*
+      for(i=0;i<npt;i++){
+	out[i] = f[i];
+      }
+      */
+      if(libjeff::debug_setting::get_debug_mode_debug_message()){
+	for(i=0;i<npt;i++){
+	  std::cout << out[0][i] << endl;
+	}
+      }
+      
+      //delete [] f;
+
+      XGDMatrixFree(prediction);
+      delete [] work;
+    }
+
+    return _ERRORCODE_NOERROR;
+  }
+
+  float *flight_fuel_model::extract_predictor(const flight_data_pt* in,float *out) const{
+    if(this->npredictor > 0){
+      int i;
+      for(i=0;i<this->npredictor;i++){
+	out[i] = in->get(this->predictor[i]);
+      }
+    }
+
+    return out;
+  }
+}

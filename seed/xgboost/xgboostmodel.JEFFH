@@ -1,0 +1,42 @@
+#ifndef XGBOOSTMODEL
+#define XGBOOSTMODEL
+#include "xgboost/base.h"
+#include "xgboost/c_api.h"
+#include "xgboost/data.h"
+#include "xgboost/parameter.h"
+
+#include "statistics.h"
+
+namespace libjeff{
+  class xgboost_model{
+  public:
+    xgboost_model();
+    ~xgboost_model();
+
+    int destroy();
+
+    inline DMatrixHandle* get_matrixhandle() const {return this->matrixhandle;}
+    inline BoosterHandle* get_boosterhandle() const {return this->boosterhandle;}
+    inline sample_dataset<float>* get_databank() const {return this->databank;}
+
+    inline int allocate_matrixhandle() {return this->allocate_matrixhandle(1);}
+    inline int allocate_boosterhandle() {return this->allocate_boosterhandle(1);}
+    int allocate_matrixhandle(int in);
+    int allocate_boosterhandle(int in);
+    int free_matrixhandle();
+    int free_boosterhandle();
+
+  protected:
+    int save(std::ofstream &fout);
+    //int load(file_handler* fin);
+    int load(char *buff,size_t buffsize);
+
+  private:
+    sample_dataset<float>* databank;
+    DMatrixHandle* matrixhandle;
+    BoosterHandle* boosterhandle;
+  };
+
+}
+
+#endif

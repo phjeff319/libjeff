@@ -1,0 +1,119 @@
+#include <cstring>
+#include <fstream>
+
+#include "error_code.h"
+#include "xgboostmodel.h"
+
+namespace libjeff{
+  xgboost_model::xgboost_model(){
+    matrixhandle=NULL;
+    boosterhandle=NULL;
+    this->databank = new sample_dataset<float>[2];
+  }
+  xgboost_model::~xgboost_model(){
+    this->destroy();
+    delete [] this->databank;
+  }
+
+  int xgboost_model::destroy(){
+    if(this->get_matrixhandle() != NULL){
+      XGDMatrixFree(*(this->get_matrixhandle()));
+      delete this->get_matrixhandle();
+      this->matrixhandle = NULL;
+    }
+    if(this->get_boosterhandle() != NULL){
+      XGBoosterFree(*(this->get_boosterhandle()));
+      delete this->get_boosterhandle();
+      this->boosterhandle = NULL;
+    }
+    return _ERRORCODE_NOERROR;
+  }
+
+  int xgboost_model::save(std::ofstream &fout){
+    int error = _ERRORCODE_NOERROR;
+
+    if(this->get_matrixhandle() != NULL && this->get_boosterhandle() != NULL){
+      size_t ndata = this->get_databank()->get_ndata();
+      size_t ndim = this->get_databank()->get_ndim();
+
+      fout.write((char *) &ndata,sizeof(size_t));
+      fout.write((char *) &ndim,sizeof(size_t));
+      fout.write((char *) this->get_databank()[0].get_data_pts(),this->get_databank()->get_ndata()*this->get_databank()->get_ndim()*sizeof(float));
+      fout.write((char *) this->get_databank()[1].get_data_pts(),this->get_databank()->get_ndata()*sizeof(float));
+
+      const char *outbuff = NULL;
+      bst_ulong out_len;
+
+      //std::cout << outbuff << std::endl;
+      XGBoosterSerializeToBuffer(*boosterhandle,&out_len,&outbuff);
+      //std::cout << outbuff << std::endl;
+
+      fout.write((char *) &out_len,sizeof(bst_ulong));
+      fout.write(outbuff,out_len);
+
+      //free(outbuff);
+      //delete [] outbuff;
+    }
+    else{
+      error = _ERRORCODE_DATAYETTOBEINITIATED;
+    }
+
+    return error;
+  }
+  int xgboost_model::load(char *buff,size_t buffsize){
+    this->destroy();
+
+    size_t ndata, ndim;
+    int error = _ERRORCODE_NOERROR;
+    char *cursor = buff;
+    
+    ndata = *((size_t*) cursor);
+    cursor += sizeof(size_t);
+    ndim = *((size_t*) cursor);
+    cursor += sizeof(size_t);
+    
+    this->get_databank()[0].create(ndata,ndim);
+    this->get_databank()[1].create(ndata,1);
+    memcpy(this->get_databank()[0].get_data_pts(),cursor,ndata*ndim*sizeof(float));
+    cursor += ndata*ndim*sizeof(float);
+    memcpy(this->get_databank()[1].get_data_pts(),cursor,ndata*sizeof(float));
+    cursor += ndata*sizeof(float);
+
+    this->allocate_matrixhandle();
+    XGDMatrixCreateFromMat(this->get_databank()[0].get_data_pts(),ndata,ndim,-1,this->get_matrixhandle());
+    this->allocate_boosterhandle();
+    XGBoosterCreate(this->get_matrixhandle(),1,this->get_boosterhandle());
+    XGDMatrixSetFloatInfo(*(this->get_matrixhandle()),"label",this->get_databank()[1].get_data_pts(),ndata);
+    
+    bst_ulong out_len;
+    out_len = *((bst_ulong*) cursor);
+    cursor += sizeof(bst_ulong);
+    
+    XGBoosterUnserializeFromBuffer(*(this->get_boosterhandle()),cursor,out_len);
+
+    return error;
+  }
+
+  int xgboost_model::allocate_matrixhandle(int in){
+    if(in <= 0){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+    matrixhandle = new DMatrixHandle [in];
+    return _ERRORCODE_NOERROR;
+  }
+  int xgboost_model::allocate_boosterhandle(int in){
+    if(in <= 0){
+      return _ERRORCODE_INPUTOUTOFRANGE;
+    }
+    boosterhandle = new BoosterHandle [in];
+    return _ERRORCODE_NOERROR;
+  }
+  int xgboost_model::free_matrixhandle(){
+    delete [] this->matrixhandle;
+    return _ERRORCODE_NOERROR;
+  }
+  int xgboost_model::free_boosterhandle(){
+    delete [] this->boosterhandle;
+    return _ERRORCODE_NOERROR;
+  }
+}

@@ -13,7 +13,7 @@ Initially plan to provide the code for scientific branch. Current Cmake support 
 
 ## Dependency
 The library assume the user is using g++ for compiling C++ codes and nvcc for CUDA codes
-### For "Scientific" build mode
+### For "SCIENTIFIC" build mode
 1. [GSL library version 1.16](https://www.gnu.org/software/gsl/), other version of GSL library may work but was not tested
 2. [NetCDF Fortran version 4.2]
 3. [NetCDF version 4.2.1.1] (implicitly needs HDF5)
@@ -22,19 +22,21 @@ The library assume the user is using g++ for compiling C++ codes and nvcc for CU
 6. [civetweb v.1.12]
 ### For "XGBOOST" build mode
 7. [XGBOOST] 
-### For "external" build mode
+### For "EXTERNAL" build mode
 8. BZIP2 - sudo apt-get install libz2-dev
 9. ZLIB - usually pre-installed
 10. libssh version 0.9.5
+### For "ROBOTICS" build mode
+11. [serial version 1.2.1](https://github.com/wjwwood/serial)
 
 ~~## Behaviour
 The current verion of the library would build into 3 different modes depending on the hardware/system configuration. If the library is built on a Raspberry Pi, it would assume it is for controlling robotic hardwares and would build in the "robotic" mode, which is not yet released at the moment.  This is because it is not possible to have enough resource to run most meteorological calculation on a raspberry Pi. For other computer, if no nvcc is detected, the library would be built in the "CPU only" mode and would not compile the CUDA codes in the library.  If nvcc is present, the code would compile into the GPU mode with all CUDA code available.~~
 
 ## Supported build modes
 1. SCIENTIFIC (to be implemented)
-2. DATABASE (to be implemented)
+2. DATABASE (Not yet released)
 3. EXTERNAL 
-4. XGBOOST (to be implemented)
+4. XGBOOST (Not yet released)
 5. GPU (automatic if nvcc >= 10.0 is detected. Can be suppressed by -DGPU=OFF)
 6. ROBOTICS (private at the moment)
 
@@ -51,6 +53,7 @@ The current version of the library would build depends on the build mode input d
 * Adding the dependency check for the additional build modes.  The following built mode was done
 1. GPU
 2. EXTERNAL
+3. ROBOTICS
 
 ## Known Issues
 NETCDF read fucntion yet to be compatible with the sftp mode

@@ -1,0 +1,48 @@
+#ifndef FUELMODEL
+#define FUELMODEL
+
+#include "xgboost/base.h"
+#include "xgboost/c_api.h"
+#include "xgboost/data.h"
+#include "xgboost/parameter.h"
+
+#include "flight_data.h"
+#include "statistics.h"
+#include "xgboostmodel.h"
+namespace libjeff{
+  class flight_fuel_model : public xgboost_model{
+  public:
+    flight_fuel_model();
+    ~flight_fuel_model();
+
+    int create(int npredictor,char **predictor);
+    int destroy();
+    
+    int save(char *filename);
+    int load(char *filename);
+    
+    int set_training_data(int nflight,flight_data* in,bool (*filter)(flight_data_pt* in));
+    int set_default_model_parameter();
+    int set_model_parameter(char *parameter,char *value);
+    int train_model(int num_iteration);
+    
+    float* check_validity(int num_flight_pt,const flight_data_pt* in,float *out,bool gpu_mode) const;
+
+    bool* is_valid(int num_flight_pt,const flight_data_pt* in,float threshold,bool *out,bool gpu_mode) const;
+    float predict(const flight_data_pt* in) const;
+    int predict(int npt,const flight_data_pt* in,const float **out) const;
+
+    inline int get_npredictor() const {return this->npredictor;}
+    inline char *get_predictor(int index) const {return this->predictor[index];}
+    inline char **get_predictor() const {return this->predictor;}
+    
+  private:
+    float *extract_predictor(const flight_data_pt* in,float *out) const;
+    bool is_initiated() const;
+
+    int npredictor;
+    char** predictor;
+  };
+}
+
+#endif
