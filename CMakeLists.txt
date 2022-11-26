@@ -2,7 +2,6 @@ cmake_minimum_required( VERSION 3.12 FATAL_ERROR)
 project(libjeff VERSION 0.1 )
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
-#set(CONCURRENT_BUILD_THREAD 4)
 
 macro(print_build_mode)
   message(STATUS "The following build mode would be used: " ${BUILD_MODE})
