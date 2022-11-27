@@ -64,6 +64,7 @@ namespace libjeff{
     data_type *get_data_pts(int data_pt_index) const;
     
     int set_data_pts(int data_index,int dim_index,data_type in);
+    //int set_data_pts(int num_data,date_type *in);
     int get_mean(int dim_index,double &mean) const;
     int get_sd(int dim_index,double &sd) const;
     

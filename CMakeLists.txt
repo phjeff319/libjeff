@@ -11,6 +11,7 @@ option(CPU "no use at the moment" ON)
 option(DATABASE "support for code interfacing with mongoDB (under development)")
 option(EXTERNAL "support for unified IO with bzip2, gz and SFTP")
 option(GPU "enable CUDA code in the library" ON)
+option(MATHSTAT "enable the math and statistics code in the library" ON)
 option(ROBOTICS "compilation for robotics library, exclusive with scientific library (overrode SCIENTIFIC)")
 option(SCIENTIFIC "compilation for scientific library, exclusive with robotic library (being overrode by ROBOTICS)" ON)
 option(XGBOOST "compilation of interfacing with XGBOOST")
@@ -53,11 +54,15 @@ if(ROBOTICS)
     message(STATUS "serial found in ${serial_DIR}")
     set(serial_INCLUDE_DIR ${serial_DIR}/../../../include)
   
-    list(REMOTE_ITEM BUILDMODES scientific)
+    set(SCIENTIFIC OFF)
     list(APPEND BUILDMODES robotics)
   endif()
 endif()
 
+if(MATHSTAT)
+  list(APPEND BUILDMODES mathstat)
+endif()
+  
 if(SCIENTIFIC)
   #check for gsl library
   if(NOT GSL_PREFIX)
@@ -75,7 +80,7 @@ if(SCIENTIFIC)
   if(gsl_version VERSION_LESS 1.16)
     message(FATAL_ERROR "GSL version incompatible.")
   endif()
-
+  
   #check for NETCDF
 
   #check for NETCDF-C

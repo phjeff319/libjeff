@@ -7,7 +7,6 @@ error_code.JEFFH
 file_check
 file_handler
 global_settings
-numerical_schemes
 physics_constants.JEFFH
 sorting
 string_man
@@ -22,13 +21,18 @@ gz_interface
 ssh_interface
 /external
 
+mathstat:
+complex
+numerical_schemes
+/mathstat
+
 scientific:
 bufr_tools
-complex
 data_bank
 flight_data_analytics
 geometry
 grib_tools
+math_special_function
 polygon
 random
 statistics
@@ -41,7 +45,6 @@ hrit_header.JEFFH
 iris_header.JEFFH
 melco_lidar_header.JEFFH
 map_projection
-math_special_function
 meteorology
 grid_codes.JEFFH
 grid_data_field
