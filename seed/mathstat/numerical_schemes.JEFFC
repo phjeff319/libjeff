@@ -114,4 +114,53 @@ namespace libjeff{
 
     return _ERRORCODE_ITERATIONSFAILEDTOCONVERGE;
   }
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### int numerical_schemes_ode_explicit_rk4(int nstep,int ndim,double stepsize,void* param,double *y0,double *outxy,double *(*funct)(double x,double *iny,void *param,double *outy)){
+    int error = _ERRORCODE_NOERROR;
+
+    int step;
+    for(step = 0;step <= nstep; step++){
+      outxy[step*(ndim+1)] = step*stepsize;
+    }
+    int dim;
+    for(dim = 1;dim <= ndim; dim++){
+      outxy[dim] = y0[dim-1];
+    }
+
+    int i,j;
+    double *ktemp[4];
+    for(i=0;i<4;i++){
+      ktemp[i] = new double [ndim];
+    }
+    double *ytemp = new double [ndim];
+    double *outtemp = new double [ndim];
+    for(step = 1;step<=nstep;step++){
+      for(i=0;i<4;i++){
+	for(j=0;j<ndim;j++){
+	  ytemp[j] = outxy[(step-1)*(ndim+1)+j+1];
+	  if(i>1){
+	    ytemp[j] += stepsize*libjeff::numerical_schemes::rk4_xstep[i]*ktemp[i-1][j];
+	  }
+	}
+	
+	(*funct)(outxy[(step-1)*(ndim+1)]+stepsize*libjeff::numerical_schemes::rk4_xstep[i],ytemp,param,ktemp[i]);
+      }
+
+      for(j=0;j<ndim;j++){
+	outxy[step*(ndim+1)+j+1] = 0.;
+	for(i=0;i<4;i++){
+	  outxy[step*(ndim+1)+j+1] += ktemp[i][j]*libjeff::numerical_schemes::rk4_ystep[i];
+	}
+	outxy[step*(ndim+1)+j+1] *= stepsize/libjeff::numerical_schemes::rk4_ysum;
+	outxy[step*(ndim+1)+j+1] += outxy[(step-1)*(ndim+1)+j+1];
+      }
+    }
+    delete [] outtemp;
+    for(i=0;i<4;i++){
+      delete [] ktemp[i];
+    }
+    delete [] ytemp;
+    
+    return error;
+  }
 }

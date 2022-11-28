@@ -13,7 +13,7 @@ option(EXTERNAL "support for unified IO with bzip2, gz and SFTP")
 option(GPU "enable CUDA code in the library" ON)
 option(MATHSTAT "enable the math and statistics code in the library" ON)
 option(ROBOTICS "compilation for robotics library, exclusive with scientific library (overrode SCIENTIFIC)")
-option(SCIENTIFIC "compilation for scientific library, exclusive with robotic library (being overrode by ROBOTICS)" ON)
+option(SCIENTIFIC "compilation for scientific library, exclusive with robotic library (being overrode by ROBOTICS)")
 option(XGBOOST "compilation of interfacing with XGBOOST")
 
 if(CPU)

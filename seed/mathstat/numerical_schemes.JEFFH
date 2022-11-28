@@ -2,8 +2,9 @@
 #define NUMERICAL_SCHEME
 namespace libjeff{
   namespace numerical_schemes{
-    const double rk4_xstep[3]={0.5,0.5,1.0};
+    const double rk4_xstep[4]={0.,0.5,0.5,1.0};
     const double rk4_ystep[4]={1.,2.,2.,1.};
+    const double rk4_ysum = 6.;
   }
 
   ###CPP### ###CUDA### ###HOST### double numerical_schemes_secant_method(int max_iter,double x0,double x1,double y0,double eps,double (*foo)(double));
@@ -11,5 +12,7 @@ namespace libjeff{
 
   ###CPP### ###CUDA### ###HOST### int numerical_schemes_false_position_method(int max_iter,double x0,double x1,double y0,double eps,double *dparms,int *iparms,double (*foo)(double,double*,int*),double &out);
   ###CPP### ###CUDA### ###HOST### int numerical_schemes_bisection_method(int max_iter,double x0,double x1,double y0,double eps,double *dparms,int *iparms,double (*foo)(double,double*,int*),double &out);
+
+  ###CPP### ###CUDA### ###HOST### ###DEVICE### int numerical_schemes_ode_explicit_rk4(int nstep,int ndim,double stepsize,void* param,double *y0,double *outxy,double *(*funct)(double x,double *iny,void *param,double *outy)); //y0[ndim], outy[(nstep+1)*(ndim+1)] with ndim as the lead index
 }
 #endif

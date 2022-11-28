@@ -2,7 +2,7 @@
 
 This is the C++/CUDA morphing code library developed by Jeffrey for all meteorological calculation in Hong Kong Observatory. The code was mostly closed for use in HKO before but now it is open to provide continual updates for HKO colleagues.
 
-Initially plan to provide the code for scientific branch. Current Cmake support can be use to build the basic of the library.  For HKO users, most of the time you only need turn on the build mode for "scientific" and maybe "external" (for bziped read of GRIB files).
+Initially plan to provide the code for scientific branch. Current Cmake support can be use to build the basic of the library.  For HKO users, most of the time you only need turn on the build mode for "scientific" and maybe "external" (for bziped read of GRIB files).  See "Supported build modes" below for info.
 
 ## To install,
 1. clone the repository from Git.
@@ -10,6 +10,19 @@ Initially plan to provide the code for scientific branch. Current Cmake support 
 3. Execute "mkdir cmake"
 4. Enter the directory cmake, execute "cmake ../"
 5. Execute "cmake --build ."
+
+## Supported build modes
+Build modes can be turned on/off by the argument -D{build modes}=ON/OFF.
+1. SCIENTIFIC (Dependency to be checked in cmake.  For the equations for meteorological computation and also the support for various grid types in handling NWP/satellite/RADAR/LIDAR data.)
+2. DATABASE (Not yet released)
+3. EXTERNAL
+4. MATHSTAT (For numerical routines)
+5. XGBOOST (Not yet released)
+6. GPU (automatic if nvcc >= 10.0 is detected. Can be suppressed by -DGPU=OFF)
+7. ROBOTICS (private at the moment)
+
+## Behaviour
+The current version of the library would build depends on the build mode input during the configuration stage.  If no build mode was input, the library would only be built with the modules in the 'always' catergory. If ROBOTICS built mode is ON, the SCIENTIFIC built mode would be suppressed even if it is set to ON.
 
 ## Dependency
 The library assume the user is using g++ for compiling C++ codes and nvcc for CUDA codes
@@ -28,17 +41,6 @@ The library assume the user is using g++ for compiling C++ codes and nvcc for CU
 10. libssh version 0.9.5
 ### For "ROBOTICS" build mode
 11. [serial version 1.2.1](https://github.com/wjwwood/serial)
-
-## Supported build modes
-1. SCIENTIFIC (dependency to be checked in cmake)
-2. DATABASE (Not yet released)
-3. EXTERNAL 
-4. XGBOOST (Not yet released)
-5. GPU (automatic if nvcc >= 10.0 is detected. Can be suppressed by -DGPU=OFF)
-6. ROBOTICS (private at the moment)
-
-## Behaviour
-The current version of the library would build depends on the build mode input during the configuration stage.  If no build mode was input, the library would only be built with the modules in the 'always' catergory. If ROBOTICS built mode is ON, the SCIENTIFIC built mode would be suppressed even if it is set to ON.
 
 ## Useful variables
 * CONCURRENT_BUILD_THREAD - the number of thread to be used for the make, i.e. the in X in "make -j X". Default value is 4.

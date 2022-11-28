@@ -1,3 +1,5 @@
+#include <cmath>
+
 #ifndef physics_constants
 #define physics_constants
 #define phys_k0 1.3806503e-23
