@@ -119,7 +119,7 @@ if(SCIENTIFIC)
     message(STATUS "Finding netCDF version = ${netcdf_version}")
 
     if(NOT netcdf_version VERSION_LESS 4.2)
-      execute_process(COMMAND ${NETCDF_COMMAND} --includedir OUTPUT_VARIABLE netcdf_inc)
+      execute_process(COMMAND ${NETCDF_COMMAND} --includedir OUTPUT_VARIABLE netcdf_INCLUDE_DIR)
       set(NETCDF_OK True)
     endif()
     
@@ -152,7 +152,7 @@ if(SCIENTIFIC)
     message(STATUS "Finding netCDF-C version = ${netcdfc_version}")
     
     if(NOT netcdfc_version VERSION_LESS 4.2.1.1)
-      execute_process(COMMAND ${NETCDFC_COMMAND} --includedir OUTPUT_VARIABLE netcdfc_inc)
+      execute_process(COMMAND ${NETCDFC_COMMAND} --includedir OUTPUT_VARIABLE netcdfc_INCLUDE_DIR)
       set(NETCDFC_OK True)
     endif()
 
@@ -185,7 +185,7 @@ if(SCIENTIFIC)
     message(STATUS "Finding netCDF-CXX version = ${netcdfcxx_version}")
     
     if(NOT netcdfcxx_version VERSION_LESS 4.2)
-      execute_process(COMMAND ${NETCDFCXX_COMMAND} --includedir OUTPUT_VARIABLE netcdfcxx_inc)
+      execute_process(COMMAND ${NETCDFCXX_COMMAND} --includedir OUTPUT_VARIABLE netcdfcxx_INCLUDE_DIR)
       set(NETCDFCXX_OK True)
     endif()
     
