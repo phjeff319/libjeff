@@ -3,6 +3,8 @@
 #include<iostream>
 using namespace std;
 
+#include "tools.h"
+
 int get_digit(int number){
   int digit;
 
@@ -317,6 +319,34 @@ int *string_extract_lonlat(char *buff,int *out){
 
     out[1] = atoi(ctemp);
     delete [] ctemp;
+  }
+  return out;
+}
+char *string_extract_leading_int_and_unit(char *in,int &value,char *unit){
+  char *out = NULL;
+
+  char *cur_ptr;
+  int i;
+  for(i=0;i<strlen(in);i++){
+    cur_ptr = in + i;
+    if((i>0 || *cur_ptr != '-') && !isdigit(*cur_ptr)){
+      break;
+    }
+  }
+
+  if(i>0){
+    value = atoi(in);
+    strcpy(unit,in+i);
+    out = in + i;
+
+    for(i=0;i<strlen(unit);i++){
+      cur_ptr = unit + i;
+      if(!isalpha(*cur_ptr)){
+	break;
+      }
+    }
+    unit[i] = '\0';
+    out += i;
   }
   return out;
 }

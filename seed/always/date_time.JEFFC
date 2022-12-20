@@ -396,6 +396,7 @@ int date_time::set_time(char * intimestr){
     else if(string_count_pattern(timestr,"-")==2){
       this->set_time(timestr,"day-mon-yr");
     }
+    /*
     else if(strstr(timestr,"hour")!=NULL){
       char *ctemp = new char [strlen(timestr)+10];
       strcpy(ctemp,timestr);
@@ -418,6 +419,59 @@ int date_time::set_time(char * intimestr){
       else{
 	error_pattern = 1;
       }
+      delete [] ctemp;
+    }
+    */
+    else if(strstr(timestr,"year")!=NULL || strstr(timestr,"month")!=NULL || strstr(timestr,"week")!=NULL || strstr(timestr,"day")!=NULL || strstr(timestr,"hour")!=NULL || strstr(timestr,"minute")!=NULL || strstr(timestr,"second")!=NULL){
+      char *ctemp = new char [strlen(timestr)+10];
+      char *cur_ptr = timestr;
+
+      const int num_timeunit = 6;
+      int timeval[num_timeunit];
+      int i;
+      int itemp;
+      
+      for(i=0;i<num_timeunit;i++){
+	timeval[i] = 0;
+      }
+
+      while(cur_ptr!=NULL){
+	cur_ptr = string_extract_leading_int_and_unit(cur_ptr,itemp,ctemp);
+	if(cur_ptr!=NULL){
+	  if(strcmp(ctemp,"year")==0 || strcmp(ctemp,"years")==0 || strcmp(ctemp,"yr")==0 || strcmp(ctemp,"yrs")==0){
+	    timeval[0] += itemp;
+	  }
+	  else if(strcmp(ctemp,"month")==0 || strcmp(ctemp,"months")==0){
+	    timeval[1] += itemp;
+	  }
+	  else if(strcmp(ctemp,"week")==0 || strcmp(ctemp,"weeks")==0){
+	    timeval[2] += 7*itemp;
+	  }
+	  else if(strcmp(ctemp,"day")==0 || strcmp(ctemp,"days")==0){
+	    timeval[2] += itemp;
+	  }
+	  else if(strcmp(ctemp,"hour")==0 || strcmp(ctemp,"hours")==0){
+	    timeval[3] += itemp;
+	  }
+	  else if(strcmp(ctemp,"minute")==0 || strcmp(ctemp,"minutes")==0){
+	    timeval[4] += itemp;
+	  }
+	  else if(strcmp(ctemp,"second")==0 || strcmp(ctemp,"seconds")==0){
+	    timeval[5] += itemp;
+	  }
+	  else{
+	    error_pattern = 1;
+	  }
+	}
+      }
+
+      if(!error_pattern){
+	this->set_time(timeval[0],timeval[1],timeval[2],timeval[3],timeval[4],timeval[5]);
+      }
+      else{
+	*this = NOTIME;
+      }
+
       delete [] ctemp;
     }
     else{

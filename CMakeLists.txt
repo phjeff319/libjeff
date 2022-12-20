@@ -251,3 +251,4 @@ file(MAKE_DIRECTORY src)
 file(MAKE_DIRECTORY include)
 
 print_build_mode()
+add_subdirectory(app app)

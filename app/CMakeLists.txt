@@ -1,0 +1,5 @@
+link_directories(${PROJECT_SOURCE_DIR}/src/)
+add_executable(add_time2date.x add_time2date.cpp)
+#add_library(libjeff add_time2date.x)
+target_include_directories(add_time2date.x PUBLIC "${PROJECT_SOURCE_DIR}/include/")
+target_link_libraries(add_time2date.x PUBLIC "-ljeff")

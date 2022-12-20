@@ -14,4 +14,5 @@ char *string_insert(char *insert_to,char *to_insert);
 char *string_extract_field(char* buff,char *deliminator,int field_num,char* output); //field_num = 0 for first field
 double *string_extract_lonlat(char *buff,double *out);
 int *string_extract_lonlat(char *buff,int *out);
+char *string_extract_leading_int_and_unit(char *in,int &value,char *unit);
 #endif
