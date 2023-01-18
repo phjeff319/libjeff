@@ -6,14 +6,12 @@
 #include <iostream>
 #include <iomanip>
 
-#include "flight_data.h"
-
-#include "error_code.h"
-
 #include "date_time.h"
 #include "debug_mode.h"
 #include "earth.h"
+#include "error_code.h"
 #include "file_check.h"
+#include "flight_data.h"
 #include "flight_data_analytics.h"
 #include "meteorology.h"
 #include "physics_constants.h"
@@ -21,7 +19,6 @@
 #include "statistics.h"
 #include "string_man.h"
 #include "tags.h"
-#include "timed_grid_data.h"
 #include "tools.h"
 
 #define FILENAMEBUFFSIZE 4096
@@ -121,6 +118,9 @@ namespace libjeff{
     else if(strcmp(field,"flight level")==0){
       return this->flight_level;
     }
+    else if(strcmp(field,"geometric height")==0){
+      return this->geometric_height;
+    }
     else if(strcmp(field,"delta G")==0){
       return this->delta_g;
     }
@@ -167,6 +167,9 @@ namespace libjeff{
     }
     else if(strcmp(field,"flight level")==0){
       this->set_flight_level(value);
+    }
+    else if(strcmp(field,"geometric height")==0){
+      this->set_geometric_height(value);
     }
     else if(strcmp(field,"delta G")==0){
       this->set_delta_g(value);
@@ -5384,7 +5387,12 @@ libjeff::flight_data* read_adsb_json_cat21(char *dirs_format,date_time from_time
   libjeff::flight_data *temp_out;
   for(i=0;i<num_date;i++){
     strcpy(dirname,dirs_format);
-    dirtime.replace(dirname,work_date.get_time(dir_time_format,ctemp));
+    if(dir_time_format!=NULL){
+      dirtime.replace(dirname,work_date.get_time(dir_time_format,ctemp));
+    }
+    else{
+      dirtime.replace(dirname,work_date);
+    }
 
     libjeff::file_check_list_item(dirname,filelist,num_files);
     if(num_files > 0){

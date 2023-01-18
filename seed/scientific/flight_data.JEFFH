@@ -3,7 +3,6 @@
 #include "date_time.h"
 
 #include "file_handler.h"
-#include "timed_grid_data.h"
 
 const date_time MAX_FLIGHT_TIME(0,0,1);
 
