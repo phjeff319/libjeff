@@ -13,6 +13,7 @@
 #include "file_check.h"
 #include "flight_data.h"
 #include "flight_data_analytics.h"
+#include "geo_constants.h"
 #include "meteorology.h"
 #include "physics_constants.h"
 #include "sorting.h"
@@ -28,7 +29,7 @@ const int init_allocated_size = 1000;
 
 #define DEFAULTTADDRESS "NIL"
 
-const date_time adsb_append_cutoff(0,0,0,0,30);
+const date_time adsb_append_cutoff(0,0,0,0,45);
 
 namespace libjeff{
   flight_data_pt::flight_data_pt(){
@@ -5317,7 +5318,11 @@ libjeff::flight_data* read_adsb_json_cat21(char *filename,int &num_flight_data,l
 	  temp_time.set_time((data_blocks[i].extract("createdAt",temp_block))->get_block_data());
 	  temp_flight_data[count].get_data_pt(0)->set_time(temp_time);
 	}
-	count++;
+
+	//To save memory for raspberry Pi
+	//if(libjeff::earth_latlon2dist(temp_flight_data[count].get_data_pt(0)->get_latlon(),libjeff::geo_constants::HKIA_latlon) < 100000.){
+	  count++;
+	  //}
       }
     }
 
@@ -5428,7 +5433,7 @@ libjeff::flight_data* read_adsb_json_cat21(char *dirs_format,date_time from_time
 	  strcpy(ctemp,dirname);
 	  strcat(ctemp,"/");
 	  strcat(ctemp,filelist[j]);
-	  //cout << "Reading: " << ctemp << " "<<endl;
+	  //cout << "Reading: " << ctemp << " with file time " << file_time[j] << endl;
 	  //cout.flush();
 	  read_adsb_json_cat21(ctemp,temp_num_flight_data,temp_flight_data);
 	  //cout << count << " " << allocated_space << " " << temp_num_flight_data << endl;

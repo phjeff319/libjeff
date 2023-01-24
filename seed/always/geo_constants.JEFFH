@@ -1,0 +1,8 @@
+#ifndef GEOCONSTANTS
+#define GEOCONSTANTS
+namespace libjeff{
+  namespace geo_constants{
+    double HKIA_latlon[2]={22.310169, 113.921405};
+  };
+};
+#endif

@@ -6,6 +6,7 @@ earth
 error_code.JEFFH
 file_check
 file_handler
+geo_constants.JEFFH
 global_settings
 physics_constants.JEFFH
 sorting

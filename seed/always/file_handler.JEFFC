@@ -2453,6 +2453,10 @@ json_block* file_handler_read_json(libjeff::file_handler* file,int &num_block,js
   }
   
   num_block = 0;
+  bool is_pure_array = false;
+  if(buff[0] == '[' && buff[size-1] ==']'){
+    is_pure_array = true;
+  }
   int i,j, parentheses_level = 0, norm_parentheses_level = 0;
   for(i=0;i<size;i++){
     if(buff[i]=='{'){
@@ -2461,7 +2465,7 @@ json_block* file_handler_read_json(libjeff::file_handler* file,int &num_block,js
     else if(buff[i]=='}'){
       parentheses_level--;
 
-      if(parentheses_level == 0 && norm_parentheses_level == 0){
+      if(parentheses_level == 0 && ((!is_pure_array && norm_parentheses_level == 0) || (is_pure_array && norm_parentheses_level == 1))){
 	num_block++;
       }
     }
@@ -2472,7 +2476,7 @@ json_block* file_handler_read_json(libjeff::file_handler* file,int &num_block,js
     else if(buff[i]==']'){
       norm_parentheses_level--;
 
-      if(parentheses_level == 0 && norm_parentheses_level == 0){
+      if(parentheses_level == 0 && ((!is_pure_array && norm_parentheses_level == 0) || (is_pure_array && norm_parentheses_level == 1))){
 	num_block++;
       }
     }
@@ -2488,7 +2492,7 @@ json_block* file_handler_read_json(libjeff::file_handler* file,int &num_block,js
 
   if(num_block > 0){
     out = new json_block [num_block];
-    int loc = 0;
+    int loc = (is_pure_array?1:0);
     int block_size;
     for(i=0;i<num_block;i++){
       parentheses_level = 0;
