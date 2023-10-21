@@ -61,5 +61,5 @@ NETCDF read fucntion yet to be compatible with the sftp mode
 
 For use within Hong Kong Observatory (meteorological authority of Hong Kong SAR), MIT license applies. For others, the conditions in LICENSE.md applies.
 
-## Future Plan
-This repository will go quiet for a bit of time as the initial release is considered done unless there is comments from HKO colleagues. Future release will be on the availability of the ROBOTICS build mode. Test cases will be added from time to time. The main branch of this repository will be moved back to my own storage system (which is still on transit) once I bring my system back online (expect no later than Aug 2023). 
+## Note
+This repository is no longer actively updated as the main repository has been moved back to my own storage system. If you need updated version of the library, please contact me by email. 
